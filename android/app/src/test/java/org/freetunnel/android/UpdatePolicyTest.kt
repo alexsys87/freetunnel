@@ -2,9 +2,13 @@ package org.freetunnel.android
 
 import org.junit.Assert.*
 import org.junit.Test
+import java.io.File
+import java.io.IOException
+import java.net.SocketTimeoutException
 import java.security.KeyPairGenerator
 import java.security.MessageDigest
 import java.security.Signature
+import java.util.Base64
 
 class UpdatePolicyTest {
     private fun candidate(tag: String, draft: Boolean = false, prerelease: Boolean = false): UpdatePolicy.Candidate {
@@ -62,5 +66,88 @@ class UpdatePolicyTest {
         assertThrows(IllegalArgumentException::class.java) { UpdatePolicy.verifyDigest(checksum, ByteArray(32)) }
         assertThrows(IllegalArgumentException::class.java) { verify("#version=1.2.0\n$hash  other.apk\n") }
         assertThrows(IllegalArgumentException::class.java) { verify("#version=1.2.0\n$hash  ${release.filename}\n$hash  ${release.filename}\n") }
+    }
+    @Test fun signedManifestThatIsNotUtf8FailsVerificationNotTheNetwork() {
+        val bytes = "#version=1.2.0\n$hash  ${release.filename}\n".toByteArray() + byteArrayOf(0xff.toByte(), 10)
+        val error = assertThrows(IllegalArgumentException::class.java) { UpdatePolicy.verifyManifest(release, bytes, sign(bytes), rawKey) }
+        assertEquals(UpdatePolicy.Failure.VERIFICATION, UpdatePolicy.classify(error, UpdatePolicy.Failure.VERIFICATION))
+    }
+    @Test fun offersFirstOfficialReleaseToPreview() {
+        assertEquals("1.0.0", UpdatePolicy.select(listOf(candidate("android-1.0.0")), "0.9.0")!!.version)
+    }
+    @Test fun signedByRequiresExactlyOnePinnedCertificate() {
+        val certificate = "a DER certificate".toByteArray()
+        val pin = MessageDigest.getInstance("SHA-256").digest(certificate).joinToString("") { "%02x".format(it) }
+        assertTrue(UpdatePolicy.signedBy(listOf(certificate), pin))
+        assertTrue(UpdatePolicy.signedBy(listOf(certificate.copyOf()), pin))
+        assertFalse(UpdatePolicy.signedBy(listOf("another certificate".toByteArray()), pin))
+        assertFalse(UpdatePolicy.signedBy(emptyList(), pin))
+        assertFalse(UpdatePolicy.signedBy(listOf(certificate, certificate), pin))
+        assertFalse(UpdatePolicy.signedBy(listOf("another certificate".toByteArray(), certificate), pin))
+        // The pin is compared as written: apksigner's lowercase hex, nothing else.
+        for (bad in listOf("", pin.uppercase(), pin.dropLast(1), "$pin\n", "$pin\r", pin.chunked(2).joinToString(":"))) {
+            assertFalse(bad, UpdatePolicy.signedBy(listOf(certificate), bad))
+        }
+    }
+    @Test fun pinIsWiredFromTheRepositoryFile() {
+        // Unit tests run in android/app; the pin file is android/release-certificate.sha256.
+        val pin = File("../release-certificate.sha256").readText().trimEnd('\n')
+        assertTrue(pin, Regex("[0-9a-f]{64}").matches(pin))
+        assertEquals(pin, BuildConfig.RELEASE_CERTIFICATE_SHA256)
+    }
+    // The real release key against a signature openssl made, not one this test
+    // made. The v1.2.3 desktop manifest and its .sig were signed the way the
+    // Android release job signs SHA256SUMS-android.txt (openssl pkeyutl -rawin).
+    // That manifest names no APK, so a good signature gets past the check and
+    // stops at the missing entry: that is the proof the signature verified.
+    @Test fun theReleaseKeyVerifiesASignatureOpensslMade() {
+        fun resource(name: String) =
+            UpdatePolicyTest::class.java.getResourceAsStream("/release-v1.2.3/$name")!!.use { it.readBytes() }
+        val manifest = resource("SHA256SUMS.txt")
+        val signature = resource("SHA256SUMS.txt.sig")
+        val key = UpdatePolicy.rawPublicKey(BuildConfig.RELEASE_SIGNING_KEY)
+        val desktop = UpdatePolicy.Release("1.2.3", "apk", "manifest", "signature")
+        val passed = assertThrows(IllegalArgumentException::class.java) {
+            UpdatePolicy.verifyManifest(desktop, manifest, signature, key)
+        }
+        assertEquals("Missing or ambiguous APK checksum", passed.message)
+        val changed = manifest.copyOf().also { it[it.size - 2] = (it[it.size - 2] + 1).toByte() }
+        val refused = assertThrows(IllegalArgumentException::class.java) {
+            UpdatePolicy.verifyManifest(desktop, changed, signature, key)
+        }
+        assertEquals("Invalid update signature", refused.message)
+    }
+    @Test fun rawPublicKeyIsTheKeyInsideTheReleaseKeysEncoding() {
+        assertArrayEquals(rawKey, UpdatePolicy.rawPublicKey(Base64.getEncoder().encodeToString(pair.public.encoded)))
+        assertEquals(32, UpdatePolicy.rawPublicKey(BuildConfig.RELEASE_SIGNING_KEY).size)
+        assertThrows(IllegalArgumentException::class.java) {
+            UpdatePolicy.rawPublicKey(Base64.getEncoder().encodeToString(pair.public.encoded.copyOf(43)))
+        }
+    }
+    @Test fun rateLimitDetection() {
+        assertTrue(UpdatePolicy.rateLimited(429, null, null))
+        assertTrue(UpdatePolicy.rateLimited(403, "0", null))
+        assertTrue(UpdatePolicy.rateLimited(403, "12", "60"))
+        assertFalse(UpdatePolicy.rateLimited(403, "12", null))
+        assertFalse(UpdatePolicy.rateLimited(403, null, null))
+        assertFalse(UpdatePolicy.rateLimited(200, "0", "60"))
+        assertFalse(UpdatePolicy.rateLimited(404, "0", null))
+    }
+    @Test fun failuresAreClassifiedByKindAndStep() {
+        val limited = UpdatePolicy.Refused(UpdatePolicy.Failure.RATE_LIMITED, "HTTP 403")
+        val mismatch = UpdatePolicy.Refused(UpdatePolicy.Failure.VERIFICATION, "APK checksum mismatch")
+        for (step in UpdatePolicy.Failure.values()) {
+            assertEquals(UpdatePolicy.Failure.RATE_LIMITED, UpdatePolicy.classify(limited, step))
+            assertEquals(UpdatePolicy.Failure.VERIFICATION, UpdatePolicy.classify(mismatch, step))
+        }
+        for (error in listOf(IOException("HTTP 500"), SocketTimeoutException("slow"))) {
+            assertEquals(UpdatePolicy.Failure.NETWORK, UpdatePolicy.classify(error, UpdatePolicy.Failure.NETWORK))
+            assertEquals(UpdatePolicy.Failure.NETWORK, UpdatePolicy.classify(error, UpdatePolicy.Failure.VERIFICATION))
+            assertEquals(UpdatePolicy.Failure.INSTALLER, UpdatePolicy.classify(error, UpdatePolicy.Failure.INSTALLER))
+        }
+        assertEquals(UpdatePolicy.Failure.VERIFICATION,
+            UpdatePolicy.classify(IllegalArgumentException("Invalid update signature"), UpdatePolicy.Failure.VERIFICATION))
+        assertEquals(UpdatePolicy.Failure.INSTALLER,
+            UpdatePolicy.classify(IllegalStateException("Session failed"), UpdatePolicy.Failure.INSTALLER))
     }
 }
