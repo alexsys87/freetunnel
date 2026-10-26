@@ -3,6 +3,7 @@
 
 #include "core/CredentialStore.h"
 
+#include <QDeadlineTimer>
 #include <QDir>
 #include <QFile>
 #include <QLocalServer>
@@ -721,30 +722,60 @@ std::optional<ForwardResult> connectToInstance(QLocalSocket &probe, const QStrin
     return std::nullopt;
 }
 
-ForwardResult sendToInstance(QLocalSocket &probe, const QString &token, const QString &controlArg)
+HandOver sendToInstance(QLocalSocket &probe, const QString &token, const QString &controlArg)
 {
 #if defined(Q_OS_WIN)
     letPipeServerTakeForeground(reinterpret_cast<HANDLE>(probe.socketDescriptor()));
 #endif
     const QString payload = controlArg.isEmpty() ? QStringLiteral("focus") : controlArg;
-    const QByteArray msg = formatInstanceMessage(token, payload);
-    if (probe.write(msg) != msg.size())
-        return ForwardResult::Unreachable;
-    probe.flush();
-    probe.waitForBytesWritten(300);
-    probe.disconnectFromServer();
-    // Wait for the close to finish. On Windows the named-pipe write is completed
-    // asynchronously, so waitForBytesWritten() above can return with the payload
-    // still queued; disconnectFromServer() then only *starts* the close, and this
-    // process exits immediately afterwards (runGuiApplication returns 0), taking
-    // the unsent bytes with it. Short commands got through and a tt:// deep link —
-    // the longest thing this channel carries, and the one where losing it means a
-    // link the user clicked does nothing at all — did not.
-    probe.waitForDisconnected(3000);
-    return ForwardResult::Forwarded;
+    return handOverInstanceMessage(probe, formatInstanceMessage(token, payload));
 }
 
 } // namespace
+
+// On Windows a QLocalServer's pipe has no buffer: Qt creates it with none, so
+// that a writer closing early cannot lose what it wrote. A write therefore
+// completes only once the running instance has read it. The instance reads from
+// its event loop, which is not always free: it may still be starting up, or busy
+// with something else. Until then the bytes wait here, in this process, and a
+// launch that exits first takes them with it.
+//
+// This waited 300 ms for the write and three seconds for the close, then
+// reported the command as handed over either way, and the launch exited. An
+// instance that took longer never got it, and a link the user clicked did
+// nothing. So the wait now lasts until the bytes are actually taken, within a
+// budget, and the answer says whether they were.
+//
+// On Unix the kernel buffers the write, so a message that fits the socket
+// buffer is taken at once. A longer one waits for the instance to read the rest.
+HandOver handOverInstanceMessage(QLocalSocket &socket, const QByteArray &message, int budgetMs)
+{
+    if (socket.write(message) != message.size()) {
+        socket.abort();
+        return HandOver::Refused;
+    }
+    socket.flush();
+    const QDeadlineTimer budget(budgetMs);
+    while (socket.state() == QLocalSocket::ConnectedState && socket.bytesToWrite() > 0
+           && !budget.hasExpired()) {
+        // In slices, so the budget is the whole wait, however the waits end.
+        socket.waitForBytesWritten(int(qBound(qint64(1), budget.remainingTime(), qint64(250))));
+    }
+    // Taken only while still connected. A write the instance refused closes the
+    // socket, and that leaves nothing to send as well: Qt drops the bytes with
+    // the writer.
+    if (socket.state() != QLocalSocket::ConnectedState) {
+        socket.abort();
+        return HandOver::Refused;
+    }
+    if (socket.bytesToWrite() > 0) {
+        socket.abort();
+        return HandOver::NotTaken;
+    }
+    // Nothing is left to send, so this closes at once.
+    socket.disconnectFromServer();
+    return HandOver::Taken;
+}
 
 // "Could not hand it over" and "there is nothing to hand it to" used to be one
 // answer, false, and the caller started a full instance on either. With an
@@ -772,7 +803,25 @@ ForwardResult forwardToRunningInstance(const QStringList &socketNames, const QSt
         // that is still no reason to start a second copy beside it.
         if (!haveToken)
             return ForwardResult::Unreachable;
-        return sendToInstance(probe, token, controlArg);
+        HandOver sent = sendToInstance(probe, token, controlArg);
+        if (sent == HandOver::Refused) {
+            // Closed without being read, most likely by an instance that is
+            // quitting: FreeTunnel closes its listener as it quits, the
+            // connections it has not accepted yet with it. So ask again, once.
+            // A name that is gone now means no instance, and this launch is to
+            // be it. One still there is told again.
+            QLocalSocket again;
+            if (const std::optional<ForwardResult> failed =
+                        connectToInstance(again, socketNames.at(i), ownName)) {
+                if (*failed == ForwardResult::NoInstance)
+                    continue;
+                return *failed;
+            }
+            sent = sendToInstance(again, token, controlArg);
+        }
+        // Not taken means the command is lost, and this launch is not the
+        // instance either: one of ours is running. It must not start beside it.
+        return sent == HandOver::Taken ? ForwardResult::Forwarded : ForwardResult::Unreachable;
     }
     return ForwardResult::NoInstance;
 }
