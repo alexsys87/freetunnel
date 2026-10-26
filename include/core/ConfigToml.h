@@ -5,6 +5,7 @@
 // create/edit round-trip can be unit-tested without the VPN core. addresses and
 // dns are comma-separated strings (as entered in the form).
 
+#include <QByteArray>
 #include <QString>
 #include <QStringList>
 
@@ -84,5 +85,40 @@ bool isValidClientRandom(const QString &value);
 // check and went to the core as one server, which core 1.1.5 refused to connect
 // with and 1.1.7 takes, leaving the tunnel up with no DNS.
 QStringList splitDnsList(const QString &dns);
+
+// Where the DER element starting at `pos` ends, or -1 when the bytes there are
+// not one with that tag: a single tag byte, then a length that is either one
+// short byte or a count byte followed by that many big-endian length bytes, at
+// most four. *contentStart, when given, is where its content begins. A link's
+// certificates (tag 0x08) are SEQUENCEs, 0x30, one after another.
+int derElementEnd(const QByteArray &der, int pos, unsigned char tag = 0x30, int *contentStart = nullptr);
+
+// Whether the bytes are one DER element with the outer shape of an X.509
+// certificate, filling them exactly: SEQUENCE { SEQUENCE, SEQUENCE, BIT STRING },
+// in that order and nothing after. A private key is a SEQUENCE as well, so a
+// whole SEQUENCE is not enough to tell one from a certificate; this shape is.
+bool isCertificateDer(const QByteArray &der);
+
+// The certificates of a PEM text, and nothing else. A block is kept, exactly as
+// written, when its label is CERTIFICATE (or X509 CERTIFICATE, which OpenSSL
+// reads as well), its body is base64 and it decodes to one or more certificates,
+// one after another (isCertificateDer), as FreeTunnel 1.1.9 and earlier wrote a
+// link's chain. Anything else is left out: a private key above all, which
+// a file that combines the certificate with its key carries beside it, but also
+// another label, a damaged block and any text outside the blocks. *dropped says
+// whether there was any. The text comes back as it was when there was not;
+// otherwise it is the kept blocks, one after another, or empty when none is left.
+QString certificatesOnly(const QString &pem, bool *dropped = nullptr);
+
+// The DER of the blocks certificatesOnly() keeps, one after another, as a link's
+// tag 0x08 carries them.
+QByteArray certificatesDer(const QString &pem, bool *dropped = nullptr);
+
+// The text with only the certificates left in its [endpoint] certificate (see
+// certificatesOnly), each one should the file set it twice, and nothing else
+// changed: the key's lines are replaced, and every other line stays as the file
+// had it, comments included. *trimmed says whether anything was left out; the
+// text comes back as it was when nothing was.
+QString withCertificatesOnly(const QString &toml, bool *trimmed = nullptr);
 
 } // namespace freetunnel

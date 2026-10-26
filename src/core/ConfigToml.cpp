@@ -787,4 +787,91 @@ QString endpointClientRandomAuthKey(const QString &toml)
     const QList<QPair<QString, QString>> tables = splitTomlTables(toml);
     return readString(tableBody(tables, QStringLiteral("endpoint")), "client_random_auth_key").trimmed();
 }
+
+namespace {
+
+// What withCertificatesOnly() writes for each line, as withoutSubscription()
+// reads them. Every [endpoint] certificate is read whole, however many lines its
+// value runs to, and written back with only its certificates, or as it was when
+// it held nothing else; every other line stays. Every one, not only the one
+// parseConfigToml() reads: a file that sets the key twice, or has two [endpoint]
+// tables, is one the core refuses, but the copy stored here would still have
+// kept a private key that the second one held.
+class CertificateLineRewriter {
+public:
+    void add(const QString &line, QStringList *out)
+    {
+        QString name;
+        if (!m_open.open()) {
+            if (isTableHeader(line, &name)) {
+                m_table = name;
+                *out << line;
+                return;
+            }
+            m_inCertificate = m_table == QLatin1String("endpoint") && keyOf(line) == QLatin1String("certificate");
+        }
+        if (m_inCertificate)
+            m_value << line;
+        else
+            *out << line;
+        advanceOpenValue(m_open, line);
+        if (m_inCertificate && !m_open.open())
+            flush(out);
+    }
+    // A certificate whose value is still open where the text ends.
+    void finish(QStringList *out)
+    {
+        if (m_inCertificate)
+            flush(out);
+    }
+    bool trimmedAny() const { return m_trimmedAny; }
+
+private:
+    // The kept certificates are written as buildConfigToml() writes one.
+    void flush(QStringList *out)
+    {
+        bool dropped = false;
+        const QString kept =
+                certificatesOnly(readString(m_value.join(QLatin1Char('\n')), "certificate"), &dropped).trimmed();
+        if (!dropped)
+            *out << m_value;
+        else if (kept.isEmpty())
+            *out << QStringLiteral("certificate = \"\"");
+        else
+            *out << QStringLiteral("certificate = \"\"\"\n%1\n\"\"\"").arg(tomlEscMultiline(kept));
+        m_trimmedAny = m_trimmedAny || dropped;
+        m_value.clear();
+        m_inCertificate = false;
+    }
+
+    QString m_table;
+    bool m_inCertificate = false;
+    bool m_trimmedAny = false;
+    QStringList m_value;
+    OpenValue m_open;
+};
+
+} // namespace
+
+// Line by line, so a file the user wrote keeps its comments and layout.
+QString withCertificatesOnly(const QString &toml, bool *trimmed)
+{
+    const bool finalNewline = toml.endsWith(QLatin1Char('\n'));
+    QStringList lines = toml.split(QLatin1Char('\n'));
+    if (finalNewline)
+        lines.removeLast();
+    QStringList out;
+    CertificateLineRewriter rewriter;
+    for (const QString &line : lines)
+        rewriter.add(line, &out);
+    rewriter.finish(&out);
+    if (trimmed)
+        *trimmed = rewriter.trimmedAny();
+    if (!rewriter.trimmedAny())
+        return toml;
+    QString result = out.join(QLatin1Char('\n'));
+    if (finalNewline)
+        result += QLatin1Char('\n');
+    return result;
+}
 } // namespace freetunnel
