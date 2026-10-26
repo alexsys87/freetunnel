@@ -1,5 +1,14 @@
 package org.freetunnel.android;
 
+import static org.freetunnel.android.CertificateVectors.CHAIN_DER;
+import static org.freetunnel.android.CertificateVectors.CHAIN_PEM;
+import static org.freetunnel.android.CertificateVectors.LEAF_DER;
+import static org.freetunnel.android.CertificateVectors.LEAF_PEM;
+import static org.freetunnel.android.CertificateVectors.PKCS1_DER;
+import static org.freetunnel.android.CertificateVectors.PKCS8_DER;
+import static org.freetunnel.android.CertificateVectors.SEC1_DER;
+import static org.freetunnel.android.CertificateVectors.concat;
+import static org.freetunnel.android.CertificateVectors.hex;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
@@ -9,6 +18,7 @@ import org.junit.Test;
 
 import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 import java.util.Base64;
 
 public final class DeepLinkImportTest {
@@ -113,6 +123,15 @@ public final class DeepLinkImportTest {
             "tt://?AAECAQ92cG4uZXhhbXBsZS5jb20FBWFsaWNlBgZzM2NyZXQCCzEuMi4zLjQ6NDQzAhFbMjAwMTpkYjg6OjFdOjQ0Mw"
             + "sNYWFiYmNjL2ZmMDBmZgMLZXhhbXBsZS5vcmcEAQAKAQEJAQIMB0V4YW1wbGUNHgcxLjEuMS4xFXRsczovL2Rucy5leGFtcG"
             + "xlLmNvbQ4xaHR0cHM6Ly9hbGljZTpzM2NyZXRAdnBuLmV4YW1wbGUuY29tL3N1YnNjcmlwdGlvbg";
+    // What the endpoint exports for a self-signed server with subscriptions on: the
+    // certificate (0x08, as DER) just before the address. The smallest DER with a
+    // certificate's outer shape stands in for one: SEQUENCE { SEQUENCE { NULL },
+    // SEQUENCE { NULL }, BIT STRING 00 }. It used to be a SEQUENCE holding an
+    // INTEGER, which is how a key starts, and only certificates are kept now.
+    private static final byte[] V2_SELF_SIGNED_CERTIFICATE = hex("300b3002050030020500030100");
+    private static final String V2_SELF_SIGNED =
+            "tt://?AAECAQ92cG4uZXhhbXBsZS5jb20FBWFsaWNlBgZzM2NyZXQCCzEuMi4zLjQ6NDQzCA0wCzACBQAwAgUAAwEADjFodHRwczov"
+            + "L2FsaWNlOnMzY3JldEB2cG4uZXhhbXBsZS5jb20vc3Vic2NyaXB0aW9u";
     private static final String V2_SUBSCRIPTION_ONLY =
             "tt://?AAECDjFodHRwczovL2FsaWNlOnMzY3JldEB2cG4uZXhhbXBsZS5jb20vc3Vic2NyaXB0aW9u";
     private static final String V3 = "tt://?AAEDDiRodHRwczovL3Zwbi5leGFtcGxlLmNvbS9zdWJzY3JpcHRpb24";
@@ -180,6 +199,15 @@ public final class DeepLinkImportTest {
         field(full, 13, dns.toByteArray());
         text(full, 14, SUBSCRIPTION);
         assertEquals(V2_FULL, link(full.toByteArray()));
+        ByteArrayOutputStream selfSigned = new ByteArrayOutputStream();
+        field(selfSigned, 0, new byte[]{2});
+        text(selfSigned, 1, "vpn.example.com");
+        text(selfSigned, 5, "alice");
+        text(selfSigned, 6, "s3cret");
+        text(selfSigned, 2, "1.2.3.4:443");
+        field(selfSigned, 8, V2_SELF_SIGNED_CERTIFICATE);
+        text(selfSigned, 14, SUBSCRIPTION);
+        assertEquals(V2_SELF_SIGNED, link(selfSigned.toByteArray()));
         ByteArrayOutputStream only = new ByteArrayOutputStream();
         field(only, 0, new byte[]{2});
         text(only, 14, SUBSCRIPTION);
@@ -404,11 +432,124 @@ public final class DeepLinkImportTest {
         assertFalse(imported.subscriptionNotKept);
     }
 
+    // V2_PLAIN with the given bytes in tag 0x08.
+    private static String withCertificate(byte[] der) {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        byte[] plain = withStatic(2, 0, null);
+        out.write(plain, 0, plain.length);
+        field(out, 8, der);
+        return link(out.toByteArray());
+    }
+
+    private static int blocks(String toml) { return toml.split("-----BEGIN ", -1).length - 1; }
+
+    @Test public void readsASelfSignedVersion2Link() throws Exception {
+        DeepLinkImport.Imported imported = DeepLinkImport.parse(V2_SELF_SIGNED);
+        assertTrue(imported.subscriptionNotKept);
+        assertFalse(imported.certificateIgnored);
+        assertTrue(imported.toml, imported.toml.contains("certificate = \"\"\"\n-----BEGIN CERTIFICATE-----\n"
+                + "MAswAgUAMAIFAAMBAA==\n-----END CERTIFICATE-----\n\"\"\"\n"));
+        assertNothingKept(imported);
+    }
+
+    @Test public void onlyTheCertificatesInALinkAreKept() throws Exception {
+        // A chain comes back one block each, with nothing left out.
+        DeepLinkImport.Imported chain = DeepLinkImport.parse(withCertificate(CHAIN_DER));
+        assertFalse(chain.certificateIgnored);
+        assertTrue(chain.toml, chain.toml.contains("certificate = \"\"\"\n" + CHAIN_PEM + "\"\"\"\n"));
+        // A key beside the certificate, wherever it is, is left out, and the import says so.
+        String pkcs8 = Base64.getEncoder().encodeToString(PKCS8_DER);
+        for (byte[] der : new byte[][]{concat(LEAF_DER, PKCS8_DER), concat(PKCS8_DER, LEAF_DER),
+                concat(SEC1_DER, LEAF_DER, hex("3003020101"))}) {
+            DeepLinkImport.Imported imported = DeepLinkImport.parse(withCertificate(der));
+            assertTrue(imported.certificateIgnored);
+            assertFalse(imported.subscriptionNotKept);
+            assertTrue(imported.toml, imported.toml.contains("certificate = \"\"\"\n" + LEAF_PEM + "\"\"\"\n"));
+            assertEquals(1, blocks(imported.toml));
+            assertFalse(imported.toml.contains(pkcs8));
+        }
+        // Next to a subscription, both are said.
+        ByteArrayOutputStream both = new ByteArrayOutputStream();
+        byte[] keyed = Base64.getUrlDecoder().decode(withCertificate(concat(LEAF_DER, PKCS8_DER)).substring(6));
+        both.write(keyed, 0, keyed.length);
+        text(both, 14, SUBSCRIPTION);
+        DeepLinkImport.Imported imported = DeepLinkImport.parse(link(both.toByteArray()));
+        assertTrue(imported.certificateIgnored);
+        assertTrue(imported.subscriptionNotKept);
+        // A link without a certificate has nothing to leave out.
+        assertFalse(DeepLinkImport.parse(V2_PLAIN).certificateIgnored);
+        assertTrue(DeepLinkImport.parse(V2_PLAIN).toml.contains("certificate = \"\"\n"));
+        assertFalse(DeepLinkImport.parse(link(example())).certificateIgnored);
+    }
+
+    @Test public void aCertificateWithNoCertificateIsRefused() {
+        // Whole DER elements, none of them a certificate: the link meant to pin one.
+        // The one-INTEGER SEQUENCE is what the link vectors stood in with before.
+        for (byte[] der : new byte[][]{PKCS8_DER, hex("3003020101"), concat(PKCS1_DER, SEC1_DER)})
+            refused(withCertificate(der), R.string.text_the_link_contains_an_invalid_certificate);
+        // Bytes that are not whole elements, refused as before.
+        for (byte[] der : new byte[][]{hex("030100"), concat(V2_SELF_SIGNED_CERTIFICATE, hex("00")),
+                Arrays.copyOf(LEAF_DER, LEAF_DER.length - 1), hex("30800000")})
+            refused(withCertificate(der), R.string.text_the_link_contains_an_invalid_certificate);
+        // Those are damage to the link itself, so every copy is checked, as on the
+        // desktop: a good last one does not excuse a bad first one.
+        for (boolean brokenFirst : new boolean[]{true, false}) {
+            ByteArrayOutputStream twice = new ByteArrayOutputStream();
+            byte[] plain = withStatic(2, 0, null);
+            twice.write(plain, 0, plain.length);
+            field(twice, 8, brokenFirst ? hex("030100") : LEAF_DER);
+            field(twice, 8, brokenFirst ? LEAF_DER : hex("030100"));
+            refused(link(twice.toByteArray()), R.string.text_the_link_contains_an_invalid_certificate);
+        }
+        // Whole elements with no certificate among them come after the other checks,
+        // in the desktop's order: the auth key, then the server's own settings. Bytes
+        // that are not whole elements are refused before any of those, as the
+        // desktop refuses them while it reads the link.
+        ByteArrayOutputStream noUsername = new ByteArrayOutputStream();
+        field(noUsername, 0, new byte[]{2});
+        text(noUsername, 1, "vpn.example.com");
+        text(noUsername, 6, "secret");
+        text(noUsername, 2, "1.2.3.4:443");
+        ByteArrayOutputStream onlySubscription = new ByteArrayOutputStream();
+        field(onlySubscription, 0, new byte[]{2});
+        text(onlySubscription, 14, SUBSCRIPTION);
+        Object[][] rows = {
+            {withStatic(2, 15, "aabbccdd"), R.string.text_this_server_needs_a_newer_trusttunnel_core},
+            {noUsername.toByteArray(), R.string.text_the_link_is_missing_required_server_settings},
+            {onlySubscription.toByteArray(), R.string.text_subscription_links_are_not_supported_yet},
+        };
+        for (Object[] row : rows) {
+            for (boolean whole : new boolean[]{true, false}) {
+                ByteArrayOutputStream out = new ByteArrayOutputStream();
+                byte[] head = (byte[]) row[0];
+                out.write(head, 0, head.length);
+                field(out, 8, whole ? PKCS8_DER : hex("030100"));
+                refused(link(out.toByteArray()),
+                        whole ? (Integer) row[1] : R.string.text_the_link_contains_an_invalid_certificate);
+            }
+        }
+    }
+
+    // The certificate's value as toToml() writes it: a multi-line string, or "" for none.
+    private static String certificateIn(String toml) {
+        String open = "certificate = \"\"\"\n";
+        int start = toml.indexOf(open);
+        if (start < 0) {
+            assertTrue(toml, toml.contains("certificate = \"\"\n"));
+            return "";
+        }
+        start += open.length();
+        return toml.substring(start, toml.indexOf("\"\"\"", start));
+    }
+
     // Like the desktop's seeded mutation loop: damaged links, version 1 and 2 alike,
     // must fail with a message and never crash. A fixed seed repeats the inputs.
     @Test public void damagedLinksFailWithAMessage() {
+        String pkcs8 = Base64.getEncoder().encodeToString(PKCS8_DER);
         byte[][] seeds = {example(), Base64.getUrlDecoder().decode(V2_PLAIN.substring(6)),
                 Base64.getUrlDecoder().decode(V2_FULL.substring(6)),
+                Base64.getUrlDecoder().decode(V2_SELF_SIGNED.substring(6)),
+                Base64.getUrlDecoder().decode(withCertificate(concat(LEAF_DER, PKCS8_DER)).substring(6)),
                 Base64.getUrlDecoder().decode(V2_SUBSCRIPTION_ONLY.substring(6)),
                 Base64.getUrlDecoder().decode(V2_AUTH_KEY.substring(6)),
                 Base64.getUrlDecoder().decode(V2_EMPTY_AUTH_KEY.substring(6))};
@@ -426,7 +567,14 @@ public final class DeepLinkImportTest {
                     }
                 }
                 if (bytes.length == 0) continue;
-                try { DeepLinkImport.parse(link(bytes)); }
+                // What is kept reads back as certificates alone, and never as the key
+                // one seed has beside its certificate. The label shows nothing here:
+                // every block is written as a CERTIFICATE, whatever it holds.
+                try {
+                    String pem = certificateIn(DeepLinkImport.parse(link(bytes)).toml);
+                    assertFalse(pem, Certificates.fromPem(pem).dropped);
+                    assertFalse(pem, pem.contains(pkcs8));
+                }
                 catch (DeepLinkImport.ParseException expected) { assertTrue(expected.messageResource != 0); }
             }
         }

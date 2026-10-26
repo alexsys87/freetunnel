@@ -18,7 +18,11 @@ compatibility contract.
   kept as written. Servers that need an auth key are refused until the app
   moves to TrustTunnel core 1.3. The rules for each version 2 field are the
   desktop's, in [DEEP_LINK.md](../DEEP_LINK.md); for TOML, only an empty
-  `client_random_auth_key` counts as no key.
+  `client_random_auth_key` counts as no key. Of a server's certificate, only
+  the certificates are kept: other PEM data, such as a private key, is left
+  out and the import says so. A whole chain in one block, as the desktop's
+  FreeTunnel 1.1.9 and earlier wrote one, is kept as it is. A certificate
+  with no certificate in it is refused.
 - TOML, Android adapter and native configuration checks before saving.
   The editor hides credentials by default and prevents screen capture.
 - AES-GCM encrypted profiles with Android Keystore. Read failures preserve
