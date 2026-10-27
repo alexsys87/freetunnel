@@ -18,6 +18,8 @@ import android.provider.OpenableColumns;
 import android.provider.Settings;
 import android.graphics.Bitmap;
 import android.graphics.Color;
+import android.graphics.Paint;
+import android.graphics.Rect;
 import android.graphics.Typeface;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.GradientDrawable;
@@ -31,13 +33,21 @@ import android.net.Uri;
 import android.net.VpnService;
 import android.os.Bundle;
 import android.os.Build;
+import android.os.Handler;
+import android.os.Looper;
 import android.os.SystemClock;
 import android.text.InputType;
+import android.text.Layout;
+import android.text.TextUtils;
+import android.util.TypedValue;
 import android.view.Gravity;
+import android.view.KeyEvent;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.ViewTreeObserver;
 import android.view.WindowInsets;
+import android.view.animation.DecelerateInterpolator;
 import android.view.inputmethod.EditorInfo;
 import android.widget.Button;
 import android.widget.CheckBox;
@@ -46,7 +56,6 @@ import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
-import android.widget.Switch;
 import android.widget.TextView;
 import android.widget.Toast;
 import androidx.core.content.ContextCompat;
@@ -64,6 +73,7 @@ import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
@@ -80,7 +90,8 @@ public final class MainActivity extends Activity {
     private static final int PREPARE_VPN = 22;
     private static final String PREFS = "freetunnel";
     private String[] tabNames;
-    private final int[] tabIcons = {R.drawable.logo, R.drawable.ic_connection, R.drawable.ic_network,
+    // The Home tab is the logo, in its own greys: the app never tints it.
+    private final int[] tabIcons = {R.drawable.ic_logo, R.drawable.ic_connection, R.drawable.ic_network,
             R.drawable.ic_settings, R.drawable.ic_log};
     private SharedPreferences prefs;
     private final List<Config> configs = new ArrayList<>();
@@ -88,11 +99,26 @@ public final class MainActivity extends Activity {
     private boolean pingRunning;
     private int activeIndex;
     private int page;
+    // The theme setting, "system" (the default), "light" or "dark", and the theme in
+    // use: for "system" it follows the device's night mode (see Theme.isDark).
+    private String themeMode = Theme.SYSTEM;
     private boolean dark = true;
-    private LinearLayout root;
+    // A remote or a keyboard drives the screen: a TV, or a window that is out of touch
+    // mode. Then the controls that rest in a strong fill rest in a neutral one, so that
+    // the focus is the one strong fill on the screen (Ui.update).
+    private boolean remote;
+    private Ui ui;
+    // The window's one view, set once. render() rebuilds pageRoot, the nav and the page,
+    // and nothing else: the overlays and the toast stay where they are.
+    private FrameLayout host;
+    private LinearLayout pageRoot;
+    private FrameLayout overlayLayer;
+    private FrameLayout toastLayer;
     // render() rebuilds every view. On a remote, the focused control's key and the
     // page's scroll position are carried over the rebuild (see restoreFocus).
     private ScrollView pageScroll;
+    // The dot on the Settings tab while an update is waiting.
+    private View settingsDot;
     private int renderedPage = -1;
     private int renderGeneration;
     private boolean restorePending;
@@ -129,16 +155,25 @@ public final class MainActivity extends Activity {
         super.onCreate(state);
         tabNames = new String[] {getString(R.string.text_home), getString(R.string.text_configurations), getString(R.string.text_routing), getString(R.string.text_settings), getString(R.string.text_log)};
         prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
-        dark = prefs.getBoolean("dark", true);
+        // The old "dark" boolean was written only when the user picked Light or Dark.
+        themeMode = Theme.mode(prefs.getString("theme_mode", null), prefs.contains("dark") ? Boolean.valueOf(prefs.getBoolean("dark", true)) : null);
+        if (!prefs.contains("theme_mode")) prefs.edit().putString("theme_mode", themeMode).remove("dark").apply();
+        dark = Theme.isDark(themeMode, nightMode());
+        ui = new Ui(this);
+        buildHost();
         activeIndex = prefs.getInt("active", 0);
         vpnState = FreeTunnelVpnService.state(this);
         loadConfigs();
         render();
+        // A phone that starts taking keys, or a keyboard put away, changes what rests in a
+        // strong fill (see remote). Not rebuilt in the middle of the touch that caused it.
+        getWindow().getDecorView().getViewTreeObserver().addOnTouchModeChangeListener(inTouchMode ->
+            host.post(() -> { if (remote != isRemote()) render(); }));
         if (state == null && prefs.getBoolean("check_updates_on_launch", false)) AndroidUpdater.INSTANCE.check(this);
         if (state == null) handleIncomingIntent(getIntent());
         if (state == null && prefs.getBoolean("auto_connect", false) && vpnState == 0
                 && !configs.isEmpty() && !Intent.ACTION_VIEW.equals(getIntent().getAction())) {
-            root.post(() -> { if (FreeTunnelVpnService.state(this) == 0) connect(); });
+            host.post(() -> { if (FreeTunnelVpnService.state(this) == 0) connect(); });
         }
         if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)
                 != PackageManager.PERMISSION_GRANTED) requestPermissions(new String[]{android.Manifest.permission.POST_NOTIFICATIONS}, 23);
@@ -153,7 +188,7 @@ public final class MainActivity extends Activity {
             ContextCompat.registerReceiver(this, vpnReceiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED);
             receiverRegistered = true;
         }
-        AndroidUpdater.INSTANCE.observe(() -> { if (page == 3) refreshUpdateControls(); });
+        AndroidUpdater.INSTANCE.observe(() -> { refreshUpdateDot(); if (page == 3) refreshUpdateControls(); });
         AndroidUpdater.INSTANCE.recoverInstall(this);
         vpnState = FreeTunnelVpnService.state(this);
         // Settings is only refreshed, not rebuilt, so it keeps its scroll position.
@@ -190,86 +225,54 @@ public final class MainActivity extends Activity {
         if (uri != null) importDeepLink(uri.toString(), null);
     }
 
-    private int dp(float n) { return Math.round(n * getResources().getDisplayMetrics().density); }
-    private int bg() { return Color.parseColor(dark ? "#181818" : "#ececec"); }
-    private int surface() { return Color.parseColor(dark ? "#262626" : "#e2e2e2"); }
-    private int tile() { return Color.parseColor(dark ? "#202020" : "#d8d8d8"); }
-    private int textColor() { return Color.parseColor(dark ? "#eaeaea" : "#1b1b1b"); }
-    // Colours put inside a dialog. AlertDialog.Builder(this) uses Theme.Material's dialog,
-    // which stays dark in the app's light theme, so these are the dark theme's text, dim
-    // and success colours.
-    private int dialogTextColor() { return Color.parseColor("#eaeaea"); }
-    private int dialogHintColor() { return Color.parseColor("#9a9a9a"); }
-    private int dialogSuccess() { return Color.parseColor("#3fbf93"); }
-    private int dim() { return Color.parseColor(dark ? "#9a9a9a" : "#6b6b6b"); }
-    private int faint() { return Color.parseColor(dark ? "#6a6a6a" : "#9a9a9a"); }
-    private int success() { return Color.parseColor(dark ? "#3fbf93" : "#1d9e75"); }
-    private int input() { return Color.parseColor(dark ? "#101010" : "#d6d6d6"); }
-    private int accent() { return Color.parseColor(dark ? "#b0b0b0" : "#4f4f4f"); }
-    private GradientDrawable shape(int color, int radius) {
-        GradientDrawable d = new GradientDrawable();
-        d.setColor(color);
-        d.setCornerRadius(dp(radius));
-        return d;
-    }
-    private LinearLayout column() { LinearLayout l = new LinearLayout(this); l.setOrientation(LinearLayout.VERTICAL); return l; }
-    private LinearLayout row() { LinearLayout l = new LinearLayout(this); l.setOrientation(LinearLayout.HORIZONTAL); l.setGravity(Gravity.CENTER_VERTICAL); return l; }
-    private LinearLayout.LayoutParams lp(int w, int h) { return new LinearLayout.LayoutParams(w < 0 ? w : dp(w), h < 0 ? h : dp(h)); }
-    private TextView label(String value, int size, int color, boolean bold) {
-        TextView t = new TextView(this);
-        t.setText(value);
-        t.setTextSize(size);
-        t.setTextColor(color);
-        t.setGravity(Gravity.CENTER_VERTICAL);
-        if (bold) t.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        return t;
-    }
-    private void gap(LinearLayout p, int size) { p.addView(new View(this), lp(1, size)); }
+    private int dp(float n) { return ui.dp(n); }
+    // The theme in use: the desktop's colours, in the dark or the light theme.
+    private Theme t() { return Theme.of(dark); }
+    private int nightMode() { return getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK; }
+    private LinearLayout column() { return ui.column(); }
+    private LinearLayout row() { return ui.row(); }
+    private LinearLayout.LayoutParams lp(int w, int h) { return ui.lp(w, h); }
+    private LinearLayout.LayoutParams weighted() { return new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1); }
+    private TextView label(String value, float size, int color) { return ui.label(value, size, color); }
+    private void gap(LinearLayout p, int size) { ui.gap(p, size); }
     private LinearLayout card() {
         LinearLayout c = column(); c.setPadding(dp(16), dp(14), dp(16), dp(14));
-        c.setBackground(shape(surface(), 14)); return c;
+        c.setBackground(ui.shape(t().surface, 14)); return c;
     }
+    // SectionLabel: 12 in textFaint as it is typed, 16 below the section before it.
     private void section(LinearLayout p, String title) {
-        gap(p, 18); TextView t = label(title.toUpperCase(java.util.Locale.getDefault()), 11, faint(), true);
-        p.addView(t, lp(-1, 28));
+        if (p.getChildCount() > 0) ui.section(p, title);
+        else p.addView(ui.sectionLabel(title), lp(-1, -2));
     }
     private void toast(String text) { Toast.makeText(this, text, Toast.LENGTH_LONG).show(); }
-    private Button button(String caption, boolean filled) {
-        Button b = new Button(this);
-        b.setAllCaps(false); b.setText(caption); b.setTextSize(14);
-        b.setTextColor(filled ? (dark ? bg() : Color.WHITE) : textColor());
-        b.setBackground(shape(filled ? accent() : tile(), 10));
-        b.setPadding(dp(12), 0, dp(12), 0);
-        return b;
-    }
     // Android TV, Google TV and Fire TV: driven by a remote, seen from across the room.
     private boolean isTv() {
         return (getResources().getConfiguration().uiMode & Configuration.UI_MODE_TYPE_MASK) == Configuration.UI_MODE_TYPE_TELEVISION;
     }
-    // A remote moves a focus that touch never shows. This makes the view a stop for it,
-    // with a ring that shows where it is, and a key that names it across render(),
-    // which rebuilds every view. The ring is a foreground, so backgrounds stay as they
-    // are. A phone shows it only without touch, such as with a keyboard. Text fields
-    // get none there: a tap focuses them, so it would show on every tap, and their
-    // cursor already shows where the focus is.
-    private <T extends View> T focus(T view, String key) {
-        view.setFocusable(true);
-        view.setTag(key);
-        if (isTv() || !view.isFocusableInTouchMode())
-            view.setForeground(focusRing(dark ? Color.WHITE : Color.parseColor("#1b1b1b"), dark ? 0x1AFFFFFF : 0x14000000));
-        return view;
+    // A remote, or a keyboard on a phone: the window is out of touch mode. See remote.
+    // Before the window is attached it has no touch mode to ask, and answers as if it were
+    // out of it: a phone is taken to be touched until the window says it is not.
+    private boolean isRemote() {
+        View decor = getWindow().getDecorView();
+        return isTv() || decor.isAttachedToWindow() && !decor.isInTouchMode();
     }
-    private StateListDrawable focusRing(int stroke, int fill) {
-        GradientDrawable ring = shape(fill, 10);
-        ring.setStroke(dp(2), stroke);
+    // The system dialogs that remain until the in-app overlays replace them take the app's
+    // theme, light or dark, so that what is put in them reads in either. Their buttons and
+    // check boxes show the focus with dialogFocus.
+    private AlertDialog.Builder builder() {
+        return new AlertDialog.Builder(this, dark ? android.R.style.Theme_Material_Dialog_Alert : android.R.style.Theme_Material_Light_Dialog_Alert);
+    }
+    // The focus of a control in a system dialog: a ring over it, in the text's colour. The
+    // only ring left: everything of the app's own shows the desktop's focus (Ui.focus).
+    private void dialogFocus(View view) {
+        int ring = dark ? Color.WHITE : t().text;
+        GradientDrawable stroke = ui.shape(Theme.withAlpha(ring, 0x1A), 10);
+        stroke.setStroke(dp(2), ring);
         StateListDrawable states = new StateListDrawable();
-        states.addState(new int[]{android.R.attr.state_focused}, ring);
+        states.addState(new int[]{android.R.attr.state_focused}, stroke);
         states.addState(new int[]{}, new ColorDrawable(Color.TRANSPARENT));
-        return states;
+        view.setForeground(states);
     }
-    // Dialogs stay dark in both themes (see dialogTextColor), so what is in them gets
-    // the dark theme's white ring.
-    private void dialogFocus(View view) { view.setForeground(focusRing(Color.WHITE, 0x1AFFFFFF)); }
     // Every dialog is shown through here, so that its buttons get a ring.
     private void show(AlertDialog.Builder builder) { show(builder.create()); }
     private void show(AlertDialog dialog) {
@@ -286,6 +289,47 @@ public final class MainActivity extends Activity {
         catch (ActivityNotFoundException e) { return false; }
     }
 
+    // The window's one view, set once: render() never calls setContentView again, which
+    // would take every overlay and the toast with it. The page is rebuilt in pageRoot;
+    // overlays and the toast are in layers above it that render() leaves alone.
+    private void buildHost() {
+        host = new FrameLayout(this);
+        pageRoot = new LinearLayout(this);
+        pageRoot.setOrientation(LinearLayout.VERTICAL);
+        host.addView(pageRoot, new FrameLayout.LayoutParams(-1, -1));
+        overlayLayer = new FrameLayout(this);
+        host.addView(overlayLayer, new FrameLayout.LayoutParams(-1, -1));
+        toastLayer = new FrameLayout(this);
+        host.addView(toastLayer, new FrameLayout.LayoutParams(-1, -1));
+        // A TV may crop the edges of the picture (overscan), so content keeps clear of them.
+        // Set here as well as with the bars: before Android 15 the window is not edge to
+        // edge, the decor takes the insets, and this listener may never run. On the TV
+        // emulator (Android 14) it did not.
+        int sides = isTv() ? dp(48) : 0;
+        int ends = isTv() ? dp(27) : 0;
+        setHostPadding(sides, ends, sides, ends);
+        host.setOnApplyWindowInsetsListener((view, insets) -> {
+            if (Build.VERSION.SDK_INT >= 30) {
+                android.graphics.Insets bars = insets.getInsets(WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout());
+                setHostPadding(sides, bars.top + ends, sides, bars.bottom + ends);
+            } else {
+                setHostPadding(sides, insets.getSystemWindowInsetTop() + ends, sides, insets.getSystemWindowInsetBottom() + ends);
+            }
+            return insets;
+        });
+        setContentView(host);
+    }
+    // The padding that keeps the page, the popups and the toast clear of the edges. An
+    // overlay's backdrop still covers all of the window, so the layer is as large as it
+    // and each overlay places its panel inside the padding.
+    private void setHostPadding(int left, int top, int right, int bottom) {
+        host.setPadding(left, top, right, bottom);
+        FrameLayout.LayoutParams p = (FrameLayout.LayoutParams) overlayLayer.getLayoutParams();
+        p.setMargins(-left, -top, -right, -bottom);
+        overlayLayer.setLayoutParams(p);
+        for (Overlay overlay : overlays) overlay.layer.setSafe(left, top, right, bottom);
+    }
+
     private void render() {
         // Until the last render()'s views are drawn, nothing in them has the focus and
         // they have not scrolled, so a render() before that, such as the last ping result
@@ -297,26 +341,16 @@ public final class MainActivity extends Activity {
         } else if (renderedPage != page) restoreScrollY = 0;
         if (pageFocus) { restoreKey = null; pageFocus = false; }
         int generation = ++renderGeneration;
-        getWindow().setStatusBarColor(bg()); getWindow().setNavigationBarColor(bg());
+        dark = Theme.isDark(themeMode, nightMode());
+        remote = isRemote();
+        ui.update(dark, remote);
+        Theme t = t();
+        getWindow().setStatusBarColor(t.bg); getWindow().setNavigationBarColor(t.bg);
         getWindow().getDecorView().setSystemUiVisibility(dark ? 0 : View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR | View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR);
-        root = column(); root.setBackgroundColor(bg());
-        // A TV may crop the edges of the picture (overscan), so content keeps clear of them.
-        // Set here as well as with the bars: before Android 15 the window is not edge to
-        // edge, the decor takes the insets, and this listener may never run. On the TV
-        // emulator (Android 14) it did not.
-        int sides = isTv() ? dp(48) : 0;
-        int ends = isTv() ? dp(27) : 0;
-        root.setPadding(sides, ends, sides, ends);
-        root.setOnApplyWindowInsetsListener((view, insets) -> {
-            if (Build.VERSION.SDK_INT >= 30) {
-                android.graphics.Insets bars = insets.getInsets(WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout());
-                view.setPadding(sides, bars.top + ends, sides, bars.bottom + ends);
-            } else {
-                view.setPadding(sides, insets.getSystemWindowInsetTop() + ends, sides, insets.getSystemWindowInsetBottom() + ends);
-            }
-            return insets;
-        });
-        setContentView(root);
+        // The window itself too, so that nothing of the system theme's dark shows before a frame, or at an edge.
+        getWindow().setBackgroundDrawable(new ColorDrawable(t.bg));
+        host.setBackgroundColor(t.bg);
+        pageRoot.removeAllViews();
         nav();
         pageScroll = null;
         if (page == 0) home();
@@ -324,9 +358,10 @@ public final class MainActivity extends Activity {
             ScrollView scroll = new ScrollView(this); scroll.setFillViewport(true); scroll.setClipToPadding(false);
             scroll.setVerticalScrollBarEnabled(false);
             // On a TV the cards would otherwise stretch across the whole screen.
+            int sides = isTv() ? dp(48) : 0;
             int side = isTv() ? Math.max(dp(18), (getResources().getDisplayMetrics().widthPixels - 2 * sides - dp(640)) / 2) : dp(18);
             LinearLayout body = column(); body.setPadding(side, dp(8), side, dp(26)); scroll.addView(body);
-            root.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
+            pageRoot.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
             pageScroll = scroll;
             switch (page) {
                 case 1: configs(body); break;
@@ -337,6 +372,7 @@ public final class MainActivity extends Activity {
         }
         renderedPage = page;
         restoreFocus(generation, restoreKey, restoreScrollY);
+        reanchorOverlays();
     }
 
     // Puts a remote's focus back on the control that had it before render(), and the
@@ -344,7 +380,8 @@ public final class MainActivity extends Activity {
     // left as it was. This runs once the new views are laid out, because a ScrollView
     // cannot scroll before that, and only for the latest render(): ping results can
     // render several times in one frame, and restorePending keeps the key and the
-    // scroll position the same over them.
+    // scroll position the same over them. With an overlay up the focus is in it, and
+    // stays there: the page behind it takes none.
     private void restoreFocus(int generation, String key, int scrollY) {
         View decor = getWindow().getDecorView();
         restorePending = !decor.isInTouchMode();
@@ -357,6 +394,7 @@ public final class MainActivity extends Activity {
                 restorePending = false;
                 if (decor.isInTouchMode()) return true;
                 if (scroll != null) scroll.scrollTo(0, scrollY);
+                if (!overlays.isEmpty()) return true;
                 View target = focusTarget(key);
                 if (target != null) target.requestFocus();
                 return true;
@@ -369,72 +407,524 @@ public final class MainActivity extends Activity {
     // page's own: Reconnect while traffic is blocked, else Connect, on Home, and the
     // page's tab elsewhere.
     private View focusTarget(String key) {
-        View found = key == null ? null : root.findViewWithTag(key);
+        View found = key == null ? null : host.findViewWithTag(key);
         Matcher numbered = NUMBERED_KEY.matcher(key == null ? "" : key);
         if (found == null && numbered.matches()) {
             String rest = numbered.group(3) == null ? "" : numbered.group(3);
             for (int n = Integer.parseInt(numbered.group(2)) - 1; n >= 0 && found == null; n--)
-                found = root.findViewWithTag(numbered.group(1) + ":" + n + rest);
+                found = host.findViewWithTag(numbered.group(1) + ":" + n + rest);
         }
-        if (found == null && page == 0) found = root.findViewWithTag("home:reconnect");
-        if (found == null) found = root.findViewWithTag(page == 0 ? "home:toggle" : "tab:" + page);
+        if (found == null && page == 0) found = pageRoot.findViewWithTag("home:reconnect");
+        if (found == null) found = pageRoot.findViewWithTag(page == 0 ? "home:toggle" : "tab:" + page);
         return found;
     }
-    // Without tabs to tap, Back on a TV goes to Home first, and leaves the app from there.
-    // Home's own control gets the focus: left on the tab it was on, the next OK would go
-    // straight back to that page.
+    // Back closes what is on top first: an overlay. Without tabs to tap, Back on a TV then
+    // goes to Home, and leaves the app from there. Home's own control gets the focus: left
+    // on the tab it was on, the next OK would go straight back to that page.
     // Still delivered at targetSdk 35; targetSdk 36 needs an OnBackInvokedCallback.
     @SuppressWarnings("deprecation")
     @Override public void onBackPressed() {
+        Overlay top = topOverlay();
+        if (top != null) { escape(top); return; }
         if (isTv() && page != 0) { page = 0; pageFocus = true; render(); return; }
         super.onBackPressed();
     }
+    // Escape is Back on a keyboard, as it is on the desktop.
+    @Override public boolean onKeyUp(int keyCode, KeyEvent event) {
+        Overlay top = topOverlay();
+        if (keyCode == KeyEvent.KEYCODE_ESCAPE && top != null) { escape(top); return true; }
+        return super.onKeyUp(keyCode, event);
+    }
 
+    // Overlays: a card (the editor, a picker), a confirmation, a popup (a dropdown, a menu).
+    //
+    // showOverlay is the only code that adds to overlayLayer, and every overlay in the
+    // app goes through it (tests/test_android_tv_dialogs.sh). What it gives each:
+    //  - a backdrop, black at 0.45 under a card or a confirmation and clear under a popup,
+    //    which swallows touches, and a tap on which is that overlay's Escape;
+    //  - the desktop's card: bg, a 1 px border, radius 14 (12 for a confirmation, 10 for a
+    //    popup, which has a shadow), fading in over 130 ms as it slides down 8;
+    //  - a place in a stack. While anything is open the page behind takes no focus and is
+    //    hidden from accessibility, and so does every overlay below the top one;
+    //  - a default focus, and the focus back on what opened it, by key, when it closes;
+    //  - a life that render() does not end: a popup is put back under its anchor, by key,
+    //    after a render, and closes if the anchor is gone;
+    //  - Back: it closes the top one (see onBackPressed).
+
+    private final List<Overlay> overlays = new ArrayList<>();
+    private boolean pageBlocked;
+
+    private final class Overlay {
+        final String name;
+        final OverlayLayer.Kind kind;
+        final String anchorKey;
+        final Runnable onClose;
+        final String openerKey;
+        OverlayLayer layer;
+        // What Back, Escape and a tap on the backdrop do: close it, unless it asks first.
+        Runnable escape;
+        // The key of what takes the focus when it opens, else its first control.
+        String defaultKey;
+        boolean closed;
+        Overlay(String name, OverlayLayer.Kind kind, String anchorKey, Runnable onClose, String openerKey) {
+            this.name = name; this.kind = kind; this.anchorKey = anchorKey; this.onClose = onClose; this.openerKey = openerKey;
+            this.escape = () -> closeOverlay(this);
+        }
+        Overlay width(int px) { layer.setPreferredWidth(px); return this; }
+        void close() { closeOverlay(this); }
+    }
+
+    private Overlay topOverlay() { return overlays.isEmpty() ? null : overlays.get(overlays.size() - 1); }
+    private Overlay overlay(String name) {
+        for (Overlay open : overlays) if (open.name.equals(name)) return open;
+        return null;
+    }
+    private void escape(Overlay overlay) { if (!overlay.closed) overlay.escape.run(); }
+
+    // content goes inside the card, which is as wide as it holds (a card's width: width()).
+    // A second overlay of the same name is not opened: the one that is up is returned.
+    private Overlay showOverlay(String name, OverlayLayer.Kind kind, View content, String anchorKey, Runnable onClose) {
+        Overlay open = overlay(name);
+        if (open != null) return open;
+        Theme t = t();
+        View focused = getCurrentFocus();
+        String opener = focused != null && focused.getTag() instanceof String ? (String) focused.getTag() : null;
+        final Overlay overlay = new Overlay(name, kind, anchorKey, onClose, opener);
+        FrameLayout panel = new FrameLayout(this);
+        panel.setBackground(ui.outlined(t.bg, t.border, kind == OverlayLayer.Kind.CARD ? 14 : kind == OverlayLayer.Kind.CONFIRM ? 12 : 10));
+        // A touch on the card is the card's: it never reaches the backdrop, whose tap is Escape.
+        panel.setOnTouchListener((v, e) -> true);
+        panel.addView(content, new FrameLayout.LayoutParams(-1, -2));
+        View backdrop = new View(this);
+        backdrop.setBackgroundColor(kind == OverlayLayer.Kind.POPUP ? Color.TRANSPARENT : t.backdrop);
+        backdrop.setOnClickListener(v -> escape(overlay));
+        backdrop.setFocusable(false);
+        OverlayLayer layer = new OverlayLayer(this, kind, backdrop, panel);
+        layer.setTag("overlay:" + name);
+        layer.setSafe(host.getPaddingLeft(), host.getPaddingTop(), host.getPaddingRight(), host.getPaddingBottom());
+        if (anchorKey != null) layer.setAnchor(l -> anchorRect(anchorKey, l), OverlayLayer.UNDER_RIGHT_EDGE, dp(4));
+        if (kind == OverlayLayer.Kind.POPUP) {
+            panel.setElevation(dp(8));
+            if (Build.VERSION.SDK_INT >= 28) {
+                panel.setOutlineAmbientShadowColor(t.popupShadow);
+                panel.setOutlineSpotShadowColor(t.popupShadow);
+            }
+        }
+        overlay.layer = layer;
+        overlays.add(overlay);
+        overlayLayer.addView(layer, new FrameLayout.LayoutParams(-1, -1));
+        updateOverlayState();
+        backdrop.setAlpha(0f);
+        panel.setAlpha(0f);
+        panel.setTranslationY(-dp(8));
+        backdrop.animate().alpha(1f).setDuration(130).start();
+        panel.animate().alpha(1f).translationY(0f).setDuration(130).setInterpolator(new DecelerateInterpolator(1.5f)).start();
+        // After the caller has said which control comes first. A phone in touch mode has no focus to give.
+        host.post(() -> {
+            if (!overlay.closed && topOverlay() == overlay && !getWindow().getDecorView().isInTouchMode()) focusOverlay(overlay);
+        });
+        return overlay;
+    }
+    private void focusOverlay(Overlay overlay) {
+        View target = overlay.defaultKey == null ? null : overlay.layer.findViewWithTag(overlay.defaultKey);
+        if (target == null) {
+            ArrayList<View> controls = new ArrayList<>();
+            overlay.layer.addFocusables(controls, View.FOCUS_FORWARD);
+            if (!controls.isEmpty()) target = controls.get(0);
+        }
+        if (target != null) target.requestFocus();
+    }
+
+    // Closes it: gone from the stack at once, and its views fade out over 130 ms. Its keys
+    // are no one's from then on, so that a control with the same key in the next overlay,
+    // such as a queued confirmation's buttons, is the only one a search finds.
+    private void closeOverlay(Overlay overlay) {
+        if (overlay.closed) return;
+        overlay.closed = true;
+        overlays.remove(overlay);
+        retag(overlay.layer);
+        overlay.layer.setDescendantFocusability(ViewGroup.FOCUS_BLOCK_DESCENDANTS);
+        updateOverlayState();
+        returnFocus(overlay);
+        overlay.layer.animate().alpha(0f).setDuration(130).withEndAction(() -> overlayLayer.removeView(overlay.layer)).start();
+        if (overlay.onClose != null) overlay.onClose.run();
+    }
+    private void retag(View view) {
+        if (view.getTag() instanceof String) view.setTag(null);
+        if (view instanceof ViewGroup) for (int i = 0; i < ((ViewGroup) view).getChildCount(); i++) retag(((ViewGroup) view).getChildAt(i));
+    }
+    // To what opened it, by key; failing that the overlay now on top; failing that the page's
+    // own control (focusTarget). A phone in touch mode has no focus to return.
+    private void returnFocus(Overlay closed) {
+        if (getWindow().getDecorView().isInTouchMode()) return;
+        View target = closed.openerKey == null ? null : host.findViewWithTag(closed.openerKey);
+        Overlay top = topOverlay();
+        if (target == null && top != null) { focusOverlay(top); return; }
+        if (target == null) target = focusTarget(closed.openerKey);
+        if (target != null) target.requestFocus();
+    }
+
+    // The page behind an overlay takes no focus and no accessibility, nor does an overlay
+    // under another: the top one is the only part of the window a remote can reach.
+    private void updateOverlayState() {
+        boolean any = !overlays.isEmpty();
+        if (any != pageBlocked) {
+            pageBlocked = any;
+            pageRoot.setDescendantFocusability(any ? ViewGroup.FOCUS_BLOCK_DESCENDANTS : ViewGroup.FOCUS_BEFORE_DESCENDANTS);
+            pageRoot.setImportantForAccessibility(any ? View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS : View.IMPORTANT_FOR_ACCESSIBILITY_AUTO);
+        }
+        for (int i = 0; i < overlays.size(); i++) {
+            boolean topmost = i == overlays.size() - 1;
+            OverlayLayer layer = overlays.get(i).layer;
+            layer.setDescendantFocusability(topmost ? ViewGroup.FOCUS_BEFORE_DESCENDANTS : ViewGroup.FOCUS_BLOCK_DESCENDANTS);
+            layer.setImportantForAccessibility(topmost ? View.IMPORTANT_FOR_ACCESSIBILITY_AUTO : View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
+        }
+        placeToast();
+    }
+
+    // The control a popup belongs to, in the layer's coordinates, or null where it is gone.
+    private Rect anchorRect(String key, View layer) {
+        View anchor = host.findViewWithTag(key);
+        if (anchor == null) return null;
+        int[] at = new int[2];
+        int[] in = new int[2];
+        anchor.getLocationInWindow(at);
+        layer.getLocationInWindow(in);
+        return new Rect(at[0] - in[0], at[1] - in[1], at[0] - in[0] + anchor.getWidth(), at[1] - in[1] + anchor.getHeight());
+    }
+    // After render(): the popups go back under their controls, or close if a control is gone.
+    private void reanchorOverlays() {
+        for (Overlay overlay : new ArrayList<>(overlays)) {
+            if (overlay.anchorKey == null) continue;
+            if (host.findViewWithTag(overlay.anchorKey) == null) closeOverlay(overlay);
+            else overlay.layer.requestLayout();
+        }
+    }
+
+    // ConfirmDialog: a card with a message that wraps, and scrolls where it is taller than
+    // the window leaves room for, and buttons: Cancel, an alternate beside it if there is
+    // one, and the confirmation, always red and always last. Escape, Back and a tap on the
+    // backdrop cancel. The confirmation ignores a click, and OK, for its first 400 ms, so
+    // that an OK held or repeated on a remote cannot answer what a phone or a web page
+    // asked. Confirmations queue: one asked for while another is up waits its turn, and
+    // never takes its place. Cancel has the focus first. Keys: confirm:message,
+    // confirm:cancel, confirm:alt and confirm:ok.
+    private static final class ConfirmRequest {
+        final CharSequence message;
+        final CharSequence confirm;
+        final CharSequence alternate;
+        final Runnable onConfirm;
+        final Runnable onAlternate;
+        final Runnable onCancel;
+        ConfirmRequest(CharSequence message, CharSequence confirm, CharSequence alternate, Runnable onConfirm, Runnable onAlternate, Runnable onCancel) {
+            this.message = message; this.confirm = confirm; this.alternate = alternate;
+            this.onConfirm = onConfirm; this.onAlternate = onAlternate; this.onCancel = onCancel;
+        }
+    }
+    private static final long CONFIRM_ARMED_MS = 400;
+    private final ArrayDeque<ConfirmRequest> confirmQueue = new ArrayDeque<>();
+    private boolean confirmShowing;
+
+    private void showConfirm(CharSequence message, CharSequence confirmLabel, Runnable onConfirm) {
+        showConfirm(message, confirmLabel, null, onConfirm, null, null);
+    }
+    private void showConfirm(CharSequence message, CharSequence confirmLabel, CharSequence alternateLabel,
+                             Runnable onConfirm, Runnable onAlternate, Runnable onCancel) {
+        confirmQueue.add(new ConfirmRequest(message, confirmLabel, alternateLabel, onConfirm, onAlternate, onCancel));
+        nextConfirm();
+    }
+    private void nextConfirm() {
+        if (confirmShowing || isDestroyed()) return;
+        ConfirmRequest request = confirmQueue.poll();
+        if (request == null) return;
+        confirmShowing = true;
+        Theme t = t();
+        LinearLayout box = column();
+        box.setPadding(dp(14), dp(14), dp(14), dp(14));
+        CappedScrollView scroll = new CappedScrollView(this);
+        scroll.setMaxHeight(Math.max(dp(80), getResources().getDisplayMetrics().heightPixels - dp(160)));
+        TextView message = ui.label(request.message, 14, t.text);
+        message.setGravity(Gravity.CENTER);
+        // Wraps anywhere: a long host name has no space to break at.
+        message.setHyphenationFrequency(Layout.HYPHENATION_FREQUENCY_NONE);
+        message.setTag("confirm:message");
+        scroll.addView(message, new FrameLayout.LayoutParams(-1, -2));
+        box.addView(scroll, lp(-1, -2));
+        gap(box, 14);
+        LinearLayout buttons = row();
+        buttons.setGravity(Gravity.CENTER);
+        final Overlay[] shown = new Overlay[1];
+        Button cancel = ui.button(getString(R.string.text_cancel), Ui.Kind.NEUTRAL, 76, "confirm:cancel");
+        cancel.setOnClickListener(v -> escape(shown[0]));
+        buttons.addView(cancel, lp(-2, 32));
+        if (request.alternate != null) {
+            ui.gapH(buttons, 8);
+            Button alternate = ui.button(request.alternate, Ui.Kind.NEUTRAL, 76, "confirm:alt");
+            alternate.setOnClickListener(v -> {
+                closeOverlay(shown[0]);
+                if (request.onAlternate != null) request.onAlternate.run();
+            });
+            buttons.addView(alternate, lp(-2, 32));
+        }
+        ui.gapH(buttons, 8);
+        final long armedAt = SystemClock.uptimeMillis() + CONFIRM_ARMED_MS;
+        Button ok = ui.button(request.confirm, Ui.Kind.DESTRUCTIVE, 76, "confirm:ok");
+        ok.setOnClickListener(v -> {
+            if (SystemClock.uptimeMillis() < armedAt) return;
+            closeOverlay(shown[0]);
+            if (request.onConfirm != null) request.onConfirm.run();
+        });
+        buttons.addView(ok, lp(-2, 32));
+        box.addView(buttons, lp(-1, -2));
+        Overlay overlay = showOverlay("confirm", OverlayLayer.Kind.CONFIRM, box, null, () -> {
+            confirmShowing = false;
+            host.post(this::nextConfirm);
+        });
+        shown[0] = overlay;
+        overlay.defaultKey = "confirm:cancel";
+        overlay.escape = () -> {
+            closeOverlay(overlay);
+            if (request.onCancel != null) request.onCancel.run();
+        };
+    }
+
+    // SelectPopup: the choices of a dropdown, under the right edge of the control they
+    // belong to, 4 below it, or above it where they do not fit below, at most 8 rows with
+    // the rest scrolling. The current choice is in accent with a check mark; a menu of
+    // actions has none (current -1). Rows are 36 high, and focus as a menu row does.
+    // Keys: select:0, select:1 and so on.
+    private interface Pick { void picked(int index); }
+
+    private Overlay showSelect(String anchorKey, String[] options, int current, Pick pick) {
+        Theme t = t();
+        CappedScrollView scroll = new CappedScrollView(this);
+        scroll.setMaxHeight(dp(8 * 36 + 12));
+        LinearLayout list = column();
+        list.setPadding(dp(6), dp(6), dp(6), dp(6));
+        int widest = 0;
+        final Overlay[] shown = new Overlay[1];
+        for (int i = 0; i < options.length; i++) {
+            final int index = i;
+            widest = Math.max(widest, textWidth(options[i], 14));
+            int color = i == current ? t.accent : t.text;
+            LinearLayout rowView = row();
+            rowView.setPadding(dp(12), 0, dp(12), 0);
+            TextView name = ui.follow(ui.label(options[i], 14, color), color, color, t.accentText);
+            name.setSingleLine(true);
+            name.setEllipsize(TextUtils.TruncateAt.END);
+            rowView.addView(name, new LinearLayout.LayoutParams(0, -1, 1));
+            if (i == current) rowView.addView(ui.follow(ui.label("✓", 14, t.accent), t.accent, t.accent, t.accentText), lp(-2, -1));
+            ui.focus(rowView, "select:" + i, Ui.Look.MENU_ROW).setOnClickListener(v -> {
+                closeOverlay(shown[0]);
+                pick.picked(index);
+            });
+            list.addView(rowView, lp(-1, 36));
+        }
+        scroll.addView(list, new FrameLayout.LayoutParams(-1, -2));
+        Overlay overlay = showOverlay("select", OverlayLayer.Kind.POPUP, scroll, anchorKey, null);
+        shown[0] = overlay;
+        overlay.width(Math.max(dp(140), widest + dp(56) + dp(12)));
+        overlay.defaultKey = "select:" + Math.max(0, current);
+        return overlay;
+    }
+
+    // MenuPopup: rows of actions, 40 high, with separators (a null item), under the control
+    // that opened it and centred in the window: the Configs page's add menu. Keys are the
+    // items'.
+    private static final class MenuEntry {
+        static final MenuEntry SEPARATOR = new MenuEntry(null, null, null);
+        final String label;
+        final String key;
+        final Runnable action;
+        MenuEntry(String label, String key, Runnable action) { this.label = label; this.key = key; this.action = action; }
+    }
+
+    private Overlay showMenu(String name, String anchorKey, List<MenuEntry> items) {
+        Theme t = t();
+        LinearLayout list = column();
+        list.setPadding(dp(5), dp(6), dp(5), dp(6));
+        int widest = 0;
+        String first = null;
+        final Overlay[] shown = new Overlay[1];
+        for (MenuEntry item : items) {
+            if (item == MenuEntry.SEPARATOR) {
+                // An 11 high slot holding a 1 px line, 8 in from each side.
+                FrameLayout slot = new FrameLayout(this);
+                View line = ui.sep();
+                FrameLayout.LayoutParams lineLp = new FrameLayout.LayoutParams(-1, Math.max(1, dp(1)), Gravity.CENTER_VERTICAL);
+                lineLp.setMargins(dp(3), 0, dp(3), 0);
+                slot.addView(line, lineLp);
+                list.addView(slot, lp(-1, 11));
+                continue;
+            }
+            widest = Math.max(widest, textWidth(item.label, 14));
+            if (first == null) first = item.key;
+            TextView text = ui.follow(ui.label(item.label, 14, t.text), t.text, t.text, t.accentText);
+            text.setSingleLine(true);
+            text.setEllipsize(TextUtils.TruncateAt.END);
+            text.setPadding(dp(9), 0, dp(9), 0);
+            LinearLayout rowView = row();
+            rowView.addView(text, new LinearLayout.LayoutParams(0, -1, 1));
+            ui.focus(rowView, item.key, Ui.Look.MENU_ROW).setOnClickListener(v -> {
+                closeOverlay(shown[0]);
+                item.action.run();
+            });
+            LinearLayout.LayoutParams rowLp = lp(-1, 40);
+            rowLp.bottomMargin = dp(1);
+            list.addView(rowView, rowLp);
+        }
+        Overlay overlay = showOverlay(name, OverlayLayer.Kind.POPUP, list, anchorKey, null);
+        shown[0] = overlay;
+        if (anchorKey != null) overlay.layer.setAnchor(l -> anchorRect(anchorKey, l), OverlayLayer.UNDER_CENTRE_OF_WINDOW, dp(4));
+        overlay.width(Math.max(dp(140), widest + dp(40) + dp(10)));
+        overlay.defaultKey = first;
+        return overlay;
+    }
+    private int textWidth(String text, float sp) {
+        Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        paint.setTextSize(TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, sp, getResources().getDisplayMetrics()));
+        return (int) Math.ceil(paint.measureText(text));
+    }
+
+    // The toast: the one notice the desktop has, in the window. One at a time, a new one
+    // replacing the old. surface, a 1 px border, radius 9, 13 centred up to 6 lines, as
+    // wide as its longest line plus 24 (80 at least, 36 less than the window at most) and
+    // at least 40 high; 26 above the bottom, or at the top, 48 down, while an overlay is
+    // open, where it would be behind it. It fades in over 180 ms and stays for 55 ms a
+    // character, at least 3.2 s and at most 10; a tap dismisses it. It is announced to
+    // accessibility. The system's Toast is used only where no window of ours can show one
+    // (the tile, the VPN consent screen) and, until the dialogs it would be behind are
+    // overlays too, by toast().
+    private final Handler toastHandler = new Handler(Looper.getMainLooper());
+    private Runnable toastHide;
+    private TextView toastView;
+
+    private void showToast(CharSequence text) {
+        if (isDestroyed()) return;
+        hideToastNow();
+        Theme t = t();
+        TextView view = ui.label(text, 13, t.text);
+        view.setGravity(Gravity.CENTER);
+        view.setMaxLines(6);
+        view.setEllipsize(TextUtils.TruncateAt.END);
+        view.setBackground(ui.outlined(t.surface, t.border, 9));
+        view.setPadding(dp(12), dp(9), dp(12), dp(9));
+        view.setMinHeight(dp(40));
+        view.setMinWidth(dp(80));
+        int window = host.getWidth() > 0 ? host.getWidth() - host.getPaddingLeft() - host.getPaddingRight() : getResources().getDisplayMetrics().widthPixels;
+        view.setMaxWidth(Math.max(dp(80), window - dp(36)));
+        // Not clickable: a toast is no control, and a tap on it only takes it away.
+        view.setOnTouchListener((v, e) -> {
+            if (e.getAction() == MotionEvent.ACTION_UP) hideToast(view);
+            return true;
+        });
+        toastView = view;
+        toastLayer.addView(view, toastParams());
+        view.setAlpha(0f);
+        view.animate().alpha(1f).setDuration(180).start();
+        view.announceForAccessibility(text);
+        toastHide = () -> hideToast(view);
+        toastHandler.postDelayed(toastHide, Math.min(10_000, Math.max(3_200, 55L * text.length())));
+    }
+    private FrameLayout.LayoutParams toastParams() {
+        boolean top = !overlays.isEmpty();
+        FrameLayout.LayoutParams p = new FrameLayout.LayoutParams(-2, -2, (top ? Gravity.TOP : Gravity.BOTTOM) | Gravity.CENTER_HORIZONTAL);
+        p.topMargin = dp(48);
+        p.bottomMargin = dp(26);
+        return p;
+    }
+    private void placeToast() {
+        if (toastView != null && toastView.getParent() == toastLayer) toastView.setLayoutParams(toastParams());
+    }
+    private void hideToast(TextView view) {
+        if (toastView != view) return;
+        toastView = null;
+        toastHandler.removeCallbacks(toastHide);
+        view.animate().alpha(0f).setDuration(180).withEndAction(() -> toastLayer.removeView(view)).start();
+    }
+    private void hideToastNow() {
+        if (toastView == null) return;
+        toastHandler.removeCallbacks(toastHide);
+        toastLayer.removeView(toastView);
+        toastView = null;
+    }
+    // Five tiles, 46 by 38 with radius 8 and 8 between, icons only, centred. The current
+    // page's tile is infoBg; the others rest on the page. The icons are 22: accent in the
+    // current tab, textDim in the others, both at full strength, and the logo, which is
+    // drawn in its own greys, at 1.0 in the current tab and 0.8 in the others. A remote's
+    // focus is the tile in accent, grown to 1.08, the current one too.
     private void nav() {
+        Theme t = t();
         LinearLayout bar = row(); bar.setGravity(Gravity.CENTER);
         bar.setPadding(0, dp(9), 0, dp(4));
+        settingsDot = null;
         for (int i = 0; i < tabNames.length; i++) {
             final int next = i;
+            boolean current = i == page;
             FrameLayout item = new FrameLayout(this);
-            if (i == page) item.setBackground(shape(dark ? Color.parseColor("#343434") : Color.parseColor("#d7d7d7"), 8));
             ImageView icon = new ImageView(this); icon.setImageResource(tabIcons[i]);
-            icon.setAlpha(i == page ? 1f : 0.78f);
-            if (i != 0) icon.setColorFilter(i == page ? accent() : dim());
+            if (i == 0) icon.setAlpha(current ? 1f : 0.8f);
+            else ui.followTint(icon, current ? t.accent : t.textDim, current ? t.accent : t.textDim, t.accentText);
             FrameLayout.LayoutParams iconLp = new FrameLayout.LayoutParams(dp(22), dp(22), Gravity.CENTER);
             item.addView(icon, iconLp);
+            if (i == 3) {
+                // Settings, while an update is waiting: a dot 7 across, 5 from the top and 8 from the right.
+                View dot = new View(this);
+                GradientDrawable round = new GradientDrawable();
+                round.setShape(GradientDrawable.OVAL);
+                round.setColor(t.warn);
+                dot.setBackground(round);
+                dot.setTag("update:dot");
+                FrameLayout.LayoutParams dotLp = new FrameLayout.LayoutParams(dp(7), dp(7), Gravity.TOP | Gravity.END);
+                dotLp.topMargin = dp(5);
+                dotLp.setMarginEnd(dp(8));
+                item.addView(dot, dotLp);
+                settingsDot = dot;
+                refreshUpdateDot();
+            }
             LinearLayout.LayoutParams itemLp = lp(46, 38);
             if (i > 0) itemLp.leftMargin = dp(8);
             bar.addView(item, itemLp);
             item.setContentDescription(tabNames[i]);
-            focus(item, "tab:" + i).setOnClickListener(v -> { page = next; render(); });
+            ui.focus(item, "tab:" + i, Ui.Look.TILE, current ? Ui.F_CURRENT : 0).setOnClickListener(v -> { page = next; render(); });
         }
-        root.addView(bar, lp(-1, 56));
+        pageRoot.addView(bar, lp(-1, 56));
+    }
+    private boolean updateWaiting() {
+        AndroidUpdater.State update = AndroidUpdater.INSTANCE.getState();
+        return update == AndroidUpdater.State.AVAILABLE || update == AndroidUpdater.State.READY;
+    }
+    private void refreshUpdateDot() {
+        if (settingsDot != null) settingsDot.setVisibility(updateWaiting() ? View.VISIBLE : View.GONE);
     }
 
     private void home() {
+        Theme t = t();
         FrameLayout stage = new FrameLayout(this);
-        root.addView(stage, new LinearLayout.LayoutParams(-1, 0, 1));
+        pageRoot.addView(stage, new LinearLayout.LayoutParams(-1, 0, 1));
         LinearLayout hero = column(); hero.setGravity(Gravity.CENTER_HORIZONTAL);
-        ImageView logo = new ImageView(this); logo.setImageResource(R.drawable.logo); logo.setAlpha(0.5f);
+        ImageView logo = new ImageView(this); logo.setImageResource(R.drawable.ic_logo); logo.setAlpha(0.5f);
         hero.addView(logo, lp(132, 132));
         logo.setContentDescription(isVpnActive() ? getString(R.string.text_disconnect_freetunnel) : getString(R.string.text_connect_freetunnel));
         // On a TV it would be one more stop on the way down to the same Connect.
-        if (!isTv()) focus(logo, "home:logo").setOnClickListener(v -> connect());
+        if (!isTv()) ui.focus(logo, "home:logo", Ui.Look.TILE).setOnClickListener(v -> connect());
         gap(hero, 22);
         String name = configs.isEmpty() ? getString(R.string.text_add_configuration) : configs.get(Math.min(activeIndex, configs.size() - 1)).name + "  ▾";
-        TextView selected = label(name, 15, textColor(), true); selected.setGravity(Gravity.CENTER);
-        hero.addView(selected, lp(-1, 28));
-        focus(selected, "home:config").setOnClickListener(v -> {
+        // As wide as its words, so that the focus is around them and not across the screen.
+        TextView selected = ui.link(name, 15, Ui.LinkKind.TEXT, "home:config");
+        selected.setTypeface(Ui.MEDIUM);
+        selected.setOnClickListener(v -> {
             page = 1; render(); if (configs.isEmpty()) addMenu();
         });
-        TextView status = label(connectionCaption(), 13, vpnState == 2 ? success() : dim(), false);
+        hero.addView(selected, lp(-2, 32));
+        TextView status = label(connectionCaption(), 13, vpnState == 2 ? t.success : t.textDim);
         status.setGravity(Gravity.CENTER);
         hero.addView(status, lp(-1, 30));
         if (vpnState == 6) {
             // The service retries on its own; this reconnects now. It is also the
             // way in on Android TV, which has no tile and makes notification
             // actions hard to reach, so a remote lands on it first (focusTarget).
-            Button reconnect = focus(button(getString(R.string.vpn_reconnect), true), "home:reconnect");
+            Button reconnect = ui.button(getString(R.string.vpn_reconnect), Ui.Kind.PRIMARY, 76, "home:reconnect");
             reconnect.setOnClickListener(v -> {
                 FreeTunnelVpnService.reconnect(this);
                 toast(getString(R.string.text_recovering_connection));
@@ -442,7 +932,8 @@ public final class MainActivity extends Activity {
             hero.addView(reconnect, lp(178, 44));
             gap(hero, 10);
         }
-        Button toggle = focus(button(isVpnActive() ? getString(R.string.text_disconnect) : getString(R.string.text_connect), isVpnActive() && vpnState != 6), "home:toggle");
+        Button toggle = ui.button(isVpnActive() ? getString(R.string.text_disconnect) : getString(R.string.text_connect),
+                isVpnActive() && vpnState != 6 ? Ui.Kind.PRIMARY : Ui.Kind.NEUTRAL, 76, "home:toggle");
         toggle.setContentDescription(isVpnActive() ? getString(R.string.text_disconnect_vpn) : getString(R.string.text_connect_vpn));
         toggle.setOnClickListener(v -> connect());
         hero.addView(toggle, lp(178, 44));
@@ -552,49 +1043,47 @@ public final class MainActivity extends Activity {
     }
 
     private void configs(LinearLayout body) {
+        Theme t = t();
+        // The header's buttons are 40 by 32, 16 apart, resting on the page.
         LinearLayout header = row(); header.setGravity(Gravity.CENTER);
-        FrameLayout add = configHeaderButton(R.drawable.ic_add, getString(R.string.text_add_configuration));
-        focus(add, "configs:add").setOnClickListener(v -> addMenu()); header.addView(add, lp(40, 32));
-        gapHorizontal(header, 12);
-        FrameLayout ping = configHeaderButton(R.drawable.ic_ping, getString(R.string.text_check_server_tcp_latency));
-        focus(ping, "configs:ping").setOnClickListener(v -> pingConfigs()); header.addView(ping, lp(40, 32));
+        FrameLayout add = ui.iconButton(R.drawable.ic_add, 22, getString(R.string.text_add_configuration), "configs:add");
+        add.setOnClickListener(v -> addMenu()); header.addView(add, lp(40, 32));
+        gapHorizontal(header, 16);
+        FrameLayout ping = ui.iconButton(R.drawable.ic_ping, 22, getString(R.string.text_check_server_tcp_latency), "configs:ping");
+        ping.setOnClickListener(v -> pingConfigs()); header.addView(ping, lp(40, 32));
         body.addView(header, lp(-1, 44));
         if (configs.isEmpty()) {
             body.addView(new View(this), new LinearLayout.LayoutParams(1, 0, 1));
-            TextView hint = label(getString(R.string.text_add_configuration), 15, textColor(), true); hint.setGravity(Gravity.CENTER);
-            focus(hint, "configs:hint").setOnClickListener(v -> addMenu()); body.addView(hint, lp(-1, 40));
+            // As wide as its words: the focus is around them, not across the page.
+            TextView hint = ui.link(getString(R.string.text_add_configuration), 15, Ui.LinkKind.TEXT, "configs:hint");
+            hint.setTypeface(Ui.MEDIUM);
+            hint.setOnClickListener(v -> addMenu());
+            LinearLayout.LayoutParams hintLp = lp(-2, 40);
+            hintLp.gravity = Gravity.CENTER_HORIZONTAL;
+            body.addView(hint, hintLp);
             body.addView(new View(this), new LinearLayout.LayoutParams(1, 0, 1));
         }
         for (int i = 0; i < configs.size(); i++) {
             final int index = i; Config config = configs.get(i); gap(body, 12);
             LinearLayout c = card(); LinearLayout top = row();
-            TextView name = label(config.name, 16, textColor(), true); top.addView(name, new LinearLayout.LayoutParams(0, dp(35), 1));
-            if (i == activeIndex) top.addView(label(getString(R.string.text_selected), 12, success(), false), lp(-2, 35));
+            TextView name = ui.medium(config.name, 16, t.text); top.addView(name, new LinearLayout.LayoutParams(0, dp(35), 1));
+            if (i == activeIndex) top.addView(label(getString(R.string.text_selected), 12, t.success), lp(-2, 35));
             c.addView(top, lp(-1, 36));
             LinearLayout meta = row();
-            meta.addView(label("TrustTunnel  ·  TOML", 12, dim(), false), new LinearLayout.LayoutParams(0, dp(25), 1));
+            meta.addView(label("TrustTunnel  ·  TOML", 12, t.textDim), new LinearLayout.LayoutParams(0, dp(25), 1));
             String pingText = pingResults.get(config);
-            if (pingText != null) meta.addView(label(pingText, 12, dim(), false), lp(-2, 25));
+            if (pingText != null) meta.addView(label(pingText, 12, t.textDim), lp(-2, 25));
             c.addView(meta, lp(-1, 25));
             LinearLayout actions = row();
-            Button select = focus(button(getString(R.string.text_select), false), "config:" + i + ":select"); select.setOnClickListener(v -> { activeIndex = index; saveConfigs(); applyCurrentRules(); render(); });
+            Button select = ui.button(getString(R.string.text_select), Ui.Kind.NEUTRAL, 76, "config:" + i + ":select"); select.setOnClickListener(v -> { activeIndex = index; saveConfigs(); applyCurrentRules(); render(); });
             actions.addView(select, new LinearLayout.LayoutParams(0, dp(38), 1)); gapHorizontal(actions, 8);
-            Button edit = focus(button(getString(R.string.text_edit), false), "config:" + i + ":edit"); edit.setOnClickListener(v -> editConfig(index));
+            Button edit = ui.button(getString(R.string.text_edit), Ui.Kind.NEUTRAL, 76, "config:" + i + ":edit"); edit.setOnClickListener(v -> editConfig(index));
             actions.addView(edit, new LinearLayout.LayoutParams(0, dp(38), 1)); gapHorizontal(actions, 8);
-            Button remove = focus(button("✕", false), "config:" + i + ":remove"); remove.setOnClickListener(v -> confirmRemove(index));
+            Button remove = ui.button("✕", Ui.Kind.NEUTRAL, 0, "config:" + i + ":remove"); remove.setOnClickListener(v -> confirmRemove(index));
+            remove.setPadding(0, 0, 0, 0);
             actions.addView(remove, lp(42, 38)); c.addView(actions, lp(-1, 38));
             body.addView(c, lp(-1, -2));
         }
-    }
-    private FrameLayout configHeaderButton(int iconId, String description) {
-        FrameLayout box = new FrameLayout(this);
-        box.setBackground(shape(surface(), 8));
-        box.setContentDescription(description);
-        ImageView icon = new ImageView(this);
-        icon.setImageResource(iconId);
-        icon.setColorFilter(accent());
-        box.addView(icon, new FrameLayout.LayoutParams(dp(20), dp(20), Gravity.CENTER));
-        return box;
     }
     private void pingConfigs() {
         if (configs.isEmpty()) { toast(getString(R.string.text_add_a_configuration_first)); return; }
@@ -641,7 +1130,7 @@ public final class MainActivity extends Activity {
         labels.add(getString(R.string.text_import_toml_file)); actions.add(this::pickFile);
         labels.add(getString(R.string.text_paste_from_clipboard)); actions.add(this::pasteFromClipboard);
         labels.add(getString(R.string.text_create_manually)); actions.add(() -> editConfig(-1));
-        show(new AlertDialog.Builder(this).setTitle(getString(R.string.text_add_configuration))
+        show(builder().setTitle(getString(R.string.text_add_configuration))
                 .setItems(labels.toArray(new String[0]), (d, which) -> actions.get(which).run()));
     }
     private void pasteFromClipboard() {
@@ -703,12 +1192,12 @@ public final class MainActivity extends Activity {
         box.addView(code, lp(-2, -2));
         gap(box, 10);
         // For typing on a laptop.
-        TextView url = label(r.url(), 16, dialogTextColor(), true); url.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
+        TextView url = ui.mono(r.url(), 16, t().text);
         url.setGravity(Gravity.CENTER); box.addView(url, lp(-1, -2));
         gap(box, 10);
-        box.addView(label(getString(R.string.text_receive_hint), 13, dialogHintColor(), false), lp(-1, -2));
+        box.addView(label(getString(R.string.text_receive_hint), 13, t().textDim), lp(-1, -2));
         ScrollView scroll = new ScrollView(this); scroll.addView(box);
-        AlertDialog dialog = new AlertDialog.Builder(this).setTitle(getString(R.string.text_receive_from_phone))
+        AlertDialog dialog = builder().setTitle(getString(R.string.text_receive_from_phone))
                 .setView(scroll).setNegativeButton(getString(R.string.text_cancel), null).create();
         dialog.setOnDismissListener(d -> { if (linkReceiver == r) stopReceiver(); });
         receiveDialog = dialog;
@@ -735,7 +1224,7 @@ public final class MainActivity extends Activity {
                     if (isDestroyed() || linkReceiver != r) return;
                     stopReceiver();
                     if (reason == LinkReceiver.Stop.LOCKED_OUT)
-                        show(new AlertDialog.Builder(MainActivity.this).setTitle(getString(R.string.text_receive_from_phone))
+                        show(builder().setTitle(getString(R.string.text_receive_from_phone))
                                 .setMessage(getString(R.string.text_receive_locked_out)).setPositiveButton(getString(R.string.text_ok), null));
                     else toast(getString(reason == LinkReceiver.Stop.TIMEOUT ? R.string.text_receive_timed_out : R.string.text_receive_failed));
                 });
@@ -780,7 +1269,7 @@ public final class MainActivity extends Activity {
     private void refuseImport(int messageResource) {
         if (messageResource == R.string.text_subscription_links_are_not_supported_yet
                 || messageResource == R.string.text_this_server_needs_a_newer_trusttunnel_core)
-            show(new AlertDialog.Builder(this).setTitle(getString(R.string.text_import_trusttunnel))
+            show(builder().setTitle(getString(R.string.text_import_trusttunnel))
                     .setMessage(getString(messageResource)).setPositiveButton(getString(R.string.text_ok), null));
         else toast(getString(messageResource));
     }
@@ -820,7 +1309,7 @@ public final class MainActivity extends Activity {
                 .filter(script -> script != Character.UnicodeScript.COMMON && script != Character.UnicodeScript.INHERITED
                         && script != Character.UnicodeScript.UNKNOWN).distinct().count() > 1)
             message += getString(R.string.text_nthe_name_mixes_similar_characters_from_different_al);
-        show(new AlertDialog.Builder(this).setTitle(getString(R.string.text_import_trusttunnel)).setMessage(message)
+        show(builder().setTitle(getString(R.string.text_import_trusttunnel)).setMessage(message)
                 .setNegativeButton(getString(R.string.text_cancel), null).setPositiveButton(getString(R.string.text_add), (dialog, which) -> {
                     configs.add(new Config(name, source));
                     if (configs.size() == 1) activeIndex = 0;
@@ -835,10 +1324,12 @@ public final class MainActivity extends Activity {
         final Config editing = index < 0 ? null : configs.get(index);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);
         LinearLayout form = column(); form.setPadding(dp(20), dp(5), dp(20), 0);
-        EditText name = new EditText(this); name.setSingleLine(true); name.setTextColor(dialogTextColor());
-        name.setHint(getString(R.string.text_configuration_name)); name.setHintTextColor(dialogHintColor());
-        EditText raw = new EditText(this); raw.setTextColor(dialogTextColor()); raw.setHintTextColor(dialogHintColor());
+        EditText name = new EditText(this); name.setSingleLine(true); name.setTextColor(t().text);
+        name.setHint(getString(R.string.text_configuration_name)); name.setHintTextColor(t().textDim);
+        EditText raw = new EditText(this); raw.setTextColor(t().text); raw.setHintTextColor(t().textDim);
         raw.setHint(getString(R.string.text_paste_complete_trusttunnel_toml)); raw.setMinLines(8); raw.setGravity(Gravity.TOP);
+        // The TOML is monospace, as the log is.
+        raw.setTypeface(Typeface.MONOSPACE); raw.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
         raw.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
         // In landscape a keyboard can fill the screen with its own copy of the text. Ask it
         // not to go full screen, and not to copy the text if it does anyway: the copy has no
@@ -847,14 +1338,14 @@ public final class MainActivity extends Activity {
         raw.setImeOptions(raw.getImeOptions() | EditorInfo.IME_FLAG_NO_FULLSCREEN | EditorInfo.IME_FLAG_NO_EXTRACT_UI
                 | EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING);
         raw.setTransformationMethod(PasswordTransformationMethod.getInstance());
-        CheckBox show = new CheckBox(this); show.setText(getString(R.string.text_show_toml_and_password)); show.setTextColor(dialogTextColor());
+        CheckBox show = new CheckBox(this); show.setText(getString(R.string.text_show_toml_and_password)); show.setTextColor(t().text);
         dialogFocus(show);
         show.setOnCheckedChangeListener((b, checked) -> raw.setTransformationMethod(checked ? null : PasswordTransformationMethod.getInstance()));
         form.addView(show, lp(-1, 48));
         if (index >= 0) { name.setText(configs.get(index).name); raw.setText(configs.get(index).toml); }
         form.addView(name, lp(-1, 54)); form.addView(raw, lp(-1, 230));
         ScrollView scroll = new ScrollView(this); scroll.addView(form);
-        AlertDialog editor = new AlertDialog.Builder(this).setTitle(index < 0 ? getString(R.string.text_new_configuration) : getString(R.string.text_edit_configuration))
+        AlertDialog editor = builder().setTitle(index < 0 ? getString(R.string.text_new_configuration) : getString(R.string.text_edit_configuration))
                 .setView(scroll).setNegativeButton(getString(R.string.text_cancel), null)
                 .setPositiveButton(getString(R.string.text_save), null).create();
         editor.setOnDismissListener(d -> {
@@ -904,14 +1395,14 @@ public final class MainActivity extends Activity {
                         }
                         saveConfigs(); editor.dismiss(); applyCurrentRules(); render();
                         String notes = importNotes(checked).trim();
-                        if (!notes.isEmpty()) show(new AlertDialog.Builder(this).setMessage(notes)
+                        if (!notes.isEmpty()) show(builder().setMessage(notes)
                                 .setPositiveButton(getString(R.string.text_ok), null));
                     }, () -> { checking[0] = false; save.setEnabled(true); });
                 });
     }
     private void confirmRemove(int index) {
         if (storageFailed) return;
-        show(new AlertDialog.Builder(this).setTitle(getString(R.string.text_delete_configuration)).setMessage(configs.get(index).name)
+        show(builder().setTitle(getString(R.string.text_delete_configuration)).setMessage(configs.get(index).name)
                 .setNegativeButton(getString(R.string.text_cancel), null).setPositiveButton(getString(R.string.text_delete), (d, w) -> {
                     boolean activeRemoved = index == activeIndex;
                     configs.remove(index);
@@ -946,75 +1437,68 @@ public final class MainActivity extends Activity {
     }
 
     private void split(LinearLayout body) {
-        LinearLayout enabled = row();
-        enabled.addView(label(getString(R.string.text_split_tunnelling), 14, textColor(), false),
-                new LinearLayout.LayoutParams(0, dp(42), 1));
-        Switch splitSwitch = focus(new Switch(this), "split:enabled"); splitSwitch.setChecked(prefs.getBoolean("split_enabled", false));
-        styleSwitch(splitSwitch);
-        splitSwitch.setOnCheckedChangeListener((v, checked) -> {
+        Theme t = t();
+        ToggleView splitSwitch = ui.toggle(prefs.getBoolean("split_enabled", false), false, "split:enabled");
+        splitSwitch.setContentDescription(getString(R.string.text_split_tunnelling));
+        splitSwitch.setListener((v, checked) -> {
             prefs.edit().putBoolean("split_enabled", checked).apply();
             applyCurrentRules();
         });
-        enabled.addView(splitSwitch); body.addView(enabled, lp(-1, 42));
+        body.addView(ui.toggleRow(getString(R.string.text_split_tunnelling), null, splitSwitch), lp(-1, -2));
         boolean through = prefs.getBoolean("through", false);
-        LinearLayout mode = row(); mode.addView(label(getString(R.string.text_mode), 14, textColor(), false),
-                new LinearLayout.LayoutParams(0, dp(42), 1));
-        TextView modeValue = label(through ? getString(R.string.text_through_vpn) : getString(R.string.text_bypass_vpn), 14, dim(), false);
-        mode.addView(modeValue, lp(-2, 42));
-        focus(mode, "split:mode").setOnClickListener(v -> show(new AlertDialog.Builder(this).setTitle(getString(R.string.text_mode))
+        // Only the value and its ▾ are the control: the label is plain text.
+        body.addView(ui.dropdown(getString(R.string.text_mode), through ? getString(R.string.text_through_vpn_62) : getString(R.string.text_bypass_vpn_61),
+                "split:mode", v -> show(builder().setTitle(getString(R.string.text_mode))
                 .setItems(new String[]{getString(R.string.text_bypass_vpn_61), getString(R.string.text_through_vpn_62)}, (dialog, which) -> {
                     prefs.edit().putBoolean("through", which == 1).apply(); applyCurrentRules(); render();
-                })));
-        body.addView(mode, lp(-1, 42));
-        TextView explanation = label(getString(R.string.text_for_through_vpn_choose_applications_or_addresses_sel), 12, dim(), false);
-        body.addView(explanation, lp(-1, 66));
+                }))), lp(-1, -2));
+        TextView explanation = ui.paragraph(getString(R.string.text_for_through_vpn_choose_applications_or_addresses_sel), 12, t.textDim, 0);
+        body.addView(explanation, lp(-1, -2));
         for (Config config : configs) {
             if (configs.indexOf(config) != activeIndex) continue;
             try {
                 org.tomlj.TomlArray imported = RoutingConfig.validate(config.toml).getArray("exclusions");
                 if (imported != null && imported.size() > 0) body.addView(label(getString(R.string.imported_routing_rules, imported.toList().toString()),
-                        12, dim(), false), lp(-1, -2));
+                        12, t.textDim), lp(-1, -2));
             } catch (Exception ignored) { }
         }
         if (prefs.getBoolean("rules_migrated", false)) {
-            body.addView(label(getString(R.string.legacy_rules_removed), 12, dim(), false), lp(-1, -2));
+            body.addView(label(getString(R.string.legacy_rules_removed), 12, t.textDim), lp(-1, -2));
         }
         gap(body, 14);
         LinearLayout domainHeader = row();
-        domainHeader.addView(label(through ? getString(R.string.text_rules_through_vpn) : getString(R.string.text_rules_bypass_vpn), 11, faint(), true),
-                new LinearLayout.LayoutParams(0, dp(29), 1));
-        TextView clearDomains = label(getString(R.string.text_clear), 12, accent(), false);
-        focus(clearDomains, "domains:clear").setOnClickListener(v -> { prefs.edit().remove("domains").apply(); applyCurrentRules(); render(); });
-        domainHeader.addView(clearDomains, lp(-2, 29)); body.addView(domainHeader, lp(-1, 29));
+        domainHeader.addView(label(through ? getString(R.string.text_rules_through_vpn) : getString(R.string.text_rules_bypass_vpn), 12, t.textFaint),
+                weighted());
+        TextView clearDomains = ui.link(getString(R.string.text_clear), 12, Ui.LinkKind.ACCENT, "domains:clear");
+        clearDomains.setOnClickListener(v -> { prefs.edit().remove("domains").apply(); applyCurrentRules(); render(); });
+        domainHeader.addView(clearDomains, lp(-2, -2)); body.addView(domainHeader, lp(-1, -2));
+        gap(body, 6);
         Set<String> rules = new HashSet<>(prefs.getStringSet("domains", Collections.emptySet()));
         LinearLayout domains = column();
         List<String> shownRules = sorted(rules);
         for (int i = 0; i < shownRules.size(); i++) {
             String rule = shownRules.get(i);
-            LinearLayout r = row(); TextView text = label(rule, 14, textColor(), false);
-            r.setBackground(shape(surface(), 13)); r.setPadding(dp(11), 0, dp(4), 0);
-            r.addView(text, new LinearLayout.LayoutParams(0, dp(28), 1));
-            TextView del = focus(label("✕", 16, dim(), false), "domain:" + i); del.setGravity(Gravity.CENTER); r.addView(del, lp(28, 28));
+            LinearLayout chip = ui.chip(rule, false, false, null, true);
+            ImageView del = ui.chipX("domain:" + i, false);
+            del.setContentDescription(getString(R.string.text_delete));
             del.setOnClickListener(v -> { rules.remove(rule); prefs.edit().putStringSet("domains", rules).apply(); applyCurrentRules(); render(); });
-            domains.addView(r, lp(-1, 28)); gap(domains, 6);
+            chip.addView(del, ui.chipXLp());
+            domains.addView(chip, lp(-1, 28)); gap(domains, 6);
         }
         body.addView(domains, lp(-1, -2));
-        EditText domainInput = focus(new EditText(this), "domains:input"); domainInput.setSingleLine(true); domainInput.setTextSize(13);
-        domainInput.setTextColor(textColor()); domainInput.setHintTextColor(faint());
-        domainInput.setHint(getString(R.string.text_domains_or_ips_space_comma));
-        domainInput.setPadding(dp(12), 0, dp(12), 0);
-        domainInput.setBackground(shape(input(), 8));
+        EditText domainInput = ui.pageInput(getString(R.string.text_domains_or_ips_space_comma), "domains:input");
         domainInput.setOnEditorActionListener((field, action, event) -> {
             addDomains(domainInput.getText().toString()); domainInput.setText(""); return true;
         });
         body.addView(domainInput, lp(-1, 36));
-        gap(body, 15);
+        gap(body, 14);
         LinearLayout appHeader = row();
-        appHeader.addView(label(through ? getString(R.string.text_applications_through_vpn) : getString(R.string.text_applications_bypass_vpn), 11, faint(), true),
-                new LinearLayout.LayoutParams(0, dp(29), 1));
-        TextView chooseLink = label(getString(R.string.text_choose), 12, accent(), false);
-        focus(chooseLink, "apps:choose").setOnClickListener(v -> appPicker());
-        appHeader.addView(chooseLink, lp(-2, 29)); body.addView(appHeader, lp(-1, 29));
+        appHeader.addView(label(through ? getString(R.string.text_applications_through_vpn) : getString(R.string.text_applications_bypass_vpn), 12, t.textFaint),
+                weighted());
+        TextView chooseLink = ui.link(getString(R.string.text_choose), 12, Ui.LinkKind.ACCENT, "apps:choose");
+        chooseLink.setOnClickListener(v -> appPicker());
+        appHeader.addView(chooseLink, lp(-2, -2)); body.addView(appHeader, lp(-1, -2));
+        gap(body, 6);
         LinearLayout apps = column();
         Set<String> selected = prefs.getStringSet("apps", Collections.emptySet());
         PackageManager pm = getPackageManager();
@@ -1022,24 +1506,24 @@ public final class MainActivity extends Activity {
         for (String pkg : sorted(selected)) {
             try {
                 android.content.pm.ApplicationInfo appInfo = pm.getApplicationInfo(pkg, 0);
-                LinearLayout appRow = row();
-                appRow.setBackground(shape(surface(), 13)); appRow.setPadding(dp(10), 0, dp(4), 0);
+                LinearLayout appRow = ui.chip(appInfo.loadLabel(pm).toString(), false, false, null, true);
                 ImageView appIcon = new ImageView(this); appIcon.setImageDrawable(appInfo.loadIcon(pm));
-                appRow.addView(appIcon, lp(20, 20)); gapHorizontal(appRow, 8);
-                appRow.addView(label(appInfo.loadLabel(pm).toString(), 13, textColor(), false),
-                        new LinearLayout.LayoutParams(0, dp(28), 1));
-                TextView remove = focus(label("✕", 16, dim(), false), "app:" + appRows++); remove.setGravity(Gravity.CENTER);
+                appRow.addView(appIcon, 0, lp(20, 20));
+                appRow.addView(new View(this), 1, lp(8, 1));
+                ImageView remove = ui.chipX("app:" + appRows++, false);
+                remove.setContentDescription(getString(R.string.text_delete));
                 remove.setOnClickListener(v -> {
                     Set<String> next = new HashSet<>(prefs.getStringSet("apps", Collections.emptySet()));
                     next.remove(pkg); prefs.edit().putStringSet("apps", next).apply(); applyCurrentRules(); render();
                 });
-                appRow.addView(remove, lp(28, 28)); apps.addView(appRow, lp(-1, 28)); gap(apps, 6);
+                appRow.addView(remove, ui.chipXLp()); apps.addView(appRow, lp(-1, 28)); gap(apps, 6);
             } catch (PackageManager.NameNotFoundException ignored) { }
         }
         body.addView(apps, lp(-1, -2));
-        TextView addApp = label(getString(R.string.text_choose_installed_applications), 13, faint(), false);
-        addApp.setPadding(dp(12), 0, dp(12), 0); addApp.setBackground(shape(input(), 8));
-        focus(addApp, "apps:add").setOnClickListener(v -> appPicker()); body.addView(addApp, lp(-1, 36));
+        TextView addApp = label(getString(R.string.text_choose_installed_applications), 13, t.textFaint);
+        addApp.setPadding(dp(12), 0, dp(12), 0);
+        ui.focus(addApp, "apps:add", Ui.Look.FIELD).setOnClickListener(v -> appPicker());
+        body.addView(addApp, lp(-1, 36));
     }
     private void addDomains(String inputText) {
         Set<String> rules = new HashSet<>(prefs.getStringSet("domains", Collections.emptySet()));
@@ -1062,29 +1546,32 @@ public final class MainActivity extends Activity {
         for (ResolveInfo app : found) {
             String pkg = app.activityInfo.packageName;
             if (pkg.equals(getPackageName()) || !seen.add(pkg)) continue;
-            CheckBox box = new CheckBox(this); box.setText(app.loadLabel(pm)); box.setTextColor(dialogTextColor());
-            box.setButtonTintList(android.content.res.ColorStateList.valueOf(dialogSuccess()));
+            CheckBox box = new CheckBox(this); box.setText(app.loadLabel(pm)); box.setTextColor(t().text);
+            box.setButtonTintList(android.content.res.ColorStateList.valueOf(t().success));
             box.setChecked(chosen.contains(pkg)); box.setPadding(dp(4), dp(6), dp(4), dp(6)); dialogFocus(box);
             box.setOnCheckedChangeListener((b, checked) -> { if (checked) chosen.add(pkg); else chosen.remove(pkg); });
             list.addView(box, lp(-1, 52));
         }
         ScrollView scroll = new ScrollView(this); scroll.addView(list);
-        show(new AlertDialog.Builder(this).setTitle(getString(R.string.text_choose_applications)).setView(scroll)
+        show(builder().setTitle(getString(R.string.text_choose_applications)).setView(scroll)
                 .setNegativeButton(getString(R.string.text_cancel), null).setPositiveButton(getString(R.string.text_done), (d, w) -> {
                     prefs.edit().putStringSet("apps", chosen).apply(); applyCurrentRules(); render();
                 }));
     }
 
     private void settings(LinearLayout body) {
+        Theme t = t();
         section(body, getString(R.string.text_general));
-        LinearLayout appearance = row();
-        appearance.addView(label(getString(R.string.text_theme), 14, textColor(), false), new LinearLayout.LayoutParams(0, dp(42), 1));
-        appearance.addView(label(dark ? getString(R.string.text_dark) : getString(R.string.text_light), 14, dim(), false), lp(-2, 42));
-        focus(appearance, "settings:theme").setOnClickListener(v -> show(new AlertDialog.Builder(this).setTitle(getString(R.string.text_theme))
-                .setItems(new String[]{getString(R.string.text_light_78), getString(R.string.text_dark_79)}, (d, which) -> {
-                    dark = which == 1; prefs.edit().putBoolean("dark", dark).apply(); render();
-                })));
-        body.addView(appearance, lp(-1, 42)); separator(body);
+        // System (the default), Light or Dark, as on the desktop.
+        String[] modes = {Theme.SYSTEM, Theme.LIGHT_MODE, Theme.DARK_MODE};
+        String[] names = {getString(R.string.text_theme_system), getString(R.string.text_light_78), getString(R.string.text_dark_79)};
+        int shownMode = 0;
+        for (int i = 0; i < modes.length; i++) if (modes[i].equals(themeMode)) shownMode = i;
+        body.addView(ui.dropdown(getString(R.string.text_theme), names[shownMode], "settings:theme",
+                v -> show(builder().setTitle(getString(R.string.text_theme)).setItems(names, (d, which) -> {
+                    themeMode = modes[which]; prefs.edit().putString("theme_mode", themeMode).apply(); render();
+                }))), lp(-1, -2));
+        body.addView(ui.sep(), lp(-1, 1));
         addSwitch(body, getString(R.string.text_connect_on_launch), "", "auto_connect", false);
         section(body, getString(R.string.text_security));
         addSwitch(body, "Kill switch", getString(R.string.text_blocks_traffic_while_reconnecting), "killswitch", true);
@@ -1092,20 +1579,22 @@ public final class MainActivity extends Activity {
         // keep package visibility from hiding the screen on a phone.
         if (getPackageManager().resolveActivity(new Intent(Settings.ACTION_VPN_SETTINGS), 0) != null) {
             LinearLayout systemVpn = row();
-            systemVpn.addView(label(getString(R.string.text_android_vpn_settings), 14, textColor(), false),
-                    new LinearLayout.LayoutParams(0, dp(48), 1));
-            systemVpn.addView(label(getString(R.string.text_open), 13, accent(), false), lp(-2, 48));
+            systemVpn.setMinimumHeight(dp(48));
+            systemVpn.addView(label(getString(R.string.text_android_vpn_settings), 14, t.text), weighted());
+            // The word is the control, not the row.
+            TextView open = ui.link(getString(R.string.text_open), 13, Ui.LinkKind.ACCENT, "settings:vpn");
             // Some TVs have only a stub for it, which can still fail to open.
-            focus(systemVpn, "settings:vpn").setOnClickListener(v -> {
+            open.setOnClickListener(v -> {
                 try { startActivity(new Intent(Settings.ACTION_VPN_SETTINGS)); }
                 catch (Exception e) { toast(getString(R.string.text_vpn_settings_are_unavailable)); }
             });
-            body.addView(systemVpn, lp(-1, 48));
-            body.addView(label(getString(R.string.text_enable_always_on_vpn_and_block_connections_without_v),
-                    12, dim(), false), lp(-1, 46));
-            body.addView(label(getString(R.string.lockdown_app_warning), 12, dim(), false), lp(-1, -2));
+            systemVpn.addView(open, lp(-2, -2));
+            body.addView(systemVpn, lp(-1, -2));
+            body.addView(ui.paragraph(getString(R.string.text_enable_always_on_vpn_and_block_connections_without_v),
+                    12, t.textFaint, 0), lp(-1, -2));
+            body.addView(ui.paragraph(getString(R.string.lockdown_app_warning), 12, t.textFaint, 0), lp(-1, -2));
         } else {
-            body.addView(label(getString(R.string.text_no_always_on_here), 12, dim(), false), lp(-1, -2));
+            body.addView(ui.paragraph(getString(R.string.text_no_always_on_here), 12, t.textFaint, 0), lp(-1, -2));
         }
         section(body, getString(R.string.text_log));
         addSwitch(body, getString(R.string.text_enable_logging), "", "logging", true);
@@ -1113,12 +1602,13 @@ public final class MainActivity extends Activity {
         if (!AndroidUpdater.INSTANCE.official(this)) {
             // Android would refuse an update signed with another key than this build's.
             updateStatus = null; updateAction = null;
-            body.addView(label(getString(R.string.update_unofficial), 12, dim(), false), lp(-1, -2));
+            body.addView(ui.paragraph(getString(R.string.update_unofficial), 12, t.textFaint, 0), lp(-1, -2));
         } else {
             addSwitch(body, getString(R.string.update_on_launch), "", "check_updates_on_launch", false);
-            updateStatus = label("", 12, dim(), false);
+            updateStatus = ui.paragraph("", 12, t.textDim, 0);
             body.addView(updateStatus, lp(-1, -2));
-            updateAction = focus(label("", 14, accent(), false), "settings:update");
+            // As wide as its words.
+            updateAction = ui.link("", 14, Ui.LinkKind.ACCENT, "settings:update");
             updateAction.setOnClickListener(v -> {
                 AndroidUpdater.State update = AndroidUpdater.INSTANCE.getState();
                 if (update == AndroidUpdater.State.AVAILABLE) AndroidUpdater.INSTANCE.download(this);
@@ -1126,18 +1616,19 @@ public final class MainActivity extends Activity {
                 else if (update == AndroidUpdater.State.READY || update == AndroidUpdater.State.INSTALLING) installUpdate();
                 else AndroidUpdater.INSTANCE.check(this);
             });
-            body.addView(updateAction, lp(-1, 48));
+            body.addView(updateAction, lp(-2, -2));
             refreshUpdateControls();
         }
         section(body, getString(R.string.text_about));
-        body.addView(label(getString(R.string.text_freetunnel_for_android), 14, textColor(), false), lp(-1, 42));
-        body.addView(label(getString(R.string.text_version) + BuildConfig.VERSION_NAME, 12, dim(), false), lp(-1, 28));
+        body.addView(ui.paragraph(getString(R.string.text_freetunnel_for_android), 14, t.text, 42), lp(-1, -2));
+        body.addView(ui.paragraph(getString(R.string.text_version) + BuildConfig.VERSION_NAME, 12, t.textDim, 0), lp(-1, -2));
         LinearLayout licenses = row();
-        licenses.addView(label(getString(R.string.text_open_source_licenses), 14, textColor(), false),
-                new LinearLayout.LayoutParams(0, dp(48), 1));
-        licenses.addView(label(getString(R.string.text_open), 13, accent(), false), lp(-2, 48));
-        focus(licenses, "settings:licenses").setOnClickListener(v -> openSourceLicenses());
-        body.addView(licenses, lp(-1, 48));
+        licenses.setMinimumHeight(dp(48));
+        licenses.addView(label(getString(R.string.text_open_source_licenses), 14, t.text), weighted());
+        TextView openLicenses = ui.link(getString(R.string.text_open), 13, Ui.LinkKind.ACCENT, "settings:licenses");
+        openLicenses.setOnClickListener(v -> openSourceLicenses());
+        licenses.addView(openLicenses, lp(-2, -2));
+        body.addView(licenses, lp(-1, -2));
     }
     // The third-party notices and the license texts, as app/build.gradle copies them
     // from the repository into the APK's assets.
@@ -1156,7 +1647,7 @@ public final class MainActivity extends Activity {
             Collections.sort(texts, String.CASE_INSENSITIVE_ORDER);
             files.addAll(texts);
         }
-        show(new AlertDialog.Builder(this).setTitle(getString(R.string.text_open_source_licenses))
+        show(builder().setTitle(getString(R.string.text_open_source_licenses))
                 .setItems(files.toArray(new String[0]), (d, which) -> showLicenseText(files.get(which)))
                 .setNegativeButton(getString(R.string.text_done), null));
     }
@@ -1173,7 +1664,7 @@ public final class MainActivity extends Activity {
             toast(getString(R.string.text_licenses_unavailable));
             return;
         }
-        TextView body = label(text, 12, dialogTextColor(), false);
+        TextView body = label(text, 12, t().text);
         body.setGravity(Gravity.START);
         body.setPadding(dp(20), dp(8), dp(20), dp(8));
         ScrollView scroll = new ScrollView(this);
@@ -1183,7 +1674,7 @@ public final class MainActivity extends Activity {
         frame.setAddStatesFromChildren(true);
         frame.addView(scroll);
         dialogFocus(frame);
-        show(new AlertDialog.Builder(this).setTitle(asset).setView(frame)
+        show(builder().setTitle(asset).setView(frame)
                 .setPositiveButton(getString(R.string.text_done), null)
                 .setOnCancelListener(d -> openSourceLicenses()));
     }
@@ -1192,7 +1683,7 @@ public final class MainActivity extends Activity {
     private void installUpdate() {
         vpnState = FreeTunnelVpnService.state(this);
         if (getPackageManager().canRequestPackageInstalls() && isVpnActive()) {
-            show(new AlertDialog.Builder(this).setTitle(getString(R.string.update_install))
+            show(builder().setTitle(getString(R.string.update_install))
                     .setMessage(getString(R.string.update_disconnect_warning))
                     .setNegativeButton(getString(R.string.text_cancel), null)
                     .setPositiveButton(getString(R.string.update_install), (d, w) -> AndroidUpdater.INSTANCE.install(this)));
@@ -1235,36 +1726,25 @@ public final class MainActivity extends Activity {
         if (failure == UpdatePolicy.Failure.INSTALLER) return R.string.update_error_installer;
         return R.string.update_error_network;
     }
-    private void separator(LinearLayout parent) {
-        View line = new View(this); line.setBackgroundColor(dark ? Color.parseColor("#2e2e2e") : Color.parseColor("#d0d0d0"));
-        parent.addView(line, lp(-1, 1));
-    }
+    // A row of a page: a label, with its subtitle under it, and the desktop's Toggle. Only the
+    // toggle is the control.
     private void addSwitch(LinearLayout parent, String title, String subtitle, String key, boolean initial) {
-        LinearLayout r = row(); LinearLayout copy = column();
-        copy.addView(label(title, 14, textColor(), false), lp(-1, 23));
-        if (!subtitle.isEmpty()) copy.addView(label(subtitle, 12, dim(), false), lp(-1, 22));
-        r.addView(copy, new LinearLayout.LayoutParams(0, -2, 1));
-        Switch sw = focus(new Switch(this), "switch:" + key); sw.setChecked(prefs.getBoolean(key, initial));
-        styleSwitch(sw);
-        sw.setOnCheckedChangeListener((v, enabled) -> {
+        ToggleView sw = ui.toggle(prefs.getBoolean(key, initial), false, "switch:" + key);
+        sw.setContentDescription(title);
+        sw.setListener((v, enabled) -> {
             prefs.edit().putBoolean(key, enabled).apply();
             if (key.equals("killswitch")) applyCurrentRules();
         });
-        r.addView(sw); parent.addView(r, lp(-1, subtitle.isEmpty() ? 42 : 56));
-    }
-    private void styleSwitch(Switch sw) {
-        int[][] states = {new int[]{android.R.attr.state_checked}, new int[]{}};
-        int[] thumbs = {accent(), dark ? Color.parseColor("#9a9a9a") : Color.parseColor("#ffffff")};
-        int[] tracks = {dark ? Color.parseColor("#575757") : Color.parseColor("#a8a8a8"),
-                dark ? Color.parseColor("#3a3a3a") : Color.parseColor("#c4c4c4")};
-        sw.setThumbTintList(new android.content.res.ColorStateList(states, thumbs));
-        sw.setTrackTintList(new android.content.res.ColorStateList(states, tracks));
+        parent.addView(ui.toggleRow(title, subtitle, sw), lp(-1, -2));
     }
     private void logs(LinearLayout body) {
+        Theme t = t();
+        // Clear and Copy are as wide as their words, with room between them.
         LinearLayout actions = row();
-        TextView clear = focus(label(getString(R.string.text_clear), 13, accent(), false), "log:clear");
-        actions.addView(clear, new LinearLayout.LayoutParams(0, dp(34), 1));
-        TextView copy = focus(label(getString(R.string.text_copy), 13, accent(), false), "log:copy"); actions.addView(copy, lp(-2, 34));
+        TextView clear = ui.link(getString(R.string.text_clear), 13, Ui.LinkKind.ACCENT, "log:clear");
+        actions.addView(clear, lp(-2, -2));
+        actions.addView(new View(this), new LinearLayout.LayoutParams(0, 1, 1));
+        TextView copy = ui.link(getString(R.string.text_copy), 13, Ui.LinkKind.ACCENT, "log:copy"); actions.addView(copy, lp(-2, -2));
         clear.setOnClickListener(v -> {
             try { new java.io.File(getFilesDir(), "freetunnel.log").delete(); } catch (Exception ignored) { }
             render();
@@ -1279,14 +1759,15 @@ public final class MainActivity extends Activity {
             } catch (Exception e) { toast(getString(R.string.text_could_not_read_log)); }
         });
         body.addView(actions, lp(-1, 34)); gap(body, 8);
-        FrameLayout panel = new FrameLayout(this); panel.setBackground(shape(surface(), 8));
+        FrameLayout panel = new FrameLayout(this); panel.setBackground(ui.shape(t.surface, 8));
         String logText = getString(R.string.text_connect_vpn_to_see_the_log);
         java.io.File logFile = new java.io.File(getFilesDir(), "freetunnel.log");
         if (logFile.exists()) {
             try { logText = new String(java.nio.file.Files.readAllBytes(logFile.toPath()), StandardCharsets.UTF_8).trim(); }
             catch (Exception ignored) { logText = getString(R.string.text_could_not_read_log); }
         }
-        TextView placeholder = label(logText, 12, logFile.exists() ? dim() : faint(), false);
+        // The log is monospace, 11 in the text colour; the placeholder is 13 in textFaint.
+        TextView placeholder = logFile.exists() ? ui.mono(logText, 11, t.text) : label(logText, 13, t.textFaint);
         placeholder.setGravity(Gravity.TOP | Gravity.START);
         placeholder.setPadding(dp(12), dp(12), dp(12), dp(12));
         // On a TV, selectable text would take the remote's arrows as cursor moves. Without
@@ -1296,6 +1777,7 @@ public final class MainActivity extends Activity {
         body.addView(panel, new LinearLayout.LayoutParams(-1, 0, 1));
     }
     @Override protected void onDestroy() {
+        toastHandler.removeCallbacksAndMessages(null);
         stopReceiver();
         validationRequest++;
         validationWorker.shutdown();
@@ -1315,7 +1797,7 @@ public final class MainActivity extends Activity {
         activeIndex = Math.max(0, Math.min(activeIndex, configs.size() - 1));
     }
     private void rootStorageWarning() {
-        show(new AlertDialog.Builder(this).setTitle(getString(R.string.text_configurations_are_unavailable))
+        show(builder().setTitle(getString(R.string.text_configurations_are_unavailable))
                 .setMessage(getString(R.string.text_android_could_not_read_storage_saved_data_is_unchang))
                 .setPositiveButton(getString(R.string.text_ok), null));
     }

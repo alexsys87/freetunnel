@@ -46,6 +46,11 @@ certificate is not an official release or an update compatibility contract.
   VPN is unmetered on Android 10+; fatal errors show a separate notification.
 - Russian and English UI. TCP ping measures reachability of the first endpoint
   address, not VPN throughput or tunnel latency.
+- The desktop's look: its colours, which `tests/test_android_theme_matches_desktop.sh`
+  checks against `qml/Main.qml`, and its icons, which
+  [scripts/android-icons-from-svg.py](../scripts/android-icons-from-svg.py) makes
+  from `assets/icons` and `assets/logo.svg`. The theme is System (the default,
+  which follows the device), Light or Dark, under Settings → General → Theme.
 
 ## Split tunnelling
 
@@ -72,8 +77,12 @@ commas or semicolons as separators.
 The same APK installs on Android TV and Google TV, sideloaded, and shows on
 the TV launcher with its banner. It works with a remote:
 
-- The arrows reach every control, and a ring shows which one has the focus,
-  in dialogs too. When a page updates, such as on a ping result or a change of
+- The arrows reach every control, and the one with the focus is filled in the
+  accent, as the desktop fills a selected chip, around only what it holds: a
+  link or a dropdown's value is the width of its words, not of the screen. A
+  destructive control focuses in danger, and a text field's border turns
+  accent. The system dialogs, which the app's own overlays are replacing, still
+  show a ring. When a page updates, such as on a ping result or a change of
   connection state, the focus and the scroll position stay where they were.
 - Home opens on Connect or Disconnect, or on Reconnect while the kill switch
   blocks traffic. Back goes to Home first, onto that control, and leaves the
