@@ -676,7 +676,7 @@ class TvDeviceTest {
             assertEquals("and the focus stays", "home:config", focusedKey(a))
             // The two tiles are not controls, and say MB/s.
             onMain {
-                val tiles = descendants(pageRoot(a)).filterIsInstance<TextView>().filter { it.text.endsWith(context.getString(R.string.text_mb_per_s)) }
+                val tiles = descendants(pageRoot(a)).filterIsInstance<TextView>().filter { it.text.endsWith(context.getString(R.string.text_mb_per_s)) }.toList()
                 assertEquals(2, tiles.size)
                 for (tile in tiles) {
                     assertTrue("\"${tile.text}\" is a number with one decimal", Regex("\\d+\\.\\d MB/s|\\d+\\.\\d МБ/с").matches(tile.text))
@@ -685,7 +685,7 @@ class TvDeviceTest {
                     assertEquals("116 by 44", Math.round(dp(a, 116f)), box.width)
                     assertEquals(Math.round(dp(a, 44f)), box.height)
                 }
-                val arrows = descendants(pageRoot(a)).filterIsInstance<TextView>().filter { it.text.toString() == "↓" || it.text.toString() == "↑" }
+                val arrows = descendants(pageRoot(a)).filterIsInstance<TextView>().filter { it.text.toString() == "↓" || it.text.toString() == "↑" }.toList()
                 assertEquals(listOf(theme(a).success, theme(a).textDim), arrows.sortedByDescending { it.text.toString() }.map { it.currentTextColor })
             }
         } finally {
@@ -900,7 +900,7 @@ class TvDeviceTest {
         click(a, "config:0:export")
         eventually("The export menu opens") { overlayTag(a, "select") != null }
         val menu = overlayTag(a, "select")!!
-        val texts = onMain { descendants(menu).filterIsInstance<TextView>().map { it.text.toString() } }
+        val texts = onMain { descendants(menu).filterIsInstance<TextView>().map { it.text.toString() }.toList() }
         assertEquals("Two rows, and no check mark", listOf(context.getString(R.string.export_toml), context.getString(R.string.export_deep_link)), texts)
         click(a, "select:1")
         eventually("The menu closes") { overlayTag(a, "select") == null }
@@ -1333,7 +1333,7 @@ class TvDeviceTest {
         ok(a, "settings:licenses")
         val items = onMain {
             descendants(root(a).findViewWithTag<View>("overlay:licenses")).filter { (it.tag as? String)?.matches(Regex("licenses:\\d+")) == true }
-                .map { (it as TextView).text.toString() }
+                .map { (it as TextView).text.toString() }.toList()
         }
         assertEquals(listOf("THIRD_PARTY_NOTICES.md", "LICENSE"), items.take(2))
         assertTrue("The core's license texts are listed", items.contains("licenses/common/nghttp2.txt"))
@@ -1453,7 +1453,7 @@ class TvDeviceTest {
         instrumentation.waitForIdleSync()
         val rows = onMain {
             descendants(root(a).findViewWithTag<View>("overlay:addmenu")).filter { (it.tag as? String)?.startsWith("add:") == true }
-                .map { it.tag as String to descendants(it).filterIsInstance<TextView>().first().text.toString() }
+                .map { it.tag as String to descendants(it).filterIsInstance<TextView>().first().text.toString() }.toList()
         }
         val others = listOf("add:paste" to context.getString(R.string.text_paste_from_clipboard),
             "add:file" to context.getString(R.string.add_from_file), "add:create" to context.getString(R.string.add_create_new))
@@ -2083,7 +2083,7 @@ class TvDeviceTest {
         assertEquals("The popup's right edge is the control's", 0, first[0])
         assertEquals("The popup is 4 under the control", four, first[1])
         // The colour at rest, whichever row a remote starts on: a row's focus is its fill, and its words keep their colour.
-        val texts = onMain { descendants(root(a).findViewWithTag<View>("overlay:select")).filterIsInstance<TextView>().map { it.text.toString() to it.textColors.defaultColor } }
+        val texts = onMain { descendants(root(a).findViewWithTag<View>("overlay:select")).filterIsInstance<TextView>().map { it.text.toString() to it.textColors.defaultColor }.toList() }
         assertEquals(listOf("System", "Light", "✓", "Dark"), texts.map { it.first })
         assertEquals("The current choice is in the accent", theme(a).accent, texts.single { it.first == "Light" }.second)
         assertEquals("and so is its check mark", theme(a).accent, texts.single { it.first == "✓" }.second)
@@ -2193,7 +2193,7 @@ class TvDeviceTest {
         onMain {
             assertEquals(context.getString(R.string.import_replace), (root(a).findViewWithTag<View>("confirm:ok") as TextView).text.toString())
             assertEquals(context.getString(R.string.import_add_copy), (root(a).findViewWithTag<View>("confirm:alt") as TextView).text.toString())
-            val keys = descendants(root(a).findViewWithTag<View>("overlay:confirm")).mapNotNull { it.tag as? String }.filter { it.startsWith("confirm:") && it != "confirm:message" }
+            val keys = descendants(root(a).findViewWithTag<View>("overlay:confirm")).mapNotNull { it.tag as? String }.filter { it.startsWith("confirm:") && it != "confirm:message" }.toList()
             assertEquals("Cancel, the alternative and the red button, in that order", listOf("confirm:cancel", "confirm:alt", "confirm:ok"), keys)
             // Asked and clicked in the same moment: inside the 400 ms, however slow the device is.
             assertTrue(root(a).findViewWithTag<View>("confirm:alt").performClick())
@@ -2372,7 +2372,7 @@ class TvDeviceTest {
         render(a, 3)
         ok(a, "settings:theme")
         fun rows() = onMain {
-            descendants(root(a).findViewWithTag<View>("overlay:select")).filterIsInstance<TextView>().map { it.text.toString() }
+            descendants(root(a).findViewWithTag<View>("overlay:select")).filterIsInstance<TextView>().map { it.text.toString() }.toList()
         }
         val names = listOf(R.string.text_theme_system, R.string.text_light_78, R.string.text_dark_79).map { context.getString(it) }
         assertEquals(listOf(names[0], "\u2713", names[1], names[2]), rows())
@@ -3004,7 +3004,7 @@ class TvDeviceTest {
         assertEquals("A config that names no profile uses Default", context.getString(R.string.split_profile_default), shown())
         click(a, "editor:profile")
         eventually("The choices open under the box") { overlayTag(a, "select") != null }
-        val rows = onMain { descendants(root(a).findViewWithTag<View>("overlay:select")).filterIsInstance<TextView>().map { it.text.toString() } }
+        val rows = onMain { descendants(root(a).findViewWithTag<View>("overlay:select")).filterIsInstance<TextView>().map { it.text.toString() }.toList() }
         assertEquals(listOf(context.getString(R.string.split_profile_default), "✓", "Work"), rows)
         click(a, "select:1")
         eventually("Work is chosen") { shown() == "Work" }
@@ -3061,7 +3061,7 @@ class TvDeviceTest {
     private fun visible(a: MainActivity, key: String): Boolean = onMain { root(a).findViewWithTag<View?>(key)?.visibility == View.VISIBLE }
     // The rows of the select popup that is open, as the texts it shows.
     private fun selectRows(a: MainActivity): List<String> = onMain {
-        descendants(root(a).findViewWithTag<View>("overlay:select")).filterIsInstance<TextView>().map { it.text.toString() }
+        descendants(root(a).findViewWithTag<View>("overlay:select")).filterIsInstance<TextView>().map { it.text.toString() }.toList()
     }
 
     // The page as the desktop has it, top to bottom, with its margins (18 on the sides, 6 above, 14 below), its section labels as
