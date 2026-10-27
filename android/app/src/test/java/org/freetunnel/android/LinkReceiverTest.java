@@ -705,6 +705,15 @@ public final class LinkReceiverTest {
         // The button: accent, accentText, radius 8, 44 high, weight 500, no border.
         assertTrue(css.contains("button{display:block;width:100%;height:44px;border:0;border-radius:8px;"
                 + "background:var(--accent);color:var(--accent-text);font:500 16px system-ui"));
+        // The desktop has no focus ring: where the focus is, the button takes its hover look and the file field's button its own,
+        // each in a rule of its own, and no rule draws an outline but to take the browser's away.
+        assertTrue(css.contains("button:hover{background:var(--accent-hover)}"));
+        assertTrue(css.contains("button:focus-visible{outline:none;background:var(--accent-hover)}"));
+        assertTrue(css.contains("input[type=file]:focus-visible{outline:none}"));
+        for (String name : new String[]{"::file-selector-button", "::-webkit-file-upload-button"})
+            assertTrue(name, css.contains("input[type=file]:focus-visible" + name + "{background:var(--surface-hover)}"));
+        assertFalse("No ring", css.matches("(?s).*outline:\\s*[0-9].*"));
+        assertFalse("No ring", css.contains("outline-offset"));
         // Notices on infoBg, radius 8: warn and success. Notes 13 in textFaint.
         assertTrue(css.contains(".notice{margin:0 0 16px;padding:8px 10px;border-radius:8px;background:var(--info);"));
         assertTrue(css.contains(".ok{color:var(--success)}"));

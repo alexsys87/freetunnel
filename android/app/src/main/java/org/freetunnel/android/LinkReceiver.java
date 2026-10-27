@@ -187,11 +187,17 @@ final class LinkReceiver {
                     + "input[type=file]::file-selector-button:hover{" + fileHover + "}"
                     + "input[type=file]::-webkit-file-upload-button{" + fileButton + "}"
                     + "input[type=file]::-webkit-file-upload-button:hover{" + fileHover + "}"
+                    // The file field's own focus is its button's hover look, not the browser's ring around the field.
+                    + "input[type=file]:focus-visible{outline:none}"
+                    + "input[type=file]:focus-visible::file-selector-button{" + fileHover + "}"
+                    + "input[type=file]:focus-visible::-webkit-file-upload-button{" + fileHover + "}"
                     + "button{display:block;width:100%;height:44px;border:0;border-radius:8px;"
                     + "background:var(--accent);color:var(--accent-text);font:500 16px " + FONT + ";cursor:pointer;"
                     + "-webkit-appearance:none;appearance:none}"
                     + "button:hover{background:var(--accent-hover)}"
-                    + "button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}"
+                    // The desktop has no ring anywhere: where the focus is, a control takes the look it has under the pointer, and the
+                    // text box its accent border. A rule of its own, since a browser that does not know :focus-visible drops the rule.
+                    + "button:focus-visible{outline:none;background:var(--accent-hover)}"
                     + ".note{margin:14px 0 0;font-size:13px;color:var(--faint)}";
         }
 
