@@ -91,6 +91,9 @@ class FreeTunnelVpnService : VpnService() {
         }
     }
 
+    // Its notifications speak the app's language, which Android 8 to 12 only knows from this (AppLocale).
+    override fun attachBaseContext(base: Context) { super.attachBaseContext(AppLocale.wrap(base)) }
+
     private val worker = Executors.newSingleThreadExecutor { Thread(it, "freetunnel-vpn") }
     private val prefs by lazy { getSharedPreferences("freetunnel", MODE_PRIVATE) }
     private var client: VpnClient? = null
@@ -197,7 +200,7 @@ class FreeTunnelVpnService : VpnService() {
             } catch (error: Throwable) {
                 if (!destroyed && startId == latestStartId && epoch == permissionEpoch) {
                     if (retainedTun != null && client === previous && !establishedThisRequest) {
-                        logEvent("VPN settings rejected: ${error.javaClass.simpleName}")
+                        logEvent("VPN settings rejected: ${error.javaClass.simpleName}", LogLines.WARN)
                         publishState(currentState)
                         getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, notification(stateText()))
                         getSystemService(NotificationManager::class.java).notify(FAILURE_ID,
@@ -206,7 +209,7 @@ class FreeTunnelVpnService : VpnService() {
                                 .setContentIntent(openApp()).setAutoCancel(true).build())
                         return@execute
                     }
-                    logEvent("VPN start failed: ${error.javaClass.simpleName}")
+                    logEvent("VPN start failed: ${error.javaClass.simpleName}", LogLines.ERROR)
                     fail(getString(R.string.text_could_not_start_vpn))
                 }
             }
@@ -244,7 +247,8 @@ class FreeTunnelVpnService : VpnService() {
         val listener = object : VpnClientListener {
             override fun protectSocket(socket: Int) = protect(socket)
             override fun verifyCertificate(certificate: ByteArray?, rawChain: List<ByteArray?>?) = verifier.verifyCertificate(certificate, rawChain)
-            override fun onConnectionInfo(info: String) = Unit
+            // Each connection the core makes, as the desktop logs them (Backend: connectionInfo): at INFO, when logging is on.
+            override fun onConnectionInfo(info: String) = logEvent(info)
             override fun onStateChanged(state: Int) = execute {
                 if (destroyed || token != generation) return@execute
                 when {
@@ -357,8 +361,8 @@ class FreeTunnelVpnService : VpnService() {
                 showBlocked(reason, silent = continued)
             }
             // Once per reason and episode: retries every 30 s would otherwise
-            // push everything else out of the 200-line log.
-            if (loggedReasons.add(reason)) logEvent("$reason; kill switch keeps traffic blocked, reconnecting automatically")
+            // push everything else out of the log.
+            if (loggedReasons.add(reason)) logEvent("$reason; kill switch keeps traffic blocked, reconnecting automatically", LogLines.WARN)
             scheduleRetry(backoff.next())
         } else {
             close()
@@ -460,7 +464,7 @@ class FreeTunnelVpnService : VpnService() {
     }
 
     private fun showFailure(reason: String) {
-        logEvent(reason)
+        logEvent(reason, LogLines.ERROR)
         getSystemService(NotificationManager::class.java).notify(FAILURE_ID,
             NotificationCompat.Builder(this, FAILURE_CHANNEL).setSmallIcon(android.R.drawable.ic_dialog_alert)
                 .setContentTitle(getString(R.string.text_vpn_disconnected)).setContentText(reason)
@@ -502,12 +506,14 @@ class FreeTunnelVpnService : VpnService() {
     private fun serviceAction(action: String, request: Int) = PendingIntent.getForegroundService(this, request,
         Intent(this, FreeTunnelVpnService::class.java).setAction(action), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
 
-    private fun logEvent(message: String) {
+    // A line of the log the Logs page shows, "yyyy-MM-dd HH:mm:ss<TAB>LEVEL<TAB>message" as the desktop writes it
+    // (LogLines), when logging is on. Called from this service's worker and from the core's own threads, which is what
+    // LogFile's lock is for; a failure to write is never a failure to connect.
+    private fun logEvent(message: String, level: String = LogLines.INFO) {
         if (!prefs.getBoolean("logging", true)) return
         runCatching {
-            val file = File(filesDir, "freetunnel.log")
-            val old = if (file.exists()) file.readLines().takeLast(199) else emptyList()
-            file.writeText((old + "${System.currentTimeMillis()} $message").joinToString("\n", postfix = "\n"))
+            LogFile.append(File(filesDir, LogFile.NAME),
+                LogLines.entry(System.currentTimeMillis(), java.time.ZoneId.systemDefault(), level, message))
         }
     }
 }

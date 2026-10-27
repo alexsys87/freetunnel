@@ -11,6 +11,9 @@ import android.service.quicksettings.Tile;
 import android.service.quicksettings.TileService;
 
 public final class QuickTileService extends TileService {
+    // The tile's words are in the app's language, which Android 8 to 12 only knows from this (AppLocale).
+    @Override protected void attachBaseContext(Context base) { super.attachBaseContext(AppLocale.wrap(base)); }
+
     @Override public void onStartListening() {
         super.onStartListening();
         Tile tile = getQsTile();
