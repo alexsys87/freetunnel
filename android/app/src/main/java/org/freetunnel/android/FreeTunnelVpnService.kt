@@ -52,8 +52,15 @@ class FreeTunnelVpnService : VpnService() {
         private val RETRY = Any()
         @Volatile private var currentState = 0
         @Volatile private var owner: FreeTunnelVpnService? = null
+        // When the connection last came up, on SystemClock.elapsedRealtime(), or 0 while it is not up: the time
+        // Home shows beside the logo. The desktop restarts it each time it becomes connected (applyVpnClientState),
+        // so this does too. It is not connectedAt, which keeps a session going across the core's own recovery for
+        // the backoff, and which nothing outside the service should have to understand.
+        @Volatile private var sessionStartedAt = 0L
 
         @JvmStatic fun state(context: Context): Int = currentState
+        /** SystemClock.elapsedRealtime() at the moment the connection last became connected, or 0 where it is not. */
+        @JvmStatic fun sessionStart(): Long = sessionStartedAt
         @JvmStatic fun start(context: Context, source: String) {
             val intent = Intent(context, FreeTunnelVpnService::class.java).setAction(ACTION_START).putExtra(EXTRA_CONFIG, source)
             context.startForegroundService(intent)
@@ -427,6 +434,9 @@ class FreeTunnelVpnService : VpnService() {
 
     private fun publishState(state: Int) {
         if (owner !== this) return
+        // The state that was current before this one is what tells a new connection from a repeat of the same one.
+        if (state == 2 && currentState != 2) sessionStartedAt = SystemClock.elapsedRealtime()
+        else if (state != 2) sessionStartedAt = 0L
         currentState = state
         sendBroadcast(Intent(ACTION_STATE).setPackage(packageName))
         QuickTileService.refresh(this)
