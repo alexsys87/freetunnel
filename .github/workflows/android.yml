@@ -98,7 +98,7 @@ jobs:
             target: default
             arch: x86_64
             profile: pixel_2
-            timeout: 25
+            timeout: 40
             artifact: android-device-results
           # Google publishes no Android TV image for API 35. If the TrustTunnel
           # AAR's x86 library fails on this 32-bit image, API 36's android-tv
@@ -108,7 +108,7 @@ jobs:
             target: android-tv
             arch: x86
             profile: tv_1080p
-            timeout: 30
+            timeout: 45
             artifact: android-tv-device-results
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -145,6 +145,10 @@ jobs:
           # The one test of Install update without the install permission runs first,
           # alone: taking the permission away later would stop the app, and the
           # tests with it. am instrument exits 0 on a failed test, hence the grep.
+          # UiTourDeviceTest saves a picture of every screen. Android Gradle Plugin copies what a test writes to
+          # additionalTestOutputDir into android/app/build/outputs/connected_android_test_additional_output; the test also
+          # writes every file to /data/local/tmp/uitour, which is pulled here, still on the line of the Gradle run and keeping
+          # its exit status, if Gradle copied nothing.
           script: |
             ./android/gradlew -p android --no-daemon :app:installDebug :app:installDebugAndroidTest
             adb shell appops set org.freetunnel.android ACTIVATE_VPN allow
@@ -153,14 +157,18 @@ jobs:
             adb shell appops set org.freetunnel.android REQUEST_INSTALL_PACKAGES allow
             if [ "${{ matrix.target }}" = android-tv ]; then adb shell pm list features | grep -qx 'feature:android.software.leanback'; fi
             if [ "${{ matrix.target }}" = android-tv ]; then mkdir -p android/app/build/reports/tv-screens && adb shell monkey -p org.freetunnel.android -c android.intent.category.LEANBACK_LAUNCHER 1 && sleep 5 && adb exec-out screencap -p > android/app/build/reports/tv-screens/app.png && adb shell input keyevent KEYCODE_HOME && sleep 3 && adb exec-out screencap -p > android/app/build/reports/tv-screens/launcher.png; fi
-            ./android/gradlew -p android --no-daemon :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.debugCertificate="$("$ANDROID_HOME"/build-tools/35.0.0/apksigner verify --print-certs android/app/build/outputs/apk/debug/app-debug.apk | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')"
+            status=0; ./android/gradlew -p android --no-daemon :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.debugCertificate="$("$ANDROID_HOME"/build-tools/35.0.0/apksigner verify --print-certs android/app/build/outputs/apk/debug/app-debug.apk | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')" || status=$?; if [ -z "$(ls -A android/app/build/outputs/connected_android_test_additional_output 2>/dev/null)" ]; then adb pull /data/local/tmp/uitour android/app/build/reports/uitour || true; fi; exit $status
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: ${{ matrix.artifact }}
+          # The UI tour's pictures (UiTourDeviceTest): Gradle's copy of the test's additional output, or, if it
+          # copied nothing, what the script pulled from the device.
           path: |
             android/app/build/reports/androidTests/
             android/app/build/reports/tv-screens/
+            android/app/build/outputs/connected_android_test_additional_output/
+            android/app/build/reports/uitour/
   release-signing:
     name: Release signing, with a throwaway key
     # What android-release.yml's build and sign jobs do, with real Build
