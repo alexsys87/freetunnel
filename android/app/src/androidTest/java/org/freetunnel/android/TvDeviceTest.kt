@@ -27,7 +27,9 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
 import android.widget.Button
+import android.text.InputFilter
 import android.text.TextUtils
+import android.view.inputmethod.EditorInfo
 import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.ImageView
@@ -244,7 +246,7 @@ class TvDeviceTest {
         val look = focusLook(view)
         val key = view.tag as String
         when {
-            view is EditText || key == "apps:add" -> {
+            view is EditText -> {
                 assertEquals("$name: the border of a focused field", theme.accent, look.focusedEdge)
                 assertEquals("$name: the border of a field at rest", theme.inputBorder, look.restEdge)
             }
@@ -253,7 +255,9 @@ class TvDeviceTest {
                 assertEquals("$name: the border of a focused box of text", theme.accent, look.focusedEdge)
                 assertEquals("$name: a box of text at rest", theme.surface, look.restEdge)
             }
-            Regex("(domain|app):\\d+").matches(key) -> assertEquals("$name: a ChipX focuses in danger", theme.danger, look.focusedFill)
+            Regex("(domain|app):\\d+|profile:\\d+:remove").matches(key) -> assertEquals("$name: a ChipX focuses in danger", theme.danger, look.focusedFill)
+            // Clear all is the danger link, as the desktop's is.
+            key == "domains:clear" || key == "apps:clear" -> assertEquals("$name: a danger link focuses in danger", theme.danger, look.focusedFill)
             // The close icon of a config row, as the desktop's turns danger under the pointer.
             Regex("config:\\d+:remove").matches(key) -> assertEquals("$name: the close icon focuses in danger", theme.danger, look.focusedFill)
             // The red button, whichever confirmation it answers.
@@ -2169,7 +2173,8 @@ class TvDeviceTest {
         }
         click(a, row)
         eventually("One application adds itself and closes the picker") { overlayTag(a, "picker") == null }
-        assertTrue("It is in the apps the VPN carries or leaves", prefs.getStringSet("apps", emptySet())!!.contains(first))
+        assertTrue("It is in the apps the VPN carries or leaves", profiles().apps(profiles().edited()).contains(first))
+        assertTrue("and in the old list 1.0.0 reads, which copies the profile the selected config uses", prefs.getStringSet("apps", emptySet())!!.contains(first))
         assertEquals("The page does not change", 2, onMain { field("page").getInt(a) })
     }
 
@@ -2231,5 +2236,538 @@ class TvDeviceTest {
         assertNull("and no overlay is up", overlayTag(a, "confirm"))
         onMain { method("refuseImport", Int::class.javaPrimitiveType).invoke(a, R.string.text_this_server_needs_a_newer_trusttunnel_core) }
         assertEquals("a new one replaces the old", listOf(context.getString(R.string.text_this_server_needs_a_newer_trusttunnel_core)), toastTexts(a))
+    }
+
+    // ---- Split: profiles, each config's profile, Recommended for Russia (qml/pages/SplitPage.qml) ----
+
+    private fun splitStore() = SplitPrefs(prefs)
+    private fun profiles(): SplitProfiles = SplitStore.load(splitStore(), null)
+    private fun editProfiles(change: (SplitProfiles) -> Unit) { SplitStore.edit(splitStore(), null) { p -> change(p) } }
+    private fun chipLabel(a: MainActivity, key: String): String = onMain {
+        (root(a).findViewWithTag<ViewGroup>(key).getChildAt(0) as TextView).text.toString()
+    }
+    private fun pageKeys(a: MainActivity): Set<String> = onMain {
+        descendants(pageRoot(a)).filter { it.isShown }.mapNotNull { it.tag as? String }.toSet()
+    }
+    // The keys of every control the arrows reach from a tab, one press at a time.
+    private fun reachable(a: MainActivity, fromKey: String): Set<String> = onMain {
+        val content = root(a)
+        val seen = HashSet<View>()
+        val queue = ArrayDeque<View>().apply { add(content.findViewWithTag<View>(fromKey)) }
+        while (queue.isNotEmpty()) {
+            val view = queue.removeFirst()
+            if (!seen.add(view)) continue
+            for (direction in listOf(View.FOCUS_UP, View.FOCUS_DOWN, View.FOCUS_LEFT, View.FOCUS_RIGHT))
+                FocusFinder.getInstance().findNextFocus(content, view, direction)?.let { queue.add(it) }
+        }
+        seen.mapNotNull { it.tag as? String }.toSet()
+    }
+    // Types into a page field and presses its Enter, as a keyboard's Done does.
+    private fun enter(a: MainActivity, key: String, text: String) = onMain {
+        val field = root(a).findViewWithTag<EditText>(key)
+        field.setText(text)
+        field.onEditorAction(EditorInfo.IME_ACTION_DONE)
+    }
+    private fun fieldText(a: MainActivity, key: String): String = onMain { root(a).findViewWithTag<EditText>(key).text.toString() }
+    // The settings the Split page is about, as the tests need them: on, which way, and the notice's rules.
+    private fun splitOn(through: Boolean) { prefs.edit().putBoolean("split_enabled", true).putBoolean("through", through).commit() }
+    private fun seedConfigs(vararg uses: String?) {
+        val list = org.json.JSONArray()
+        uses.forEachIndexed { i, profile ->
+            val config = org.json.JSONObject().put("name", "Profile $i").put("toml", source)
+            if (profile != null) config.put("profile", profile)
+            list.put(config)
+        }
+        assertTrue(ConfigStore.write(prefs, list.toString()))
+    }
+
+    // An update from 1.0.0: its one list of domains and one of applications become Default's, sorted, and are what the page shows.
+    @Test fun theOldListsOfTheFirstVersionBecomeDefaultAndAreWhatThePageShows() {
+        val a = open()
+        assertEquals(listOf("Default"), profiles().names())
+        assertEquals(listOf("example.com", "example.org"), profiles().domains("Default"))
+        render(a, 2)
+        assertEquals("example.com", chipLabel(a, "domain:0"))
+        assertEquals("example.org", chipLabel(a, "domain:1"))
+        assertEquals("Profile, Default, edited", context.getString(R.string.split_profile_default),
+            chipLabel(a, "profile:0").removeSuffix(" ✓"))
+        assertFalse("Default has no X", pageKeys(a).contains("profile:0:remove"))
+        assertFalse("Only its one profile", pageKeys(a).contains("profile:1"))
+        // 1.0.0's lists are still there, a copy of the profile the selected config uses.
+        assertEquals(setOf("example.com", "example.org"), prefs.getStringSet("domains", emptySet()))
+    }
+
+    // A new installation, with nothing saved: split tunnelling on, and Default holds the recommended list, as the desktop's does.
+    @Test fun aNewInstallationHasSplitOnAndDefaultHoldsTheRecommendedList() {
+        prefs.edit().clear().commit()
+        val a = open()
+        val rules = RussiaList.read(context)
+        assertTrue(rules.size > 50)
+        assertTrue("Split tunnelling is on", prefs.getBoolean("split_enabled", false))
+        assertFalse("and it is Bypass VPN", prefs.getBoolean("through", false))
+        assertEquals(rules, profiles().domains("Default"))
+        render(a, 2)
+        assertEquals(rules[0], chipLabel(a, "domain:0"))
+        assertEquals(rules.last(), chipLabel(a, "domain:${rules.size - 1}"))
+        assertFalse(pageKeys(a).contains("domain:${rules.size}"))
+        assertTrue(onMain { (root(a).findViewWithTag<ToggleView>("split:enabled")).isChecked })
+        // Opened again, it is not made again.
+        onMain { a.finish() }
+        editProfiles { it.clearDomains("Default") }
+        val again = open()
+        assertTrue("Cleared, it stays cleared", profiles().domains("Default").isEmpty())
+        render(again, 2)
+        assertFalse(pageKeys(again).contains("domain:0"))
+    }
+
+    @Test fun thePageIsTheDesktopsInItsOrderAndTheEditedProfileIsTheOneInAccent() {
+        editProfiles { p -> p.add("Work"); p.add("Home"); p.addDomains("Home", "home.example") }
+        val a = open()
+        leaveTouchMode(a)
+        render(a, 2)
+        // Top to bottom: the switch, the mode, Profile with its chips, the rules and the applications.
+        // The page is a column, and its rows and flows are in the order they read: the views are in the order they are shown.
+        val order = onMain { descendants(pageRoot(a)).filter { it.isShown && it.tag is String }.map { it.tag as String }.toList() }
+        val expected = listOf("split:enabled", "split:mode", "profile:0", "profile:1", "profile:2", "profile:add", "domains:russia", "domains:clear")
+        val positions = expected.map { order.indexOf(it) }
+        assertTrue("$expected must come in this order, but are at $positions in $order", positions.none { it < 0 } && positions == positions.sorted())
+        assertEquals(listOf(context.getString(R.string.split_profile_default), "Work", "Home"),
+            listOf(chipLabel(a, "profile:0").removeSuffix(" ✓"), chipLabel(a, "profile:1").removeSuffix(" ✓"), chipLabel(a, "profile:2").removeSuffix(" ✓")))
+        assertEquals("The edited one has a check with a remote, and rests on infoBg", "Home ✓", chipLabel(a, "profile:2"))
+        onMain {
+            val theme = theme(a)
+            assertEquals(theme.infoBg, focusLook(root(a).findViewWithTag<View>("profile:2")).restFill)
+            assertEquals(theme.surface, focusLook(root(a).findViewWithTag<View>("profile:1")).restFill)
+            assertEquals("and a chip focuses in the accent", theme.accent, focusLook(root(a).findViewWithTag<View>("profile:1")).focusedFill)
+        }
+        assertTrue("Default has no X, the others have one each", pageKeys(a).containsAll(listOf("profile:1:remove", "profile:2:remove")) && !pageKeys(a).contains("profile:0:remove"))
+        assertTrue(shows(a, context.getString(R.string.text_rules_bypass_vpn)))
+        assertTrue(shows(a, context.getString(R.string.text_applications_bypass_vpn)))
+        assertEquals("Home's rules, not Default's, are on the page", "home.example", chipLabel(a, "domain:0"))
+    }
+
+    @Test fun theArrowsReachEveryChipAndItsXAndTheRuleControls() {
+        editProfiles { p ->
+            p.add("Work"); p.addDomains("Work", "work.example")
+            p.add("Home"); p.addDomains("Home", "a.example b.example c.example"); p.addApp("Home", "not.installed.package")
+        }
+        val a = open()
+        leaveTouchMode(a)
+        render(a, 2)
+        val expected = setOf("profile:0", "profile:1", "profile:1:remove", "profile:2", "profile:2:remove", "profile:add",
+            "domains:russia", "domains:clear", "domain:0", "domain:1", "domain:2", "domains:input", "apps:choose", "apps:clear", "app:0")
+        assertTrue("These must be on the page: ${expected - pageKeys(a)}", pageKeys(a).containsAll(expected))
+        val reached = reachable(a, "tab:2")
+        assertEquals("Controls the arrows never reach", emptySet<String>(), expected - reached)
+        // Right from a chip is its X, Left from the X is the chip; Right from the X is the next chip.
+        focusOn(a, "profile:1")
+        instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_RIGHT)
+        eventually("Right from a chip reaches its X") { focusedKey(a) == "profile:1:remove" }
+        instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_LEFT)
+        eventually("Left comes back to the chip") { focusedKey(a) == "profile:1" }
+        instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_RIGHT)
+        instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_RIGHT)
+        eventually("and the X's Right is the next chip") { focusedKey(a) == "profile:2" }
+    }
+
+    // OK on a chip chooses it to edit, and only that: nothing is built again, and the rules on the page are its.
+    @Test fun choosingAProfileChangesOnlyWhichOneIsEditedAndRestartsNothing() {
+        editProfiles { p -> p.add("Work"); p.addDomains("Work", "work.example"); p.select("Default") }
+        splitOn(false)
+        val a = open()
+        leaveTouchMode(a)
+        render(a, 2)
+        val gate = java.util.concurrent.CountDownLatch(1)
+        (field("validationWorker").get(a) as ExecutorService).execute { gate.await() }
+        onMain { field("vpnState").setInt(a, 2) }
+        serviceState(2)
+        try {
+            val before = onMain { field("validationRequest").getLong(a) }
+            focusOn(a, "profile:1")
+            instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_CENTER)
+            eventually("OK edits Work") { profiles().edited() == "Work" }
+            eventually("and the page shows Work's rules") { onMain { root(a).findViewWithTag<View?>("domain:0") } != null && chipLabel(a, "domain:0") == "work.example" }
+            eventually("with the focus kept on the chip") { focusedKey(a) == "profile:1" }
+            assertEquals("The selected config uses Default: a VPN that is up is not built again", before, onMain { field("validationRequest").getLong(a) })
+            assertEquals("It uses Default still", "Default", onMain { method("activeProfileName").invoke(a) as String })
+        } finally {
+            serviceState(0)
+            onMain { field("vpnState").setInt(a, 0) }
+            gate.countDown()
+        }
+    }
+
+    // A rule of the profile the selected config uses is built into a session that is up; a rule of another profile is not.
+    @Test fun aRuleOfTheProfileInUseRebuildsTheVpnAndOneOfAnotherProfileDoesNot() {
+        editProfiles { p -> p.add("Work") }
+        splitOn(false)
+        val a = open()
+        render(a, 2)
+        val gate = java.util.concurrent.CountDownLatch(1)
+        (field("validationWorker").get(a) as ExecutorService).execute { gate.await() }
+        onMain { field("vpnState").setInt(a, 2) }
+        serviceState(2)
+        try {
+            fun requests() = onMain { field("validationRequest").getLong(a) }
+            val before = requests()
+            enter(a, "domains:input", "work.example")
+            eventually("The rule is added to Work") { profiles().domains("Work") == listOf("work.example") }
+            assertEquals("Work is used by no config: nothing is rebuilt", before, requests())
+            click(a, "profile:0")
+            eventually("Default is edited") { profiles().edited() == "Default" }
+            assertEquals("choosing a profile rebuilds nothing", before, requests())
+            enter(a, "domains:input", "home.example")
+            eventually("The rule is added to Default") { profiles().domains("Default").contains("home.example") }
+            assertEquals("Default is the selected config's profile: the VPN is built again", before + 1, requests())
+        } finally {
+            serviceState(0)
+            onMain { field("vpnState").setInt(a, 0) }
+            gate.countDown()
+        }
+    }
+
+    // Split tunnelling off changes nothing in what is built, so a rule edit rebuilds nothing then either.
+    @Test fun withSplitTunnellingOffARuleRebuildsNothing() {
+        prefs.edit().putBoolean("split_enabled", false).commit()
+        val a = open()
+        render(a, 2)
+        val gate = java.util.concurrent.CountDownLatch(1)
+        (field("validationWorker").get(a) as ExecutorService).execute { gate.await() }
+        onMain { field("vpnState").setInt(a, 2) }
+        serviceState(2)
+        try {
+            val before = onMain { field("validationRequest").getLong(a) }
+            enter(a, "domains:input", "home.example")
+            eventually("The rule is added") { profiles().domains("Default").contains("home.example") }
+            assertEquals(before, onMain { field("validationRequest").getLong(a) })
+        } finally {
+            serviceState(0)
+            onMain { field("vpnState").setInt(a, 0) }
+            gate.countDown()
+        }
+    }
+
+    // + opens the field for a name, OK on it and Enter add the profile, and the focus goes back to +.
+    @Test fun thePlusChipOpensTheNameFieldAndEnterAddsAProfile() {
+        val a = open()
+        leaveTouchMode(a)
+        render(a, 2)
+        onMain {
+            val field = root(a).findViewWithTag<EditText>("profile:name")
+            assertEquals("The field is there, and hidden", View.GONE, field.visibility)
+            assertEquals(context.getString(R.string.split_profile_name_hint), field.hint.toString())
+            assertEquals("At most 16 characters", SplitProfiles.MAX_NAME, field.filters.filterIsInstance<InputFilter.LengthFilter>().single().max)
+        }
+        focusOn(a, "profile:add")
+        instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_CENTER)
+        eventually("OK on + shows the field, with the focus") { focusedKey(a) == "profile:name" && onMain { root(a).findViewWithTag<View>("profile:name").visibility } == View.VISIBLE }
+        enter(a, "profile:name", "Work")
+        eventually("Enter adds the profile") { profiles().names() == listOf("Default", "Work") }
+        assertEquals("and it is the one being edited", "Work", profiles().edited())
+        eventually("The field is gone, and the focus is back on +") { focusedKey(a) == "profile:add" }
+        assertEquals(View.GONE, onMain { root(a).findViewWithTag<View>("profile:name").visibility })
+        assertEquals("Work ✓", chipLabel(a, "profile:1"))
+        assertEquals("and the rules on the page are Work's: none", emptyList<String>(), pageKeys(a).filter { it.startsWith("domain:") })
+        assertEquals("and the configs use what they used", "Default", onMain { method("activeProfileName").invoke(a) as String })
+    }
+
+    @Test fun escapeAndGoingToAnotherControlDropTheNameFieldAndBackIsTheFirstToClose() {
+        val a = open()
+        leaveTouchMode(a)
+        render(a, 2)
+        fun openField() {
+            focusOn(a, "profile:add")
+            instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_CENTER)
+            eventually("The field opens") { focusedKey(a) == "profile:name" }
+        }
+        fun visibility() = onMain { root(a).findViewWithTag<View>("profile:name").visibility }
+        openField()
+        onMain { root(a).findViewWithTag<EditText>("profile:name").setText("Half") }
+        instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_ESCAPE)
+        eventually("Escape drops it") { visibility() == View.GONE }
+        eventually("with the focus back on +") { focusedKey(a) == "profile:add" }
+        assertEquals("and adds nothing", listOf("Default"), profiles().names())
+        openField()
+        assertEquals("Opened again it is empty", "", fieldText(a, "profile:name"))
+        instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_UP)
+        eventually("Going to another control drops it") { visibility() == View.GONE }
+        assertNotEquals("and the focus is where the arrow took it", "profile:name", focusedKey(a))
+        assertEquals(listOf("Default"), profiles().names())
+        // Back on a phone with its keyboard up only puts the keyboard away; a TV has none to put away.
+        if (isTv) {
+            openField()
+            instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
+            eventually("Back closes it first") { visibility() == View.GONE }
+            assertEquals("and does not leave the page", 2, onMain { field("page").getInt(a) })
+            assertFalse(onMain { a.isFinishing })
+        }
+    }
+
+    @Test fun aNameThatDiffersOnlyInCaseIsRefusedWithTheDesktopsWords() {
+        editProfiles { it.add("Work") }
+        val a = open()
+        leaveTouchMode(a)
+        render(a, 2)
+        focusOn(a, "profile:add")
+        instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_CENTER)
+        eventually("The field opens") { focusedKey(a) == "profile:name" }
+        enter(a, "profile:name", "work")
+        eventually("It says why") { context.getString(R.string.split_profile_exists, "Work") in toastTexts(a) }
+        assertEquals("and adds nothing", listOf("Default", "Work"), profiles().names())
+        assertEquals("The field is closed", View.GONE, onMain { root(a).findViewWithTag<View>("profile:name").visibility })
+    }
+
+    // A profile is deleted after a question; the configs that used it use Default from then on, which is also what the VPN is built with.
+    @Test fun deletingAProfileAsksFirstAndSendsItsConfigsBackToDefault() {
+        editProfiles { p -> p.add("Work"); p.addDomains("Work", "work.example") }
+        seedConfigs(null, "Work")
+        val a = open()
+        render(a, 2)
+        click(a, "profile:1:remove")
+        eventually("It asks, naming the profile") { confirmMessage(a) == context.getString(R.string.split_profile_delete_question, "Work") }
+        assertEquals(context.getString(R.string.text_delete), onMain { (root(a).findViewWithTag<View>("confirm:ok") as TextView).text.toString() })
+        click(a, "confirm:cancel")
+        eventually("No keeps it") { overlayTag(a, "confirm") == null }
+        assertEquals(listOf("Default", "Work"), profiles().names())
+        assertEquals("Work", saved()[1].optString("profile"))
+        click(a, "profile:1:remove")
+        eventually("It asks again") { confirmMessage(a) != null }
+        answerYes(a)
+        eventually("Yes deletes it") { profiles().names() == listOf("Default") }
+        eventually("and the page shows Default") { pageKeys(a).none { it.startsWith("profile:1") } }
+        assertFalse("The config that used it uses Default: none is written", saved()[1].has("profile"))
+        assertEquals("Default", profiles().edited())
+    }
+
+    @Test fun theOldListsFollowTheProfileOfTheSelectedConfig() {
+        editProfiles { p ->
+            p.clearDomains("Default"); p.clearApps("Default")
+            p.addDomains("Default", "home.example"); p.addApp("Default", "org.home")
+            p.add("Work"); p.addDomains("Work", "work.example"); p.addApp("Work", "org.work")
+        }
+        seedConfigs(null, "Work")
+        val a = open()
+        assertEquals("Config 0 uses Default", setOf("home.example"), prefs.getStringSet("domains", emptySet()))
+        onMain { method("selectConfig", Int::class.javaPrimitiveType).invoke(a, 1) }
+        assertEquals("Selecting the config that uses Work moves them", setOf("work.example"), prefs.getStringSet("domains", emptySet()))
+        assertEquals(setOf("org.work"), prefs.getStringSet("apps", emptySet()))
+        render(a, 2)
+        enter(a, "domains:input", "more.example")
+        eventually("A rule of the profile edited and in use is in them") { prefs.getStringSet("domains", emptySet()) == setOf("work.example", "more.example") }
+    }
+
+    // Recommended for Russia adds the list to the profile being edited, those it does not have, at the end, and a second time nothing.
+    @Test fun recommendedForRussiaAddsTheSharedListOnceAndClearAllAsksFirst() {
+        editProfiles { p -> p.add("Work"); p.addDomains("Work", "mine.example *.yandex.ru") }
+        val a = open()
+        leaveTouchMode(a)
+        render(a, 2)
+        val rules = RussiaList.read(context)
+        click(a, "domains:russia")
+        val expected = listOf("mine.example", "*.yandex.ru") + rules.filter { it != "*.yandex.ru" }
+        eventually("It is added, without what the profile has") { profiles().domains("Work") == expected }
+        assertEquals("Default is untouched", listOf("example.com", "example.org"), profiles().domains("Default"))
+        assertEquals(expected.last(), chipLabel(a, "domain:${expected.size - 1}"))
+        click(a, "domains:russia")
+        SystemClock.sleep(300)
+        assertEquals("A second time there is nothing new", expected, profiles().domains("Work"))
+        // Clear all asks.
+        click(a, "domains:clear")
+        eventually("It asks") { confirmMessage(a) == context.getString(R.string.split_clear_domains_question) }
+        assertEquals(context.getString(R.string.text_clear), onMain { (root(a).findViewWithTag<View>("confirm:ok") as TextView).text.toString() })
+        instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
+        eventually("Back says no") { overlayTag(a, "confirm") == null }
+        assertEquals(expected, profiles().domains("Work"))
+        click(a, "domains:clear")
+        eventually("It asks again") { confirmMessage(a) != null }
+        answerYes(a)
+        eventually("Clear empties the list") { profiles().domains("Work").isEmpty() }
+        eventually("and the link goes with it") { !pageKeys(a).contains("domains:clear") }
+    }
+
+    // One chip's X takes one rule at once, with nothing asked.
+    @Test fun aRuleChipsXRemovesItAtOnce() {
+        val a = open()
+        render(a, 2)
+        click(a, "domain:0")
+        eventually("The rule is gone") { profiles().domains("Default") == listOf("example.org") }
+        assertNull("and nothing was asked", overlayTag(a, "confirm"))
+        eventually("and the page shows one chip") { pageKeys(a).contains("domain:0") && !pageKeys(a).contains("domain:1") }
+        assertEquals("example.org", chipLabel(a, "domain:0"))
+    }
+
+    // Words are added if they are rules, and the ones that are not are named, in the desktop's words with its reasons.
+    @Test fun domainsAreAddedAndTheWordsThatAreNoRuleAreNamed() {
+        val a = open()
+        render(a, 2)
+        enter(a, "domains:input", "Good.Example, intranet; other.example")
+        eventually("The words that are rules are added") { profiles().domains("Default").containsAll(listOf("good.example", "other.example")) }
+        assertEquals("lowercased, after what was there", listOf("example.com", "example.org", "good.example", "other.example"), profiles().domains("Default"))
+        assertTrue("and the other is named", context.getString(R.string.split_refused, "intranet") in toastTexts(a))
+        assertEquals("The field is empty again", "", fieldText(a, "domains:input"))
+        // Nothing that is a rule: the toast, and the text stays to be put right.
+        enter(a, "domains:input", "0.0.0.0/0")
+        eventually("A subnet of every address says why") { context.getString(R.string.split_refused_every, "0.0.0.0/0") in toastTexts(a) }
+        assertEquals("0.0.0.0/0", fieldText(a, "domains:input"))
+        enter(a, "domains:input", "*.1.2.3.4")
+        eventually("A wildcard on an address says why") { context.getString(R.string.split_refused_wildcard, "*.1.2.3.4") in toastTexts(a) }
+        assertEquals("and nothing was added", 4, profiles().domains("Default").size)
+        enter(a, "domains:input", "good.example")
+        SystemClock.sleep(300)
+        assertEquals("A rule that is there is not added again, and is no refusal", 4, profiles().domains("Default").size)
+    }
+
+    @Test fun anApplicationIsListedByItsNameAndOneThatIsGoneByItsPackageAndEitherCanBeRemoved() {
+        val installed = context.packageManager.getInstalledApplications(0).map { it.packageName }.first { it != context.packageName }
+        editProfiles { p -> p.clearApps("Default"); p.addApp("Default", installed); p.addApp("Default", "not.installed.package") }
+        val a = open()
+        render(a, 2)
+        val pm = context.packageManager
+        assertEquals(pm.getApplicationInfo(installed, 0).loadLabel(pm).toString(), chipLabel(a, "app:0"))
+        assertEquals("One that is gone shows its package, so that it can be removed", "not.installed.package", chipLabel(a, "app:1"))
+        assertNull("The picker is the way in", onMain { root(a).findViewWithTag<View?>("apps:add") })
+        click(a, "app:1")
+        eventually("Its X removes it") { profiles().apps("Default") == listOf(installed) }
+        click(a, "apps:clear")
+        eventually("Clear all asks") { confirmMessage(a) == context.getString(R.string.split_clear_apps_question) }
+        answerYes(a)
+        eventually("and clears") { profiles().apps("Default").isEmpty() }
+        eventually("with its link") { !pageKeys(a).contains("apps:clear") }
+    }
+
+    // The notice, only where it applies, worked out by the code that builds the VPN: nothing to go through, or apps and domains together.
+    @Test fun theNoticeIsThereOnlyWhereThroughVpnWouldRouteNothingOrCannotRouteBoth() {
+        editProfiles { p -> p.clearDomains("Default"); p.clearApps("Default") }
+        val nothing = context.getString(R.string.split_notice_nothing, "Profile 0", context.getString(R.string.split_profile_default))
+        val both = context.getString(R.string.split_notice_both, "Profile 0", context.getString(R.string.split_profile_default))
+        val installed = context.packageManager.getInstalledApplications(0).map { it.packageName }.first { it != context.packageName }
+        val a = open()
+        // Bypass VPN: no notice, whatever the lists hold.
+        splitOn(false)
+        render(a, 2)
+        assertFalse(shows(a, nothing)); assertFalse(shows(a, both))
+        // Through VPN with nothing listed: the desktop's, naming the config and its profile.
+        splitOn(true)
+        render(a, 2)
+        assertTrue("Through VPN with no rules says so", shows(a, nothing))
+        assertFalse(shows(a, both))
+        // Rules that can be used: it goes.
+        editProfiles { it.addDomains("Default", "home.example") }
+        render(a, 2)
+        assertFalse(shows(a, nothing)); assertFalse(shows(a, both))
+        // Applications and domains: Android's own.
+        editProfiles { it.addApp("Default", installed) }
+        render(a, 2)
+        assertTrue("Both kinds say that Android cannot add them", shows(a, both))
+        assertFalse(shows(a, nothing))
+        // Applications that are not installed are no rules: the desktop's again.
+        editProfiles { p -> p.clearApps("Default"); p.clearDomains("Default"); p.addApp("Default", "not.installed.package") }
+        render(a, 2)
+        assertTrue(shows(a, nothing))
+        // Split tunnelling off: none.
+        prefs.edit().putBoolean("split_enabled", false).commit()
+        render(a, 2)
+        assertFalse(shows(a, nothing))
+    }
+
+    @Test fun theNoticeIsAboutTheProfileTheSelectedConfigUsesNotTheOneOnThePage() {
+        editProfiles { p -> p.clearDomains("Default"); p.clearApps("Default"); p.add("Work"); p.addDomains("Work", "work.example"); p.select("Default") }
+        seedConfigs("Work", null)
+        splitOn(true)
+        val a = open()
+        render(a, 2)
+        val nothingForConfigZero = context.getString(R.string.split_notice_nothing, "Profile 0", "Work")
+        assertFalse("Config 0 uses Work, which has a rule that can be used", shows(a, nothingForConfigZero))
+        onMain { method("selectConfig", Int::class.javaPrimitiveType).invoke(a, 1) }
+        render(a, 2)
+        assertTrue("Config 1 uses Default, which has none, whichever profile is on the page",
+            shows(a, context.getString(R.string.split_notice_nothing, "Profile 1", context.getString(R.string.split_profile_default))))
+    }
+
+    @Test fun withNoConfigsTheNoticeIsTheDesktopsAndNamesNone() {
+        seed(0)
+        editProfiles { p -> p.clearDomains("Default"); p.clearApps("Default") }
+        splitOn(true)
+        val a = open()
+        render(a, 2)
+        assertTrue(shows(a, context.getString(R.string.split_notice_nothing_no_configs)))
+        editProfiles { it.addDomains("Default", "home.example") }
+        render(a, 2)
+        assertFalse(shows(a, context.getString(R.string.split_notice_nothing_no_configs)))
+    }
+
+    // What the selected config brings with it and what was dropped become notices, the imported rules joined by ", ".
+    @Test fun importedRulesAndDroppedRulesAreNotices() {
+        val list = org.json.JSONArray().put(org.json.JSONObject().put("name", "Profile 0")
+            .put("toml", source.replace("exclusions = []", "exclusions = [\"a.example\", \"b.example\"]")))
+        assertTrue(ConfigStore.write(prefs, list.toString()))
+        val a = open()
+        render(a, 2)
+        assertTrue(shows(a, context.getString(R.string.imported_routing_rules, "a.example, b.example")))
+        assertFalse("No notice for rules that were not dropped", shows(a, context.getString(R.string.legacy_rules_removed)))
+        prefs.edit().putBoolean("rules_migrated", true).commit()
+        render(a, 2)
+        assertTrue(shows(a, context.getString(R.string.legacy_rules_removed)))
+        onMain {
+            val notices = descendants(pageRoot(a)).filterIsInstance<TextView>().filter { it.text.toString() == context.getString(R.string.legacy_rules_removed) }
+            assertEquals(theme(a).warn, notices.single().currentTextColor)
+            assertEquals("on infoBg, as every notice is", theme(a).infoBg, (notices.single().background as GradientDrawable).color!!.defaultColor)
+        }
+    }
+
+    // A config's profile is chosen in the editor, in a select box of its own, and changing only that is a change.
+    @Test fun theEditorChoosesTheSplitProfileOfAConfigAndChangingOnlyThatIsAChange() {
+        editProfiles { it.add("Work") }
+        val a = open()
+        render(a, 1)
+        onMain { method("editConfig", Int::class.javaPrimitiveType).invoke(a, 1) }
+        instrumentation.waitForIdleSync()
+        fun shown() = onMain { (root(a).findViewWithTag<ViewGroup>("editor:profile").getChildAt(0) as TextView).text.toString() }
+        assertTrue(shows(a, context.getString(R.string.editor_split_profile)))
+        assertEquals("A config that names no profile uses Default", context.getString(R.string.split_profile_default), shown())
+        click(a, "editor:profile")
+        eventually("The choices open under the box") { overlayTag(a, "select") != null }
+        val rows = onMain { descendants(root(a).findViewWithTag<View>("overlay:select")).filterIsInstance<TextView>().map { it.text.toString() } }
+        assertEquals(listOf(context.getString(R.string.split_profile_default), "✓", "Work"), rows)
+        click(a, "select:1")
+        eventually("Work is chosen") { shown() == "Work" }
+        eventually("and the choices close") { overlayTag(a, "select") == null }
+        click(a, "editor:cancel")
+        eventually("Only the profile changed, and Cancel asks") { confirmMessage(a) == context.getString(R.string.editor_discard_question) }
+        click(a, "confirm:cancel")
+        eventually("No keeps the editor") { overlayTag(a, "confirm") == null && overlayTag(a, "editor") != null }
+        assertEquals("Work", shown())
+        click(a, "editor:save")
+        (field("validationWorker").get(a) as ExecutorService).submit {}.get(30, TimeUnit.SECONDS)
+        instrumentation.waitForIdleSync()
+        eventually("Save closes the editor") { overlayTag(a, "editor") == null }
+        assertEquals("Work", saved()[1].optString("profile"))
+        assertFalse("The other config names none", saved()[0].has("profile"))
+        // The same editor, set back to Default: Default is no field.
+        onMain { method("editConfig", Int::class.javaPrimitiveType).invoke(a, 1) }
+        instrumentation.waitForIdleSync()
+        assertEquals("Work", shown())
+        click(a, "editor:profile")
+        eventually("The choices open") { overlayTag(a, "select") != null }
+        click(a, "select:0")
+        eventually("Default is chosen") { shown() == context.getString(R.string.split_profile_default) }
+        click(a, "editor:save")
+        (field("validationWorker").get(a) as ExecutorService).submit {}.get(30, TimeUnit.SECONDS)
+        instrumentation.waitForIdleSync()
+        eventually("Save closes it") { overlayTag(a, "editor") == null }
+        assertFalse("Default is not written", saved()[1].has("profile"))
+    }
+
+    // A config whose profile is no longer one is shown with Default in the editor, and saved with it.
+    @Test fun anEditorShowsDefaultForAProfileThatIsGone() {
+        seedConfigs(null, "Deleted")
+        val a = open()
+        render(a, 1)
+        onMain { method("editConfig", Int::class.javaPrimitiveType).invoke(a, 1) }
+        instrumentation.waitForIdleSync()
+        assertEquals(context.getString(R.string.split_profile_default),
+            onMain { (root(a).findViewWithTag<ViewGroup>("editor:profile").getChildAt(0) as TextView).text.toString() })
+        click(a, "editor:cancel")
+        eventually("and nothing was changed, so Cancel closes it at once") { overlayTag(a, "editor") == null }
     }
 }

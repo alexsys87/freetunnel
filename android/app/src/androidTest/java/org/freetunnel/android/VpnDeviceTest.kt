@@ -166,11 +166,27 @@ class VpnDeviceTest {
         assertEquals(json, ConfigStore.read(isolated))
         isolated.edit().clear().commit()
     }
+    private fun splitStore() = SplitPrefs(prefs)
+    private fun profiles() = SplitStore.load(splitStore(), null)
+    // The rules of a plan's TOML, the destinations the core is told about.
+    private fun exclusions(toml: String): List<Any> = org.tomlj.Toml.parse(toml).getArray("exclusions")!!.toList()
+
     @Test fun staleAppRulesFallBackToFullVpnWithWarning() {
-        prefs.edit().putBoolean("split_enabled", true).putBoolean("through", true)
-            .putStringSet("apps", setOf("not.installed.package", context.packageName)).commit()
-        val plan = RoutingConfig.prepare(context, source)
+        prefs.edit().putBoolean("split_enabled", true).putBoolean("through", true).commit()
+        SplitStore.edit(splitStore(), null) { p -> p.addApp("Default", "not.installed.package"); p.addApp("Default", context.packageName) }
+        val plan = RoutingConfig.prepare(context, source, "Default")
         assertTrue(plan.apps.isEmpty()); assertFalse(plan.allowApps); assertNotNull(plan.warning)
+        // The profile keeps the application that is gone, which is how it can be taken out of the list.
+        assertTrue(profiles().apps("Default").contains("not.installed.package"))
+    }
+    @Test fun anotherProfilesApplicationsDoNotCountForAConfig() {
+        prefs.edit().putBoolean("split_enabled", true).putBoolean("through", true).commit()
+        val other = context.packageManager.getInstalledApplications(0).map { it.packageName }.first { it != context.packageName }
+        SplitStore.edit(splitStore(), null) { p -> p.add("Work"); p.addApp("Work", other) }
+        val used = RoutingConfig.prepare(context, source, "Work")
+        assertEquals(listOf(other), used.apps); assertTrue(used.allowApps)
+        val unused = RoutingConfig.prepare(context, source, "Default")
+        assertTrue("Default lists none", unused.apps.isEmpty()); assertNotNull("so Through VPN has nothing", unused.warning)
     }
     @Test fun replacesTunWithoutDisconnectedStateAndBlocksUnsupportedIpv6() {
         assertNull("Grant ACTIVATE_VPN before running device tests", VpnService.prepare(context))
@@ -608,13 +624,38 @@ class VpnDeviceTest {
         eventually { network() == null }
     }
 
+    // 1.0.0's one list of domains becomes Default's, and the rules an older preview let be saved that the core cannot use are
+    // dropped from it, once, with the notice, as they were from the one list.
     @Test fun legacyRulesAreMigratedWithoutBreakingAlwaysOnPreparation() {
         prefs.edit().putBoolean("split_enabled", true)
             .putStringSet("domains", setOf("intranet", "example.com:443", "example.com", "10.0.0.0/8")).commit()
-        val plan = RoutingConfig.prepare(context, source)
+        val plan = RoutingConfig.prepare(context, source, "Default")
+        assertEquals(listOf("10.0.0.0/8", "example.com"), profiles().domains("Default"))
+        assertEquals(listOf("10.0.0.0/8", "example.com"), exclusions(plan.toml))
+        // The old list, which 1.0.0 reads, is the same.
         assertEquals(setOf("example.com", "10.0.0.0/8"), prefs.getStringSet("domains", emptySet()))
         assertTrue(prefs.getBoolean("rules_migrated", false))
         NativeConfigValidator.validate(context, plan.toml)
+    }
+    @Test fun legacyRulesOfAnotherProfileAreDroppedWhenThatProfileIsUsed() {
+        prefs.edit().putBoolean("split_enabled", true).putString(SplitStore.KEY,
+            """{"profiles":[{"name":"Default","domains":["home.example"]},{"name":"Work","domains":["bad:1","work.example"]}]}""").commit()
+        val plan = RoutingConfig.prepare(context, source, "Default")
+        assertEquals(listOf("home.example"), exclusions(plan.toml))
+        assertFalse("Default had nothing to drop", prefs.getBoolean("rules_migrated", false))
+        assertEquals(listOf("bad:1", "work.example"), profiles().domains("Work"))
+        val work = RoutingConfig.prepare(context, source, "Work")
+        assertEquals(listOf("work.example"), exclusions(work.toml))
+        assertTrue(prefs.getBoolean("rules_migrated", false))
+        assertEquals(listOf("work.example"), profiles().domains("Work"))
+        NativeConfigValidator.validate(context, work.toml)
+    }
+    // A new installation is not made by the VPN: with nothing saved, the service is given no recommended list, and builds from what there is.
+    @Test fun theServiceNeverMakesANewInstallationsDefaults() {
+        val plan = RoutingConfig.prepare(context, source, "Default")
+        assertTrue(exclusions(plan.toml).isEmpty())
+        assertFalse("split tunnelling is not turned on behind the app's back", prefs.contains("split_enabled"))
+        assertTrue(profiles().domains("Default").isEmpty())
     }
 
     @Test fun validationUsesPrivateIsolatedProcessAndExitsAfterEachRequest() {
@@ -865,6 +906,64 @@ class VpnDeviceTest {
         instrumentation.waitForIdleSync()
         (FreeTunnelVpnService::class.java.getDeclaredField("worker").apply { isAccessible = true }.get(owner)
             as java.util.concurrent.ExecutorService).submit {}.get(30, java.util.concurrent.TimeUnit.SECONDS)
+    }
+    // The app, the tile and Android's Always-on run the config the app has selected, and each builds the session from the rules of the
+    // split profile that config uses: here "Work", where the other config uses Default.
+    private fun activePlanToml(): String {
+        val plan = serviceField("activePlan").get(serviceOwner()) as RoutingConfig.Plan
+        return plan.toml
+    }
+    @Test fun theTileAndAlwaysOnRunTheProfileOfTheSelectedConfig() = withSink { config ->
+        val saved = org.json.JSONArray()
+            .put(org.json.JSONObject().put("name", "Home").put("toml", source))
+            .put(org.json.JSONObject().put("name", "Office").put("toml", config).put("profile", "Work"))
+        assertTrue(ConfigStore.write(prefs, saved.toString()))
+        prefs.edit().putInt("active", 1).putBoolean("split_enabled", true).commit()
+        SplitStore.edit(splitStore(), null) { p ->
+            p.addDomains("Default", "home-only.example")
+            p.add("Work"); p.addDomains("Work", "work-only.example")
+        }
+        // The tile and the consent screen: the selected config, with its profile.
+        val selected = SavedProfile.selected(prefs)
+        assertEquals("Work", selected.profile)
+        assertEquals(listOf("work-only.example"), exclusions(RoutingConfig.prepare(context, selected.toml, selected.profile).toml))
+        FreeTunnelVpnService.start(context, selected.toml, selected.profile)
+        eventually { network() != null && nativeClient() != null }
+        assertEquals(listOf("work-only.example"), exclusions(activePlanToml()))
+        FreeTunnelVpnService.stop(context)
+        eventually { network() == null && FreeTunnelVpnService.state(context) == 0 && serviceOwner() == null }
+        // Always-on: Android starts the service with nothing in the start but the service's own action.
+        context.startForegroundService(Intent(VpnService.SERVICE_INTERFACE).setClass(context, FreeTunnelVpnService::class.java))
+        eventually { network() != null && nativeClient() != null }
+        assertEquals("Always-on builds with the profile of the selected config", listOf("work-only.example"), exclusions(activePlanToml()))
+        FreeTunnelVpnService.stop(context)
+        eventually { network() == null && FreeTunnelVpnService.state(context) == 0 && serviceOwner() == null }
+        // With the other config selected, the same two starts use Default.
+        prefs.edit().putInt("active", 0).commit()
+        val home = SavedProfile.selected(prefs)
+        assertEquals("Default", home.profile)
+        context.startForegroundService(Intent(VpnService.SERVICE_INTERFACE).setClass(context, FreeTunnelVpnService::class.java))
+        eventually { network() != null && nativeClient() != null }
+        assertEquals(listOf("home-only.example"), exclusions(activePlanToml()))
+    }
+    // A start that says nothing of a profile, as every start in these tests does, uses the selected config's.
+    @Test fun aStartWithoutAProfileUsesTheSelectedConfigs() = withSink { config ->
+        val saved = org.json.JSONArray().put(org.json.JSONObject().put("name", "Office").put("toml", config).put("profile", "Work"))
+        assertTrue(ConfigStore.write(prefs, saved.toString()))
+        prefs.edit().putBoolean("split_enabled", true).commit()
+        SplitStore.edit(splitStore(), null) { p -> p.addDomains("Default", "home-only.example"); p.add("Work"); p.addDomains("Work", "work-only.example") }
+        FreeTunnelVpnService.start(context, config)
+        eventually { network() != null && nativeClient() != null }
+        assertEquals(listOf("work-only.example"), exclusions(activePlanToml()))
+    }
+    @Test fun aProfileThatIsGoneIsDefaultForTheService() = withSink { config ->
+        val saved = org.json.JSONArray().put(org.json.JSONObject().put("name", "Office").put("toml", config).put("profile", "Deleted"))
+        assertTrue(ConfigStore.write(prefs, saved.toString()))
+        prefs.edit().putBoolean("split_enabled", true).commit()
+        SplitStore.edit(splitStore(), null) { p -> p.addDomains("Default", "home-only.example") }
+        FreeTunnelVpnService.start(context, config)
+        eventually { network() != null && nativeClient() != null }
+        assertEquals(listOf("home-only.example"), exclusions(activePlanToml()))
     }
     @Test fun resumeAndAlwaysOnStartLeaveRunningClientAlone() {
         val sink = ServerSocket(0, 8, InetAddress.getByName("127.0.0.1"))

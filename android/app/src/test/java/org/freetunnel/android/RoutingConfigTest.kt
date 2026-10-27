@@ -535,4 +535,90 @@ class RoutingConfigTest {
         }
         assertNotNull(plan(enabled = false))
     }
+
+    // The profiles. A session is built with the rules of the profile its config uses, and nothing of the others.
+    private fun profileRules(edit: (SplitProfiles) -> Unit): MemoryBacking {
+        val backing = MemoryBacking()
+        SplitStore.edit(backing, null) { profiles -> edit(profiles) }
+        return backing
+    }
+    private fun planFor(backing: MemoryBacking, profile: String, through: Boolean): RoutingConfig.Plan {
+        val rules = SplitStore.rules(backing, null, profile)
+        return RoutingConfig.prepare(source, true, through, rules.domains, rules.apps, true)
+    }
+    private fun exclusionsOf(plan: RoutingConfig.Plan) = Toml.parse(plan.toml).getArray("exclusions")!!.toList()
+
+    @Test fun theSameConfigGetsTheRulesOfTheProfileItUses() {
+        val backing = profileRules { p ->
+            p.addDomains("Default", "home.example"); p.addApp("Default", "org.home")
+            p.add("Work"); p.addDomains("Work", "work.example *.work.example"); p.addApp("Work", "org.work")
+        }
+        val home = planFor(backing, "Default", false)
+        assertEquals(listOf("intranet.example", "home.example"), exclusionsOf(home))
+        assertEquals(listOf("org.home"), home.apps)
+        val work = planFor(backing, "Work", false)
+        assertEquals(listOf("intranet.example", "work.example", "*.work.example"), exclusionsOf(work))
+        assertEquals(listOf("org.work"), work.apps)
+        // A profile that is gone is Default for whoever used it.
+        val gone = planFor(backing, "Gone", false)
+        assertEquals(exclusionsOf(home), exclusionsOf(gone))
+        assertEquals(home.apps, gone.apps)
+    }
+
+    @Test fun throughVpnIsDecidedByTheRulesOfTheProfileInUseAlone() {
+        val backing = profileRules { p ->
+            p.addDomains("Default", "home.example")
+            p.add("Work"); p.addApp("Work", "org.work")
+            p.add("Empty")
+        }
+        // Destinations only: selective mode. Applications only: the Android allowlist. Neither: the full tunnel, with the warning.
+        val home = planFor(backing, "Default", true)
+        assertEquals("selective", Toml.parse(home.toml).getString("vpn_mode"))
+        assertTrue(home.apps.isEmpty())
+        val work = planFor(backing, "Work", true)
+        assertEquals("general", Toml.parse(work.toml).getString("vpn_mode"))
+        assertTrue(work.allowApps); assertEquals(listOf("org.work"), work.apps)
+        val empty = planFor(backing, "Empty", true)
+        assertEquals("general", Toml.parse(empty.toml).getString("vpn_mode"))
+        assertNotNull(empty.warning)
+        // The applications of one profile and the destinations of another are never added together.
+        assertNull(home.warning); assertNull(work.warning)
+    }
+
+    @Test fun aProfileWithApplicationsAndDomainsStillCannotGoThroughVpnWithBoth() {
+        val backing = profileRules { p -> p.addDomains("Default", "home.example"); p.addApp("Default", "org.home") }
+        val plan = planFor(backing, "Default", true)
+        assertEquals("general", Toml.parse(plan.toml).getString("vpn_mode"))
+        assertEquals(R.string.text_applications_and_addresses_are_selected_full_vpn_pro, plan.warning)
+        assertTrue(plan.apps.isEmpty())
+    }
+
+    @Test fun theOldListsHoldTheRulesOfTheProfileInUseSoGoingBackToTheFirstVersionRoutesTheSame() {
+        val backing = profileRules { p ->
+            p.addDomains("Default", "home.example"); p.addApp("Default", "org.home")
+            p.add("Work"); p.addDomains("Work", "work.example"); p.addApp("Work", "org.work")
+            p.setMirrored("Work")
+        }
+        assertEquals(setOf("work.example"), backing.set("domains"))
+        assertEquals(setOf("org.work"), backing.set("apps"))
+        // What 1.0.0 builds from them is what this builds for that profile.
+        val old = RoutingConfig.prepare(source, true, false, backing.set("domains")!!.toList(), backing.set("apps")!!.toList(), true)
+        val current = planFor(backing, "Work", false)
+        assertEquals(exclusionsOf(current).toSet(), exclusionsOf(old).toSet())
+        assertEquals(current.apps, old.apps)
+        // Editing a profile the selected config does not use leaves them alone.
+        SplitStore.edit(backing, null) { p -> p.addDomains("Default", "more.example") }
+        assertEquals(setOf("work.example"), backing.set("domains"))
+        // And choosing another config moves them.
+        SplitStore.edit(backing, null) { p -> p.setMirrored("Default") }
+        assertEquals(setOf("home.example", "more.example"), backing.set("domains"))
+        assertEquals(setOf("org.home"), backing.set("apps"))
+    }
+
+    @Test fun rulesTheCoreCannotUseNeverReachThePlan() {
+        val backing = MemoryBacking().with("domains", setOf("intranet", "example.com:443", "example.org"))
+        val plan = planFor(backing, "Default", false)
+        assertEquals(listOf("intranet.example", "example.org"), exclusionsOf(plan))
+        assertEquals(true, backing.data["rules_migrated"])
+    }
 }

@@ -154,6 +154,107 @@ class UiComponentsDeviceTest {
         }
     }
 
+    // A name longer than the row gives way to the X, as the desktop's label is cut at the chip less 39: the X is still there to be pressed.
+    @Test fun aLongChipLabelIsCutAndTheXStaysInTheChip() {
+        onMain {
+            val ui = ui()
+            val chip = ui.chip("a-very-long-name.subdomain.another-subdomain.example.com.example.org.example.net", false, false, null, false)
+            val x = ui.chipX("domain:0", false)
+            chip.addView(x, ui.chipXLp())
+            measured(chip, dp(200))
+            assertTrue("The chip is no wider than its room: ${chip.measuredWidth}", chip.measuredWidth <= dp(200))
+            assertEquals("and its X is its 22", dp(22), x.measuredWidth)
+            chip.layout(0, 0, chip.measuredWidth, chip.measuredHeight)
+            val label = chip.getChildAt(0) as TextView
+            assertEquals("The label ends 3 before the X", label.right + dp(3), x.left)
+            assertTrue("and the X is inside the chip: it ends at ${x.right} of ${chip.width}", x.right <= chip.width)
+            assertEquals("The label is cut with an ellipsis", android.text.TextUtils.TruncateAt.END, label.ellipsize)
+            // A short one is as wide as the desktop's: its label and 39.
+            val short = ui.chip("vk.com", false, false, null, false)
+            short.addView(ui.chipX("domain:1", false), ui.chipXLp())
+            measured(short, dp(200))
+            val words = Math.ceil((short.getChildAt(0) as TextView).paint.measureText("vk.com").toDouble()).toInt()
+            assertNear("A short chip is its label and 39", words + dp(39), short.measuredWidth, 3)
+        }
+    }
+
+    // A chip's X is its own stop, and a remote reaches it with Right from the chip and the chip with Left; with the focus on the chip, the X
+    // sits on the accent in accentText.
+    @Test fun aChipAndItsXReachEachOtherAndTheXIsAccentTextOnAFocusedChip() {
+        onMain {
+            val theme = Theme.DARK
+            val ui = ui(remote = true)
+            val chip = ui.chip("Work", false, true, "profile:1", false)
+            val x = ui.chipX("profile:1:remove", false)
+            chip.addView(x, ui.chipXLp())
+            ui.linkChipX(chip, x)
+            assertEquals(x.id, chip.nextFocusRightId)
+            assertEquals(chip.id, x.nextFocusLeftId)
+            assertTrue(chip.id != View.NO_ID && x.id != View.NO_ID && chip.id != x.id)
+            assertEquals("Resting on a chip, the cross is textDim", theme.textDim, x.imageTintList!!.getColorForState(intArrayOf(), 0))
+            x.isSelected = true
+            assertEquals("a focused chip is selected, and the cross sits on the accent", theme.accentText,
+                x.imageTintList!!.getColorForState(x.drawableState, 0))
+            x.isSelected = false
+            chip.getOnFocusChangeListener().onFocusChange(chip, true)
+            assertTrue("The chip's focus selects it", x.isSelected)
+            chip.getOnFocusChangeListener().onFocusChange(chip, false)
+            assertFalse(x.isSelected)
+        }
+    }
+
+    // Split's + chip: 34 by 28, radius 13, on surface with a border, a + of 17 in accent; with the focus the accent fills it, border and all.
+    @Test fun thePlusChipIs34By28WithABorderAndFocusesInTheAccent() {
+        onMain {
+            for (dark in listOf(true, false)) {
+                val theme = Theme.of(dark)
+                val ui = ui(dark, remote = true)
+                val plus = measured(ui.plusChip("New profile", "profile:add")) as TextView
+                assertEquals("+", plus.text.toString())
+                assertEquals(dp(34), plus.measuredWidth)
+                assertEquals(dp(28), plus.measuredHeight)
+                val look = looks(plus)
+                assertEquals(theme.surface, fill(look["rest"]!!))
+                assertEquals("with a border", theme.border, edge(look["rest"]!!))
+                assertEquals(theme.accent, fill(look["focused"]!!))
+                assertEquals("and none once it has the focus", theme.accent, edge(look["focused"]!!))
+                assertEquals(theme.accent, plus.textColors.defaultColor)
+                assertEquals(theme.accentText, plus.textColors.getColorForState(intArrayOf(android.R.attr.state_focused), 0))
+                assertEquals("New profile", plus.contentDescription)
+            }
+        }
+    }
+
+    // The editor's select box: a label over a box that is the control, 34 high, whose border turns accent under the pointer.
+    @Test fun aSelectBoxIsAFieldWhoseBorderTurnsAccentUnderThePointer() {
+        onMain {
+            for (dark in listOf(true, false)) {
+                val theme = Theme.of(dark)
+                val ui = ui(dark, remote = false)
+                val shown = arrayOfNulls<TextView>(1)
+                var opened = 0
+                val field = ui.selectField("Split profile", "Default", "editor:profile", shown) { opened++ }
+                field.measure(MeasureSpec.makeMeasureSpec(dp(300), MeasureSpec.EXACTLY), MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED))
+                val box = field.findViewWithTag<android.view.ViewGroup>("editor:profile")
+                assertEquals("The box is 34 high", dp(34), box.measuredHeight)
+                assertEquals("and as wide as the field", dp(300), box.measuredWidth)
+                assertEquals("Default", shown[0]!!.text.toString())
+                assertEquals(theme.text, shown[0]!!.textColors.defaultColor)
+                assertEquals("\u25be", (box.getChildAt(1) as TextView).text.toString())
+                val look = looks(box)
+                assertEquals(theme.inputBg, fill(look["rest"]!!))
+                assertEquals(theme.inputBorder, edge(look["rest"]!!))
+                assertEquals("accent under the pointer", theme.accent, edge(look["pressed"]!!))
+                assertEquals("and with the focus", theme.accent, edge(look["focused"]!!))
+                box.performClick()
+                assertEquals(1, opened)
+            }
+            val remote = looks(ui(remote = true).selectField("Split profile", "Default", "editor:profile", null) { }
+                .findViewWithTag<View>("editor:profile"))
+            assertEquals("With a remote the focused box is also on surface", Theme.DARK.surface, fill(remote["focused"]!!))
+        }
+    }
+
     @Test fun aDropdownHasTheValueAndItsArrowAsItsOnlyControl() {
         onMain {
             val ui = ui()
