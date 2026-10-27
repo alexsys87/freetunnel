@@ -9,6 +9,12 @@ compare link at the bottom of its release notes.
 
 ### Added
 
+- **Windows, macOS and Linux: import the TOML file a TrustTunnel endpoint
+  exports.** That file (`--format toml`) has the server's keys but no
+  `[endpoint]` table, and was refused as not a valid config. FreeTunnel now
+  asks before adding it, as it does for a tt:// link. The config takes the
+  name the file gives, or the file's own name, and leaves the subscription
+  address out.
 - **Android preview: check for official Android updates in Settings.** Downloads
   require a signed manifest naming the offered version and a matching APK hash.
   Android asks before installation. Optional launch checks can be disabled.
@@ -63,6 +69,9 @@ compare link at the bottom of its release notes.
 - **The Logs page no longer goes blank after the window comes back from the
   tray or many lines arrive at once.** Before, the lines came back only once
   the log was scrolled or another page was opened.
+- **Windows, macOS and Linux: a config file whose multi-line text has an
+  escaped quote (`\"`) in it is read correctly.** Before, `\"""` was taken for
+  the end of the text, and the settings after it could be misread or missed.
 
 ## 1.2.3
 

@@ -80,6 +80,7 @@ struct OpenValue {
     bool literal = false; // inside ''' ... '''
     int brackets = 0;     // [ ... ] depth
     int braces = 0;       // { ... } depth
+    bool inlineTable = false; // a { ... } was opened, here or on an earlier line
     bool open() const { return basic || literal || brackets > 0 || braces > 0; }
 };
 
@@ -100,17 +101,31 @@ int endOfQuoted(const QString &line, int i)
 }
 
 // Inside a multi-line string already: step to just past its closing delimiter,
-// or to the end of the line when it does not close here.
-int endOfOpenMultiline(OpenValue *v, const QString &line, int i)
+// or to the end of the text when it does not close in it.
+//
+// A basic block has escapes, as a one-line basic string does: \" is a quote of
+// its text, so \""" does not close it. Taken for the close, the block ended
+// early, and the next """ opened one that TOML says is closed, hiding whatever
+// came after it - an [endpoint] header among the rest. Inside ''' a backslash is
+// only a backslash.
+int endOfOpenMultiline(OpenValue *v, const QString &text, int i)
 {
     const QLatin1String fence =
             v->basic ? QLatin1String("\"\"\"") : QLatin1String("'''");
-    const int end = line.indexOf(fence, i);
-    if (end < 0)
-        return line.size(); // all of what is left belongs to the string
-    v->basic = false;
-    v->literal = false;
-    return end + 3;
+    const int n = text.size();
+    while (i < n) {
+        if (v->basic && text.at(i) == QLatin1Char('\\')) {
+            i += 2;
+            continue;
+        }
+        if (QStringView(text).mid(i).startsWith(fence)) {
+            v->basic = false;
+            v->literal = false;
+            return i + 3;
+        }
+        ++i;
+    }
+    return n; // all of what is left belongs to the string
 }
 
 void countBracket(OpenValue *v, QChar c)
@@ -119,9 +134,10 @@ void countBracket(OpenValue *v, QChar c)
         ++v->brackets;
     else if (c == QLatin1Char(']') && v->brackets > 0)
         --v->brackets;
-    else if (c == QLatin1Char('{'))
+    else if (c == QLatin1Char('{')) {
         ++v->braces;
-    else if (c == QLatin1Char('}') && v->braces > 0)
+        v->inlineTable = true;
+    } else if (c == QLatin1Char('}') && v->braces > 0)
         --v->braces;
 }
 
@@ -591,15 +607,24 @@ QRegularExpressionMatch matchValue(const QString &body, const char *key, const Q
 // straight before the closing quotes, which this editor writes there.
 std::optional<QString> readBlock(const QString &table, const char *key)
 {
-    static const QRegularExpression basicBlock(
-            QStringLiteral("\\s*\"\"\"\\n?(.*?)\\n?\"\"\""),
-            QRegularExpression::DotMatchesEverythingOption);
-    const auto bm = matchValue(table, key, basicBlock);
-    // Same unescaping as the quoted fields: buildConfigToml() escapes quotes and
-    // backslashes in the block, and a PEM (which has neither) still round trips
-    // byte for byte.
-    if (bm.hasMatch())
-        return unescapeBasic(bm.captured(1));
+    static const QRegularExpression basicOpen(QStringLiteral("\\s*\"\"\"\\n?"));
+    const auto bm = matchValue(table, key, basicOpen);
+    // It closes where every other reader here says it does (endOfOpenMultiline),
+    // past any \". Same unescaping as the quoted fields: buildConfigToml()
+    // escapes quotes and backslashes in the block, and a PEM (which has neither)
+    // still round trips byte for byte.
+    if (bm.hasMatch()) {
+        OpenValue open;
+        open.basic = true;
+        const int start = bm.capturedEnd();
+        const int end = endOfOpenMultiline(&open, table, start);
+        if (!open.basic) {
+            QString text = table.mid(start, end - 3 - start);
+            if (text.endsWith(QLatin1Char('\n')))
+                text.chop(1);
+            return unescapeBasic(text);
+        }
+    }
     static const QRegularExpression literalBlock(
             QStringLiteral("\\s*'''\\n?(.*?)\\n?'''"),
             QRegularExpression::DotMatchesEverythingOption);
@@ -786,6 +811,88 @@ QString endpointClientRandomAuthKey(const QString &toml)
 {
     const QList<QPair<QString, QString>> tables = splitTomlTables(toml);
     return readString(tableBody(tables, QStringLiteral("endpoint")), "client_random_auth_key").trimmed();
+}
+
+namespace {
+
+// Whether a line sets a key of another table without its header, as a dotted
+// key does: `endpoint.hostname = ...` or `"endpoint".hostname = ...`. A dot or
+// an = inside a quoted part is part of that part's name, so `"a.b" = 1` sets a
+// key at the top, and `"a=b".c = 1` sets c in the table a=b. keyOf() splits at
+// the first =, quoted or not, and so read that line's key as `"a`, with no dot.
+bool setsADottedKey(const QString &line)
+{
+    bool dotted = false;
+    int i = 0;
+    while (i < line.size()) {
+        const QChar c = line.at(i);
+        if (c == QLatin1Char('='))
+            return dotted;
+        if (c == QLatin1Char('#'))
+            return false;
+        if (c == QLatin1Char('"') || c == QLatin1Char('\'')) {
+            i = endOfQuoted(line, i);
+            continue;
+        }
+        dotted = dotted || c == QLatin1Char('.');
+        ++i;
+    }
+    return false;
+}
+
+// The endpoint's export, as parseEndpointExport() tells one: no table of any
+// kind, and a server's four keys at the top. A table can be a header, a dotted
+// key or an inline table anywhere, an array of them included, which Android
+// refuses as well. Only a { at the start of a value was counted before, so
+// `x = [{ ... }]` passed. A line inside a value that runs on is stepped over,
+// and so is a string, so neither a certificate's text nor a brace in quotes
+// counts.
+bool isEndpointExport(const QString &toml)
+{
+    if (splitTomlTables(toml).size() != 1)
+        return false;
+    OpenValue open;
+    const QStringList lines = toml.split(QLatin1Char('\n'));
+    for (const QString &line : lines) {
+        if (!open.open() && setsADottedKey(line))
+            return false;
+        advanceOpenValue(open, line);
+    }
+    if (open.inlineTable)
+        return false;
+    for (const char *key : {"hostname", "addresses", "username", "password"}) {
+        if (valueStart(toml, key) < 0)
+            return false;
+    }
+    return true;
+}
+
+} // namespace
+
+// Read from under [endpoint], where the endpoint means its keys to go, so each is
+// read as a client config's is, in every spelling, and the subscription address
+// is left out as it is from any config.
+std::optional<EndpointExport> parseEndpointExport(const QString &toml)
+{
+    if (!isEndpointExport(toml))
+        return std::nullopt;
+    EndpointExport out;
+    const QString wrapped = withoutSubscription(QStringLiteral("[endpoint]\n") + toml, &out.subscription);
+    out.config = parseConfigToml(wrapped);
+    const QString body = tableBody(splitTomlTables(wrapped), QStringLiteral("endpoint"));
+    // The endpoint's name for the client random. A file written by hand may use
+    // the client's own, which parseConfigToml() has read already.
+    const QString prefix = readString(body, "client_random_prefix");
+    if (!prefix.trimmed().isEmpty())
+        out.config.clientRandom = prefix;
+    out.name = readString(body, "name").trimmed();
+    out.clientRandomAuthKey = readString(body, "client_random_auth_key").trimmed();
+    // What the export holds besides the server is not carried over, as a link's
+    // unknown tags are not: the export is imported as the link with the same
+    // server would be. With no table in it, all of that is under [endpoint] now,
+    // the export's own keys among it.
+    out.config.extraEndpointKeys.clear();
+    return out;
 }
 
 namespace {
