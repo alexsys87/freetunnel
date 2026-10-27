@@ -27,6 +27,7 @@ import android.net.LinkAddress;
 import android.net.LinkProperties;
 import android.net.Network;
 import android.net.NetworkCapabilities;
+import android.net.TrafficStats;
 import android.net.Uri;
 import android.net.VpnService;
 import android.os.Bundle;
@@ -44,6 +45,7 @@ import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.View;
+import android.view.ViewConfiguration;
 import android.view.ViewGroup;
 import android.view.ViewTreeObserver;
 import android.view.WindowInsets;
@@ -91,6 +93,7 @@ import java.util.regex.Pattern;
 public final class MainActivity extends Activity {
     private static final int PICK_CONFIG = 21;
     private static final int PREPARE_VPN = 22;
+    private static final int EXPORT_CONFIG = 24;
     private static final String PREFS = "freetunnel";
     private String[] tabNames;
     // The Home tab is the logo, in its own greys: the app never tints it.
@@ -99,7 +102,14 @@ public final class MainActivity extends Activity {
     private SharedPreferences prefs;
     private final List<Config> configs = new ArrayList<>();
     private final Map<Config, String> pingResults = new IdentityHashMap<>();
-    private boolean pingRunning;
+    // Each press of the ping button starts a new generation, and the answers of an older one are dropped. The probes
+    // run side by side on a few threads, as the desktop's do.
+    private int pingGeneration;
+    private final ExecutorService pingWorker = Executors.newFixedThreadPool(4);
+    // Writes an exported file, which a document provider may be slow to take.
+    private final ExecutorService ioWorker = Executors.newSingleThreadExecutor();
+    // The config an export is being asked for: the file picker answers later, when the list may have changed.
+    private Config exporting;
     private int activeIndex;
     private int page;
     // The theme setting, "system" (the default), "light" or "dark", and the theme in
@@ -130,6 +140,9 @@ public final class MainActivity extends Activity {
     // Makes the next render() focus the page's own control (see onBackPressed).
     private boolean pageFocus;
     private int vpnState;
+    // From the user's Disconnect until the service says it is off: the desktop's disconnecting.
+    private boolean stopping;
+    private final Runnable clearStopping = () -> { if (stopping) { stopping = false; if (page <= 1) render(); } };
     private String pendingConfig;
     private boolean receiverRegistered;
     private boolean storageFailed;
@@ -161,7 +174,9 @@ public final class MainActivity extends Activity {
     private final BroadcastReceiver vpnReceiver = new BroadcastReceiver() {
         @Override public void onReceive(Context context, Intent intent) {
             vpnState = FreeTunnelVpnService.state(context);
-            if (page == 0) render();
+            if (vpnState == 0 && stopping) { stopping = false; host.removeCallbacks(clearStopping); }
+            // Home shows the state, and so does the selected config's badge on Configs.
+            if (page <= 1) render();
             QuickTileService.refresh(context);
         }
     };
@@ -203,6 +218,7 @@ public final class MainActivity extends Activity {
 
     @Override protected void onResume() {
         super.onResume();
+        resumed = true;
         FreeTunnelVpnService.clearStaleAlert(this);
         if (!receiverRegistered) {
             IntentFilter filter = new IntentFilter(FreeTunnelVpnService.ACTION_STATE);
@@ -212,12 +228,20 @@ public final class MainActivity extends Activity {
         AndroidUpdater.INSTANCE.observe(() -> { refreshUpdateDot(); if (page == 3) refreshUpdateControls(); });
         AndroidUpdater.INSTANCE.recoverInstall(this);
         vpnState = FreeTunnelVpnService.state(this);
+        if (vpnState == 0) stopping = false;
         // Settings is only refreshed, not rebuilt, so it keeps its scroll position.
-        if (page == 0) render();
+        if (page <= 1) render();
         else if (page == 3) refreshUpdateControls();
     }
 
     @Override protected void onPause() {
+        resumed = false;
+        host.removeCallbacks(homeTicker);
+        // Nothing animates while the app is not shown, and the speeds are of the time it is.
+        hero.release();
+        speedMeter.reset();
+        // The logo does not animate across the time the app was not shown.
+        homeFresh = true;
         AndroidUpdater.INSTANCE.observe(null);
         if (receiverRegistered) {
             unregisterReceiver(vpnReceiver);
@@ -241,6 +265,9 @@ public final class MainActivity extends Activity {
     // still recreates the activity, which the colours and the words need.
     @Override public void onConfigurationChanged(Configuration config) {
         super.onConfigurationChanged(config);
+        // The dropdown was sized and placed for the window it opened in: a resize closes it, as it does on the desktop.
+        Overlay picker = overlay("homepicker");
+        if (picker != null) closeOverlay(picker);
         render();
     }
 
@@ -267,10 +294,6 @@ public final class MainActivity extends Activity {
     private LinearLayout.LayoutParams weighted() { return new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1); }
     private TextView label(String value, float size, int color) { return ui.label(value, size, color); }
     private void gap(LinearLayout p, int size) { ui.gap(p, size); }
-    private LinearLayout card() {
-        LinearLayout c = column(); c.setPadding(dp(16), dp(14), dp(16), dp(14));
-        c.setBackground(ui.shape(t().surface, 14)); return c;
-    }
     // SectionLabel: 12 in textFaint as it is typed, 16 below the section before it.
     private void section(LinearLayout p, String title) {
         if (p.getChildCount() > 0) ui.section(p, title);
@@ -351,6 +374,8 @@ public final class MainActivity extends Activity {
         } else if (renderedPage != page) restoreScrollY = 0;
         if (pageFocus) { restoreKey = null; pageFocus = false; }
         int generation = ++renderGeneration;
+        homeContinues = !homeFresh && renderedPage == 0 && page == 0;
+        homeFresh = false;
         dark = Theme.isDark(themeMode, nightMode());
         remote = isRemote();
         ui.update(dark, remote);
@@ -363,6 +388,12 @@ public final class MainActivity extends Activity {
         pageRoot.removeAllViews();
         nav();
         pageScroll = null;
+        if (page != 0) {
+            // Nothing of Home is shown: its logo may not go on pulsing at views that are gone.
+            hero.release();
+            speedMeter.reset();
+            homeStatus = null; homeDown = null; homeUp = null; homeSelectorRow = null; homeSpeedRow = null;
+        }
         if (page == 0) home();
         else {
             ScrollView scroll = new ScrollView(this); scroll.setFillViewport(true); scroll.setClipToPadding(false);
@@ -382,7 +413,13 @@ public final class MainActivity extends Activity {
         }
         renderedPage = page;
         restoreFocus(generation, restoreKey, restoreScrollY);
+        // Its list is the configs as they were: with another page or another list it is no longer what it was opened on.
+        Overlay picker = overlay("homepicker");
+        if (picker != null && (page != 0 || configs.size() != homePickerCount)) closeOverlay(picker);
         reanchorOverlays();
+        scheduleHomeTick();
+        // Home's toast sits between the selector and the tiles, which are only where they are once laid out.
+        host.post(this::placeToast);
     }
 
     // Puts a remote's focus back on the control that had it before render(), and the
@@ -772,6 +809,10 @@ public final class MainActivity extends Activity {
     }
 
     private Overlay showMenu(String name, String anchorKey, List<MenuEntry> items) {
+        return showMenu(name, anchorKey, items, null);
+    }
+    // onClose runs once it is closed, however it was.
+    private Overlay showMenu(String name, String anchorKey, List<MenuEntry> items, Runnable onClose) {
         Overlay previous = overlay(name);
         if (previous != null) closeOverlay(previous);
         Theme t = t();
@@ -807,7 +848,7 @@ public final class MainActivity extends Activity {
             rowLp.bottomMargin = dp(1);
             list.addView(rowView, rowLp);
         }
-        Overlay overlay = showOverlay(name, OverlayLayer.Kind.POPUP, list, anchorKey, null);
+        Overlay overlay = showOverlay(name, OverlayLayer.Kind.POPUP, list, anchorKey, onClose);
         shown[0] = overlay;
         if (anchorKey != null) overlay.layer.setAnchor(l -> anchorRect(anchorKey, l), OverlayLayer.UNDER_CENTRE_OF_WINDOW, dp(4));
         overlay.width(Math.max(dp(140), widest + dp(40) + dp(10)));
@@ -863,7 +904,31 @@ public final class MainActivity extends Activity {
         FrameLayout.LayoutParams p = new FrameLayout.LayoutParams(-2, -2, (top ? Gravity.TOP : Gravity.BOTTOM) | Gravity.CENTER_HORIZONTAL);
         p.topMargin = dp(48);
         p.bottomMargin = dp(26);
+        if (!top && page == 0 && toastView != null) p.bottomMargin = homeToastMargin(toastView, p.bottomMargin);
         return p;
+    }
+    // How far above the bottom the toast sits on Home (HomePage.qml toastMargin): in the middle of the gap between the selector and
+    // the speed tiles when it fits there; a longer one covers the tiles, whole, and not the selector, the one thing here people
+    // tap. Where Home is not laid out yet, or is not there, the usual 26.
+    private int homeToastMargin(View toast, int otherwise) {
+        View selector = homeSelectorRow;
+        View tiles = homeSpeedRow;
+        if (selector == null || tiles == null || !selector.isAttachedToWindow() || !tiles.isAttachedToWindow()
+                || selector.getHeight() == 0 || tiles.getHeight() == 0 || toastLayer.getHeight() == 0) return otherwise;
+        toast.measure(View.MeasureSpec.makeMeasureSpec(toastLayer.getWidth(), View.MeasureSpec.AT_MOST), View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
+        int height = toast.getMeasuredHeight();
+        int[] layerAt = new int[2];
+        int[] selectorAt = new int[2];
+        int[] tilesAt = new int[2];
+        toastLayer.getLocationInWindow(layerAt);
+        selector.getLocationInWindow(selectorAt);
+        tiles.getLocationInWindow(tilesAt);
+        int layerBottom = layerAt[1] + toastLayer.getHeight();
+        int gapBottom = layerBottom - tilesAt[1];
+        int gapTop = layerBottom - (selectorAt[1] + selector.getHeight());
+        int room = gapTop - gapBottom;
+        if (height + dp(8) <= room) return gapBottom + (room - height) / 2;
+        return layerBottom - (tilesAt[1] + tiles.getHeight());
     }
     private void placeToast() {
         if (toastView != null && toastView.getParent() == toastLayer) toastView.setLayoutParams(toastParams());
@@ -931,58 +996,295 @@ public final class MainActivity extends Activity {
         if (settingsDot != null) settingsDot.setVisibility(updateWaiting() ? View.VISIBLE : View.GONE);
     }
 
+    // Home, as the desktop's HomePage draws it. The logo is the control: a click connects, cancels a connection that is
+    // coming up or disconnects one that is up, and with no config to connect it opens the add menu on Configs.
+    // Under it, while there is a session, one line: Connecting…, Disconnecting…, the time the connection has been up or,
+    // while traffic is blocked, why, with Reconnect under it. Then the selector, which opens the config dropdown right here,
+    // and +. At the foot, two tiles with the speeds. Keys: home:toggle (the logo), home:reconnect, home:config, home:add.
+    // The logo's look follows the state (HeroMotion); the line under it and the speeds change once a second
+    // without a render() (tickHome).
+    private HeroMotion hero = new HeroMotion();
+    private TextView homeStatus;
+    private TextView homeDown;
+    private TextView homeUp;
+    private View homeSelectorRow;
+    private View homeSpeedRow;
+    // The last render() was of Home too, so the logo moves from where it was; otherwise it starts in its state.
+    private boolean homeContinues;
+    // After the app was left or came back, which the logo does not animate across.
+    private boolean homeFresh = true;
+    private boolean resumed;
+    private final SpeedMeter speedMeter = new SpeedMeter();
+    // Where the timer counts from when the service does not say (it always does, but a device test only sets the state).
+    private long homeSeenUpAt;
+    private long lastLogoClick;
+    private int homePickerCount;
+
+    private int pageWidthPx() {
+        int width = host.getWidth() > 0 ? host.getWidth() - host.getPaddingLeft() - host.getPaddingRight() : getResources().getDisplayMetrics().widthPixels;
+        return Math.max(dp(100), width);
+    }
+
     private void home() {
         Theme t = t();
         FrameLayout stage = new FrameLayout(this);
+        stage.setClipChildren(false);
         pageRoot.addView(stage, new LinearLayout.LayoutParams(-1, 0, 1));
-        LinearLayout hero = column(); hero.setGravity(Gravity.CENTER_HORIZONTAL);
-        ImageView logo = new ImageView(this); logo.setImageResource(R.drawable.ic_logo); logo.setAlpha(0.5f);
-        hero.addView(logo, lp(132, 132));
-        logo.setContentDescription(isVpnActive() ? getString(R.string.text_disconnect_freetunnel) : getString(R.string.text_connect_freetunnel));
-        // On a TV it would be one more stop on the way down to the same Connect.
-        if (!isTv()) ui.focus(logo, "home:logo", Ui.Look.TILE).setOnClickListener(v -> connect());
-        gap(hero, 22);
-        String name = configs.isEmpty() ? getString(R.string.text_add_configuration) : configs.get(Math.min(activeIndex, configs.size() - 1)).name + "  ▾";
-        // As wide as its words, so that the focus is around them and not across the screen.
-        TextView selected = ui.link(name, 15, Ui.LinkKind.TEXT, "home:config");
-        selected.setTypeface(Ui.MEDIUM);
-        selected.setOnClickListener(v -> {
-            page = 1; render(); if (configs.isEmpty()) addMenu();
+
+        // The speed tiles, pinned 44 above the bottom, whatever the logo and the selector do.
+        TextView[] down = new TextView[1];
+        TextView[] up = new TextView[1];
+        LinearLayout speeds = row();
+        speeds.setGravity(Gravity.CENTER);
+        speeds.addView(ui.speedTile("↓", t.success, down), lp(116, 44));
+        ui.gapH(speeds, 12);
+        speeds.addView(ui.speedTile("↑", t.textDim, up), lp(116, 44));
+        FrameLayout.LayoutParams speedsLp = new FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
+        speedsLp.bottomMargin = dp(44);
+        stage.addView(speeds, speedsLp);
+        // The speeds are of the time Home has been shown: a start is taken when it is shown, and the first tick after it gives a speed.
+        if (vpnState != 2) speedMeter.reset();
+        else if (!homeContinues) { speedMeter.reset(); sampleSpeeds(); }
+        homeDown = down[0];
+        homeUp = up[0];
+        homeDown.setText(speedText(speedMeter.downBytesPerSecond()));
+        homeUp.setText(speedText(speedMeter.upBytesPerSecond()));
+        homeSpeedRow = speeds;
+
+        // Above them, 22 clear, the logo, its line and the selector as one column, in the middle of what is left and 6 below it.
+        FrameLayout area = new FrameLayout(this);
+        area.setClipChildren(false);
+        FrameLayout.LayoutParams areaLp = new FrameLayout.LayoutParams(-1, -1);
+        areaLp.bottomMargin = dp(44 + 44 + 22);
+        stage.addView(area, areaLp);
+        LinearLayout column = column();
+        column.setGravity(Gravity.CENTER_HORIZONTAL);
+        column.setClipChildren(false);
+        FrameLayout.LayoutParams columnLp = new FrameLayout.LayoutParams(-1, -2, Gravity.CENTER_VERTICAL);
+        columnLp.topMargin = dp(12);
+        area.addView(column, columnLp);
+
+        // The logo: 132 across, and it is all of the control, so the focus and a tap are on it and not around it.
+        FrameLayout box = new FrameLayout(this);
+        box.setClipChildren(false);
+        ImageView logo = new ImageView(this);
+        logo.setImageResource(R.drawable.ic_logo);
+        logo.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        box.addView(logo, new FrameLayout.LayoutParams(-1, -1));
+        box.setContentDescription(isVpnActive() ? getString(R.string.text_disconnect_freetunnel) : getString(R.string.text_connect_freetunnel));
+        ui.focus(box, "home:toggle", Ui.Look.HERO).setOnClickListener(v -> logoClicked());
+        // A press, or OK on a remote, shrinks it to 0.96 and it comes back when that ends.
+        box.setOnTouchListener((v, event) -> {
+            int action = event.getActionMasked();
+            if (action == MotionEvent.ACTION_DOWN) hero.press(true);
+            else if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) hero.press(false);
+            return false;
         });
-        hero.addView(selected, lp(-2, 32));
-        TextView status = label(connectionCaption(), 13, vpnState == 2 ? t.success : t.textDim);
+        box.setOnKeyListener((v, keyCode, event) -> {
+            if (keyCode == KeyEvent.KEYCODE_DPAD_CENTER || keyCode == KeyEvent.KEYCODE_ENTER || keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER) {
+                if (event.getAction() == KeyEvent.ACTION_DOWN && event.getRepeatCount() == 0) hero.press(true);
+                else if (event.getAction() == KeyEvent.ACTION_UP) hero.press(false);
+            }
+            return false;
+        });
+        box.setOnFocusChangeListener((v, hasFocus) -> { if (!hasFocus) hero.press(false); });
+        LinearLayout.LayoutParams boxLp = lp(132, 132);
+        boxLp.gravity = Gravity.CENTER_HORIZONTAL;
+        column.addView(box, boxLp);
+
+        // The line, 6 under the logo, which takes the room it needs when a session starts and gives it back when it ends.
+        HomeState.Line kind = HomeState.line(vpnState, stopping);
+        FrameLayout line = new FrameLayout(this);
+        line.setClipChildren(false);
+        column.addView(line, lp(-1, 0));
+        LinearLayout content = column();
+        content.setGravity(Gravity.CENTER_HORIZONTAL);
+        TextView status = ui.medium(statusText(kind), 15, kind == HomeState.Line.BLOCKED ? t.warn : t.textDim);
         status.setGravity(Gravity.CENTER);
-        hero.addView(status, lp(-1, 30));
-        if (vpnState == 6) {
-            // The service retries on its own; this reconnects now. It is also the
-            // way in on Android TV, which has no tile and makes notification
-            // actions hard to reach, so a remote lands on it first (focusTarget).
+        status.setMaxWidth(pageWidthPx() - dp(36));
+        status.setTag("home:status");
+        content.addView(status, lp(-2, -2));
+        if (kind == HomeState.Line.BLOCKED) {
+            // The service retries on its own; this reconnects now. It is also the way in on Android TV, which has no tile
+            // and makes notification actions hard to reach, so a remote lands on it first (focusTarget).
             Button reconnect = ui.button(getString(R.string.vpn_reconnect), Ui.Kind.PRIMARY, 76, "home:reconnect");
             reconnect.setOnClickListener(v -> {
                 FreeTunnelVpnService.reconnect(this);
                 toast(getString(R.string.text_recovering_connection));
             });
-            hero.addView(reconnect, lp(178, 44));
-            gap(hero, 10);
+            LinearLayout.LayoutParams reconnectLp = lp(-2, 32);
+            reconnectLp.topMargin = dp(8);
+            content.addView(reconnect, reconnectLp);
         }
-        Button toggle = ui.button(isVpnActive() ? getString(R.string.text_disconnect) : getString(R.string.text_connect),
-                isVpnActive() && vpnState != 6 ? Ui.Kind.PRIMARY : Ui.Kind.NEUTRAL, 76, "home:toggle");
-        toggle.setContentDescription(isVpnActive() ? getString(R.string.text_disconnect_vpn) : getString(R.string.text_connect_vpn));
-        toggle.setOnClickListener(v -> connect());
-        hero.addView(toggle, lp(178, 44));
-        FrameLayout.LayoutParams heroLp = new FrameLayout.LayoutParams(-1, -2, Gravity.CENTER);
-        heroLp.bottomMargin = dp(34);
-        stage.addView(hero, heroLp);
+        // As high as it needs whatever room the line has been given so far: while the line grows, it shows whole, as the desktop's does.
+        content.measure(View.MeasureSpec.makeMeasureSpec(pageWidthPx(), View.MeasureSpec.AT_MOST), View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
+        FrameLayout.LayoutParams contentLp = new FrameLayout.LayoutParams(-1, content.getMeasuredHeight());
+        contentLp.topMargin = dp(6);
+        line.addView(content, contentLp);
+        homeStatus = kind == HomeState.Line.TIMER ? status : null;
+        int lineHeight = dp(6) + content.getMeasuredHeight();
+        hero.attach(box, logo, line, status, dp(12), lineHeight, HomeState.sessionActive(vpnState, stopping),
+                HomeState.alpha(vpnState, stopping), HomeState.pulsing(vpnState, stopping), homeContinues);
+
+        ui.gap(column, 22);
+
+        // The selector and +, side by side, 6 apart, as one row in the middle.
+        LinearLayout selection = row();
+        selection.setGravity(Gravity.CENTER);
+        boolean any = !configs.isEmpty();
+        String shown = any ? configs.get(Math.max(0, Math.min(activeIndex, configs.size() - 1))).name : getString(R.string.text_add_configuration);
+        // The room the name has: the page less its 18 each side, the arrow and its 6, the + and its 6, and the selector's own padding.
+        int room = pageWidthPx() - dp(36) - (any ? textWidth("▾", 15) + dp(6) + dp(6) + dp(22) : 0) - dp(12);
+        LinearLayout selector = ui.selector(shown, any, room, "home:config");
+        selector.setOnClickListener(v -> { if (configs.isEmpty()) addConfigOnConfigsPage(); else homePicker(); });
+        selection.addView(selector, lp(-2, -2));
+        if (any) {
+            FrameLayout add = ui.smallIconButton(R.drawable.ic_add_home, 14, getString(R.string.text_add_configuration), "home:add");
+            add.setOnClickListener(v -> addConfigOnConfigsPage());
+            LinearLayout.LayoutParams addLp = lp(22, 22);
+            addLp.leftMargin = dp(6);
+            selection.addView(add, addLp);
+        }
+        LinearLayout.LayoutParams selectionLp = lp(-2, -2);
+        selectionLp.gravity = Gravity.CENTER_HORIZONTAL;
+        column.addView(selection, selectionLp);
+        homeSelectorRow = selection;
     }
+
+    private String statusText(HomeState.Line kind) {
+        switch (kind) {
+            case CONNECTING: return getString(R.string.text_connecting);
+            case DISCONNECTING: return getString(R.string.text_disconnecting);
+            case TIMER: return SessionTime.format(SystemClock.elapsedRealtime() - sessionStart());
+            case BLOCKED: return getString(R.string.vpn_traffic_blocked);
+            default: return "";
+        }
+    }
+    private String speedText(double bytesPerSecond) {
+        return SpeedMeter.megabytes(bytesPerSecond) + getString(R.string.text_mb_per_s);
+    }
+    // SystemClock.elapsedRealtime() when the connection came up, from the service.
+    private long sessionStart() {
+        long start = FreeTunnelVpnService.sessionStart();
+        if (start > 0) return start;
+        if (homeSeenUpAt == 0) homeSeenUpAt = SystemClock.elapsedRealtime();
+        return homeSeenUpAt;
+    }
+
+    // What the logo does: with no config and no session, the way to one, the add menu; otherwise it connects, cancels or disconnects.
+    // A double tap counts once: people double-tap anything that looks like an icon, and it connected and at once cancelled.
+    private void logoClicked() {
+        long now = SystemClock.uptimeMillis();
+        if (now - lastLogoClick < ViewConfiguration.getDoubleTapTimeout()) return;
+        lastLogoClick = now;
+        connect();
+    }
+    // Home's +, its "Add a config" and the logo with nothing to connect: the Configs page, with its menu open.
+    private void addConfigOnConfigsPage() {
+        page = 1;
+        render();
+        addMenu();
+    }
+
+    // Once a second while Home shows a connected session: the time under the logo and the two speeds. Only those views are
+    // changed, never the page, so that nothing the user is doing on it is touched.
+    private final Runnable homeTicker = new Runnable() {
+        @Override public void run() {
+            if (page != 0 || !resumed || vpnState != 2 || stopping) return;
+            tickHome();
+            scheduleHomeTick();
+        }
+    };
+    private void scheduleHomeTick() {
+        host.removeCallbacks(homeTicker);
+        if (page != 0 || !resumed || vpnState != 2 || stopping) return;
+        host.postDelayed(homeTicker, SessionTime.untilNextSecond(SystemClock.elapsedRealtime() - sessionStart()));
+    }
+    // The counters of this app, which carries the tunnel's traffic: the VPN excludes it, and its own connection to the server is the tunnel.
+    // A device that keeps none gives TrafficStats.UNSUPPORTED, and the speeds stay 0.0.
+    private void sampleSpeeds() {
+        int uid = android.os.Process.myUid();
+        speedMeter.sample(TrafficStats.getUidRxBytes(uid), TrafficStats.getUidTxBytes(uid), SystemClock.elapsedRealtime());
+    }
+    private void tickHome() {
+        long now = SystemClock.elapsedRealtime();
+        if (homeStatus != null) {
+            String time = SessionTime.format(now - sessionStart());
+            if (!time.contentEquals(homeStatus.getText())) homeStatus.setText(time);
+        }
+        sampleSpeeds();
+        if (homeDown != null) homeDown.setText(speedText(speedMeter.downBytesPerSecond()));
+        if (homeUp != null) homeUp.setText(speedText(speedMeter.upBytesPerSecond()));
+    }
+
+    // The config dropdown, right on Home (qml/pages/HomePage.qml, cfgPopup): under the selector, 6 below it and centred on it, as
+    // wide as the widest name at 14 plus 30 (140 at least, the page less 16 at most), a row of 40 for each config, three showing and
+    // the rest scrolling, the selected one in accent. A row selects that config (the one already selected does nothing),
+    // reconnecting to it if a session is up, and closes it. Back, a tap anywhere else, and the selector, close it. The
+    // first focus is on the selected row. Keys: home:pick:0, home:pick:1 and so on.
+    private void homePicker() {
+        if (configs.isEmpty() || overlay("homepicker") != null) return;
+        Theme t = t();
+        int selected = Math.max(0, Math.min(activeIndex, configs.size() - 1));
+        LinearLayout frame = column();
+        frame.setPadding(dp(5), dp(5), dp(5), dp(5));
+        CappedScrollView scroll = new CappedScrollView(this);
+        scroll.setMaxHeight(dp(3 * 40));
+        LinearLayout list = column();
+        final Overlay[] shown = new Overlay[1];
+        int widest = 0;
+        for (int i = 0; i < configs.size(); i++) {
+            final int index = i;
+            String name = configs.get(i).name;
+            widest = Math.max(widest, textWidth(name, 14));
+            int color = i == selected ? t.accent : t.text;
+            TextView label = ui.follow(ui.label(name, 14, color), color, color, t.accentText);
+            label.setSingleLine(true);
+            label.setEllipsize(TextUtils.TruncateAt.END);
+            label.setPadding(dp(10), 0, dp(10), 0);
+            LinearLayout rowView = row();
+            rowView.addView(label, new LinearLayout.LayoutParams(0, -1, 1));
+            ui.focus(rowView, "home:pick:" + i, Ui.Look.MENU_ROW).setOnClickListener(v -> {
+                closeOverlay(shown[0]);
+                selectConfig(index);
+            });
+            list.addView(rowView, lp(-1, 40));
+        }
+        scroll.addView(list, new FrameLayout.LayoutParams(-1, -2));
+        frame.addView(scroll, lp(-1, -2));
+        Overlay overlay = showOverlay("homepicker", OverlayLayer.Kind.POPUP, frame, "home:config", null);
+        homePickerCount = configs.size();
+        shown[0] = overlay;
+        overlay.layer.setAnchor(l -> anchorRect("home:config", l), OverlayLayer.UNDER_CENTRE_OF_CONTROL, dp(6));
+        overlay.width(Math.max(dp(140), widest + dp(30)));
+        overlay.defaultKey = "home:pick:" + selected;
+    }
+
+    // What clicking a config does, here and on the Configs page: it becomes the one to connect to, and if a session is up it
+    // reconnects to it. The one that is selected already is left alone.
+    private void selectConfig(int index) {
+        if (index < 0 || index >= configs.size() || index == activeIndex) return;
+        activeIndex = index;
+        saveConfigs();
+        applyCurrentRules();
+        render();
+    }
+
     private void gapHorizontal(LinearLayout p, int size) { p.addView(new View(this), lp(size, 1)); }
     private void connect() {
         vpnState = FreeTunnelVpnService.state(this);
         if (isVpnActive()) {
             validationRequest++;
+            // Disconnecting until the service says it is off.
+            stopping = true;
+            host.removeCallbacks(clearStopping);
+            host.postDelayed(clearStopping, 8000);
             FreeTunnelVpnService.stop(this);
+            render();
             return;
         }
-        if (configs.isEmpty()) { page = 1; render(); toast(getString(R.string.text_add_a_configuration_first)); return; }
+        // Nothing to connect to: the way to something, as the desktop's logo is.
+        if (configs.isEmpty()) { addConfigOnConfigsPage(); return; }
         Config config = configs.get(Math.max(0, Math.min(activeIndex, configs.size() - 1)));
         validateAsync(config.toml, () -> {
             pendingConfig = config.toml;
@@ -997,16 +1299,6 @@ public final class MainActivity extends Activity {
 
     private boolean isVpnActive() {
         return vpnState == 1 || vpnState == 2 || vpnState == 3 || vpnState == 4 || vpnState == 5 || vpnState == 6;
-    }
-
-    private String connectionCaption() {
-        switch (vpnState) {
-            case 1: return getString(R.string.text_connecting);
-            case 2: return getString(R.string.text_connected);
-            case 6: return getString(R.string.vpn_traffic_blocked);
-            case 3: case 4: case 5: return getString(R.string.text_recovering_connection);
-            default: return getString(R.string.text_disconnected);
-        }
     }
 
     private void startVpnWithPendingConfig() {
@@ -1075,85 +1367,157 @@ public final class MainActivity extends Activity {
         });
     }
 
+    // The Configs page, as the desktop draws it (qml/pages/ConfigsPage.qml): at the top + and the speedometer, 40 by 32 and 16 apart
+    // and in the middle, the speedometer only when there are configs; under them the rows (ConfigRowView), a click on which
+    // selects that config; with none, "Add a config" in the middle of the page, which opens the add menu and is hidden while it is
+    // open. On a phone a row is moved by pressing and holding it and dragging; a TV has no way to. Keys: configs:add, configs:ping,
+    // configs:hint, and config:N:select, config:N:export, config:N:edit and config:N:remove for each row.
+    private TextView configsHint;
+
     private void configs(LinearLayout body) {
-        Theme t = t();
         storageBanner(body);
-        // The header's buttons are 40 by 32, 16 apart, resting on the page.
+        // The header's buttons are 40 by 32, 16 apart, resting on the page, 8 from the top of it.
         LinearLayout header = row(); header.setGravity(Gravity.CENTER);
         FrameLayout add = ui.iconButton(R.drawable.ic_add, 22, getString(R.string.text_add_configuration), "configs:add");
         add.setOnClickListener(v -> addMenu()); header.addView(add, lp(40, 32));
-        gapHorizontal(header, 16);
-        FrameLayout ping = ui.iconButton(R.drawable.ic_ping, 22, getString(R.string.text_check_server_tcp_latency), "configs:ping");
-        ping.setOnClickListener(v -> pingConfigs()); header.addView(ping, lp(40, 32));
-        body.addView(header, lp(-1, 44));
+        if (!configs.isEmpty()) {
+            gapHorizontal(header, 16);
+            FrameLayout ping = ui.iconButton(R.drawable.ic_ping, 22, getString(R.string.text_check_server_tcp_latency), "configs:ping");
+            ping.setOnClickListener(v -> pingConfigs()); header.addView(ping, lp(40, 32));
+        }
+        body.addView(header, lp(-1, 32));
+        gap(body, 8);
+        configsHint = null;
         if (configs.isEmpty()) {
             body.addView(new View(this), new LinearLayout.LayoutParams(1, 0, 1));
             // As wide as its words: the focus is around them, not across the page.
             TextView hint = ui.link(getString(R.string.text_add_configuration), 15, Ui.LinkKind.TEXT, "configs:hint");
             hint.setTypeface(Ui.MEDIUM);
             hint.setOnClickListener(v -> addMenu());
+            // Under its own menu it would be cut in half.
+            hint.setVisibility(overlay("addmenu") != null ? View.INVISIBLE : View.VISIBLE);
+            configsHint = hint;
             LinearLayout.LayoutParams hintLp = lp(-2, 40);
             hintLp.gravity = Gravity.CENTER_HORIZONTAL;
             body.addView(hint, hintLp);
             body.addView(new View(this), new LinearLayout.LayoutParams(1, 0, 1));
+            return;
         }
+        // Answers of configs that are no more are not kept.
+        pingResults.keySet().retainAll(configs);
+        LinearLayout list = column();
+        RowDrag drag = isTv() || storageFailed ? null
+                : new RowDrag(list, dp(ConfigRowView.PITCH_DP), dp(2), this::moveConfig);
         for (int i = 0; i < configs.size(); i++) {
-            final int index = i; Config config = configs.get(i); gap(body, 12);
-            LinearLayout c = card(); LinearLayout top = row();
-            TextView name = ui.medium(config.name, 16, t.text); top.addView(name, new LinearLayout.LayoutParams(0, dp(35), 1));
-            if (i == activeIndex) top.addView(label(getString(R.string.text_selected), 12, t.success), lp(-2, 35));
-            c.addView(top, lp(-1, 36));
-            LinearLayout meta = row();
-            meta.addView(label("TrustTunnel  ·  TOML", 12, t.textDim), new LinearLayout.LayoutParams(0, dp(25), 1));
-            String pingText = pingResults.get(config);
-            if (pingText != null) meta.addView(label(pingText, 12, t.textDim), lp(-2, 25));
-            c.addView(meta, lp(-1, 25));
-            LinearLayout actions = row();
-            Button select = ui.button(getString(R.string.text_select), Ui.Kind.NEUTRAL, 76, "config:" + i + ":select"); select.setOnClickListener(v -> { activeIndex = index; saveConfigs(); applyCurrentRules(); render(); });
-            actions.addView(select, new LinearLayout.LayoutParams(0, dp(38), 1)); gapHorizontal(actions, 8);
-            Button edit = ui.button(getString(R.string.text_edit), Ui.Kind.NEUTRAL, 76, "config:" + i + ":edit"); edit.setOnClickListener(v -> editConfig(index));
-            actions.addView(edit, new LinearLayout.LayoutParams(0, dp(38), 1)); gapHorizontal(actions, 8);
-            Button remove = ui.button("✕", Ui.Kind.NEUTRAL, 0, "config:" + i + ":remove"); remove.setOnClickListener(v -> confirmRemove(index));
-            remove.setPadding(0, 0, 0, 0);
-            actions.addView(remove, lp(42, 38)); c.addView(actions, lp(-1, 38));
-            body.addView(c, lp(-1, -2));
+            final int index = i;
+            final Config config = configs.get(i);
+            boolean selected = i == activeIndex;
+            // Worded by connected, as the desktop does; gone while it disconnects.
+            CharSequence badge = null;
+            if (selected && !stopping) {
+                if (vpnState == 2) badge = getString(R.string.config_badge_connected);
+                else if (isVpnActive()) badge = getString(R.string.config_badge_connecting);
+            }
+            ConfigRowView row = new ConfigRowView(this, ui, i, config.name, selected, pingResults.get(config), badge, vpnState == 2,
+                    getString(R.string.text_export_config), getString(R.string.text_edit_configuration), getString(R.string.text_delete));
+            row.setOnClickListener(v -> selectConfig(index));
+            row.exportIcon.setOnClickListener(v -> exportMenu(config, index));
+            row.editIcon.setOnClickListener(v -> editConfig(index));
+            row.removeIcon.setOnClickListener(v -> confirmRemove(index));
+            if (drag != null) drag.attach(row);
+            list.addView(row, ConfigRowView.params(ui));
         }
+        body.addView(list, lp(-1, -2));
     }
-    private void pingConfigs() {
-        if (configs.isEmpty()) { toast(getString(R.string.text_add_a_configuration_first)); return; }
-        if (pingRunning) return;
-        pingRunning = true;
-        List<Config> snapshot = new ArrayList<>(configs);
-        for (Config config : snapshot) pingResults.put(config, "…");
+    // Moves a row to where it was dropped, and the selection stays on the config it was on.
+    private void moveConfig(int from, int to) {
+        if (storageFailed) return;
+        activeIndex = Reorder.move(configs, from, to, activeIndex);
+        saveConfigs();
         render();
-        new Thread(() -> {
-            for (Config config : snapshot) {
-                String result = tcpPing(config.toml);
+    }
+
+    // Every config at once, side by side on four threads: "…" until its probe answers, then the time or a dash.
+    // Answers of an older press are dropped, as the desktop's are when its list is probed again.
+    private void pingConfigs() {
+        if (configs.isEmpty()) return;
+        final int generation = ++pingGeneration;
+        final String unit = getString(R.string.text_ms);
+        List<Config> snapshot = new ArrayList<>(configs);
+        for (Config config : snapshot) pingResults.put(config, PingProbe.PENDING);
+        render();
+        for (Config config : snapshot) {
+            final String toml = config.toml;
+            pingWorker.execute(() -> {
+                String text = PingProbe.text(PingProbe.probe(firstAddress(toml), PingProbe.TIMEOUT_MS), unit);
                 runOnUiThread(() -> {
-                    pingResults.put(config, result);
+                    if (isDestroyed() || generation != pingGeneration) return;
+                    pingResults.put(config, text);
                     if (page == 1) render();
                 });
-            }
-            runOnUiThread(() -> { pingRunning = false; if (page == 1) render(); });
-        }, "freetunnel-ping").start();
+            });
+        }
     }
-    private String tcpPing(String toml) {
-        String target;
-        try { target = RoutingConfig.validate(toml).getArray("endpoint.addresses").getString(0); }
-        catch (Exception e) { return getString(R.string.text_no_address); }
-        int separator = target.lastIndexOf(':');
-        if (separator <= 0) return getString(R.string.text_no_port);
-        String host = target.substring(0, separator);
-        if (host.startsWith("[") && host.endsWith("]")) host = host.substring(1, host.length() - 1);
+    // The config's first address, as host:port, or null where it has none.
+    private static String firstAddress(String toml) {
         try {
-            int port = Integer.parseInt(target.substring(separator + 1));
-            if (port < 1 || port > 65535) return getString(R.string.text_no_port);
-            long start = SystemClock.elapsedRealtime();
-            // Times a TCP handshake to the server and sends nothing over it, so
-            // there is nothing to encrypt.
-            try (Socket socket = new Socket()) { socket.connect(new InetSocketAddress(host, port), 2500); } // nosemgrep: java.lang.security.audit.crypto.unencrypted-socket.unencrypted-socket
-            return (SystemClock.elapsedRealtime() - start) + getString(R.string.text_ms);
-        } catch (Exception e) { return getString(R.string.text_unreachable); }
+            org.tomlj.TomlArray addresses = RoutingConfig.validate(toml).getArray("endpoint.addresses");
+            return addresses == null || addresses.size() == 0 ? null : addresses.getString(0);
+        } catch (Exception e) { return null; }
+    }
+
+    // The export icon's choices, under it with no check mark: the config as a .toml file, through the system's file picker,
+    // and as a tt:// link on the clipboard. Both carry the password, which the notice afterwards says.
+    private void exportMenu(Config config, int index) {
+        String[] options = {getString(R.string.export_toml), getString(R.string.export_deep_link)};
+        showSelect("config:" + index + ":export", options, -1, which -> { if (which == 0) exportToml(config); else copyDeepLink(config); });
+    }
+    // A config's name may hold a "/" or a "\", which a file name cannot (ConfigsPage.exportFileName).
+    private static String exportFileName(String name) {
+        String flat = name.replaceAll("[/\\\\]", "-");
+        return (flat.isEmpty() ? "config" : flat) + ".toml";
+    }
+    private void exportToml(Config config) {
+        Intent save = new Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE)
+                .setType("application/octet-stream").putExtra(Intent.EXTRA_TITLE, exportFileName(config.name));
+        exporting = config;
+        // Many TVs have no screen to save to.
+        if (!startForResult(save, EXPORT_CONFIG)) { exporting = null; toast(getString(R.string.export_no_picker)); }
+    }
+    private void writeExport(Uri uri) {
+        final Config config = exporting;
+        exporting = null;
+        if (config == null) return;
+        // The list may have changed while the file picker was up: the config is found again, and if it is gone, that is said.
+        if (!configs.contains(config)) { toast(getString(R.string.config_gone)); return; }
+        final byte[] bytes = config.toml.getBytes(StandardCharsets.UTF_8);
+        ioWorker.execute(() -> {
+            boolean written;
+            try (java.io.OutputStream out = getContentResolver().openOutputStream(uri, "wt")) {
+                if (out == null) throw new IOException("No stream");
+                out.write(bytes);
+                written = true;
+            } catch (Exception e) { written = false; }
+            final boolean ok = written;
+            runOnUiThread(() -> { if (!isDestroyed()) toast(getString(ok ? R.string.config_exported : R.string.export_failed)); });
+        });
+    }
+    private void copyDeepLink(Config config) {
+        String link = null;
+        try {
+            DeepLinkImport.Link described = DeepLinkImport.linkOf(config.name, RoutingConfig.validate(config.toml));
+            if (described != null) link = DeepLinkImport.encode(described);
+        } catch (Exception e) { link = null; }
+        if (link == null) { toast(getString(R.string.deep_link_failed)); return; }
+        ClipData clip = ClipData.newPlainText("FreeTunnel link", link);
+        // The link holds the password: a keyboard's clipboard history and the preview Android shows are asked to leave it out.
+        if (Build.VERSION.SDK_INT >= 33) {
+            android.os.PersistableBundle extras = new android.os.PersistableBundle();
+            extras.putBoolean(android.content.ClipDescription.EXTRA_IS_SENSITIVE, true);
+            clip.getDescription().setExtras(extras);
+        }
+        ((ClipboardManager) getSystemService(CLIPBOARD_SERVICE)).setPrimaryClip(clip);
+        toast(getString(R.string.deep_link_copied));
     }
     // The Configs page's menu under its +: no title. A TV has no camera for a link's QR code and a remote
     // is no way to type one, so there a phone's way in comes first; then the desktop's items, in its
@@ -1166,7 +1530,12 @@ public final class MainActivity extends Activity {
         items.add(new MenuEntry(getString(R.string.add_from_file), "add:file", this::pickFile));
         items.add(MenuEntry.SEPARATOR);
         items.add(new MenuEntry(getString(R.string.add_create_new), "add:create", () -> editConfig(-1)));
-        showMenu("addmenu", "configs:add", items);
+        showMenu("addmenu", "configs:add", items, this::refreshConfigsHint);
+        refreshConfigsHint();
+    }
+    // The empty page's "Add a config" is hidden while its menu is open.
+    private void refreshConfigsHint() {
+        if (configsHint != null) configsHint.setVisibility(overlay("addmenu") != null ? View.INVISIBLE : View.VISIBLE);
     }
     private void pasteFromClipboard() {
         ClipboardManager cm = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
@@ -1629,6 +1998,12 @@ public final class MainActivity extends Activity {
         if (requestCode == PREPARE_VPN) {
             if (resultCode == RESULT_OK) startVpnWithPendingConfig();
             else { pendingConfig = null; toast(getString(R.string.text_vpn_permission_was_not_granted)); }
+            return;
+        }
+        if (requestCode == EXPORT_CONFIG) {
+            Uri saved = resultCode == RESULT_OK && data != null ? data.getData() : null;
+            if (saved == null) exporting = null;
+            else writeExport(saved);
             return;
         }
         if (requestCode != PICK_CONFIG || resultCode != RESULT_OK || data == null) return;
@@ -2197,6 +2572,9 @@ public final class MainActivity extends Activity {
         validationRequest++;
         validationWorker.shutdown();
         scanWorker.shutdown();
+        pingWorker.shutdownNow();
+        ioWorker.shutdown();
+        hero.release();
         super.onDestroy();
     }
     private void loadConfigs() {
