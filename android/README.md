@@ -45,12 +45,53 @@ certificate is not an official release or an update compatibility contract.
   IPv6 is blocked; supported IPv6 imported from links uses global `2000::/3`.
   VPN is unmetered on Android 10+; fatal errors show a separate notification.
 - Russian and English UI. TCP ping measures reachability of the first endpoint
-  address, not VPN throughput or tunnel latency.
+  address, not VPN throughput or tunnel latency: every config at once, with
+  3 seconds each, "…" until it answers, then the time or "—" for any failure.
 - The desktop's look: its colours, which `tests/test_android_theme_matches_desktop.sh`
   checks against `qml/Main.qml`, and its icons, which
   [scripts/android-icons-from-svg.py](../scripts/android-icons-from-svg.py) makes
   from `assets/icons` and `assets/logo.svg`. The theme is System (the default,
   which follows the device), Light or Dark, under Settings → General → Theme.
+
+## Home and Configs
+
+Both are the desktop's pages ([HomePage.qml](../qml/pages/HomePage.qml),
+[ConfigsPage.qml](../qml/pages/ConfigsPage.qml)), on a phone and a TV alike.
+
+- **Home.** The logo is the only control for the connection: it connects,
+  cancels a connection on its way up, or disconnects. It is at half strength
+  with no session, at 0.7 while connecting or disconnecting and whole while
+  connected, sits 12 dp lower with no session and rises when one starts, pulses
+  while connecting and disconnecting, and shrinks to 0.96 while pressed or
+  while OK is held. Under it, while there is a session, one line: Connecting…,
+  Disconnecting…, or the time the connection has been up, `HH:MM:SS` as the
+  desktop shows it. While the kill switch blocks traffic the line says so in the
+  warn colour, with a Reconnect button under it; that has no counterpart on the
+  desktop. With no config the logo, "Add a config" and + all open Configs with
+  its add menu.
+- **Server choice is on Home.** The config's name with a ▾ opens a dropdown
+  under it with a row for each config, three showing at once, the selected one
+  in the accent. A row selects that config, and reconnects to it if a session
+  is up. Back, a tap outside and the selector itself close it; Back does not
+  leave Home. + beside it opens Configs with its add menu.
+- **Speeds.** Two tiles at the foot, ↓ and ↑ in MB/s, from this app's own
+  traffic counters (`TrafficStats`) once a second while Home shows a connected
+  session. The app carries the tunnel's traffic, so the figures include its
+  overhead; a device without those counters shows 0.0. Nothing but the timer and
+  the two numbers changes once a second, so the focus and anything being done
+  on the page are left alone.
+- **Configs.** A row for each config: its logo (whole for the selected one,
+  dim for the others), its name, the ping, a connected or connecting… badge on the
+  selected one while a session is up, and icons to export, edit and delete.
+  There are no text buttons. A tap on the row selects it. The export icon opens
+  a menu: Export .toml… (the system's file picker, so a TV with none says so)
+  and Copy deep-link, which puts a `tt://` link on the clipboard, marked as
+  sensitive on Android 13 and newer. Both carry the password, which the notice
+  after says. The link is the one the desktop's export writes, byte for byte
+  (DeepLinkImport.encode, pinned by a pair of links in both apps' tests).
+  On a phone a row is moved by pressing and holding it and then dragging; a TV
+  has no way to, as the desktop has no keys for it. The selection stays on the
+  same config.
 
 ## Split tunnelling
 
@@ -83,9 +124,9 @@ the TV launcher with its banner. It works with a remote:
   destructive control focuses in danger, and a text field's border turns
   accent. When a page updates, such as on a ping result or a change of
   connection state, the focus and the scroll position stay where they were.
-- Home opens on Connect or Disconnect, or on Reconnect while the kill switch
-  blocks traffic. Back goes to Home first, onto that control, and leaves the
-  app from there.
+- Home opens on the logo, which is its control, or on Reconnect while the kill
+  switch blocks traffic. Back goes to Home first, onto that control, and leaves
+  the app from there.
 - The configuration editor opens on the name. The focus never moves onto Show
   TOML and password by itself, where an OK would show the password to the
   room.
