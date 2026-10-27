@@ -1003,6 +1003,31 @@ public final class LinkReceiverTest {
         }
     }
 
+    // The time and the strikes are said in words too (the card's hint, the timeout notices, the lockout notice, the README and the
+    // release notes), and every other test counts with the constants, so that a change to one of them alone passes them all.
+    @Test public void theTimeIsFiveMinutesAndThreeWrongCodesStopItAsTheTextsSay() throws Exception {
+        assertEquals(5 * 60 * 1000L, LinkReceiver.LIFETIME_MS);
+        assertEquals(3, LinkReceiver.MAX_WRONG_CODES);
+        java.io.File res = null;
+        for (String dir : new String[]{"src/main/res", "app/src/main/res", "android/app/src/main/res"})
+            if (new java.io.File(dir, "values/strings.xml").isFile()) res = new java.io.File(dir);
+        assertNotNull("The resources are found from the module's directory", res);
+        for (String values : new String[]{"values", "values-ru"}) {
+            String xml = new String(java.nio.file.Files.readAllBytes(new java.io.File(res, values + "/strings.xml").toPath()), StandardCharsets.UTF_8);
+            // "5 minutes" and "5 минут", "3 times" and "3 раза".
+            String minutes = values.equals("values") ? "5 minutes" : "5 \u043C\u0438\u043D\u0443\u0442";
+            String times = values.equals("values") ? "3 times" : "3 \u0440\u0430\u0437\u0430";
+            for (String name : new String[]{"text_receive_hint", "text_receive_timed_out", "text_receive_timed_out_after_texts"}) {
+                java.util.regex.Matcher text = java.util.regex.Pattern.compile("<string name=\"" + name + "\">([^<]*)</string>").matcher(xml);
+                assertTrue(values + " " + name, text.find());
+                assertTrue(values + " " + name + ": " + text.group(1), text.group(1).contains(minutes));
+            }
+            java.util.regex.Matcher locked = java.util.regex.Pattern.compile("<string name=\"text_receive_locked_out\">([^<]*)</string>").matcher(xml);
+            assertTrue(values, locked.find());
+            assertTrue(values + ": " + locked.group(1), locked.group(1).contains(times));
+        }
+    }
+
     @Test public void aTextTakesItsPlaceAtomicallyAndNeverTheEleventh() throws Exception {
         // Another receiver that shares the count may fill the last place after this one looked: taking it is a
         // compare-and-set, which the last place goes to one of them by. The step is private; called as handle() calls it.
