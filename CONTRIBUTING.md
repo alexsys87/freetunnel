@@ -346,7 +346,8 @@ known limitations.
 | `i18n/` | The Russian catalogue, `freetunnel_ru.ts`, and its compiled `freetunnel_ru.qm` |
 | `vendor/trusttunnel/` | Patches applied to the upstream core |
 | `scripts/` | Build, test, CI and release scripts; `upstream_ref.txt` pins the core |
-| `cmake/` | `QWindowKit.cmake` (included by the app and the tests) and `FreetunnelDeps.cmake` |
+| `cmake/` | `QWindowKit.cmake` and `SharedData.cmake` (both included by the app and the tests) and `FreetunnelDeps.cmake` |
+| `data/` | Data that the desktop and the Android app use alike: `split/recommended-russia.txt`, the list behind Recommended for Russia. The desktop has it compiled in (`cmake/SharedData.cmake` writes the include file `src/core/AppSettings.cpp` reads), and Android copies it into its assets, so there is one list to edit |
 | `tests/` | The standalone unit-test tree; `mock_core/` stands in for the core |
 | `assets/`, `macos/`, `win/` | Icons and logos; the macOS `Info.plist` template; the Windows resource template and NSIS installer script |
 | `docs/` | `security-threats.md` |

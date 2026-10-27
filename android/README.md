@@ -95,20 +95,54 @@ Both are the desktop's pages ([HomePage.qml](../qml/pages/HomePage.qml),
 
 ## Split tunnelling
 
-The UI, tile and service use one routing plan.
+The Split page is the desktop's (`qml/pages/SplitPage.qml`): the **Split Tunneling** switch,
+the **Mode** (Bypass VPN or Through VPN), a notice where it applies, the **Profile** chips, the
+**Rules** of the profile being edited as chips with the field to add them, and its
+**Applications**.
+
+**Profiles.** A profile is a name with its own domain rules and its own applications, in the order
+they were added. *Default* is always there, first, and cannot be deleted. The **+** chip opens a field
+for a new name (*profile name, then Enter*; at most 16 characters; Escape, Back, or going to another
+control drops it). A name that differs from another only in letter case is refused, as the desktop
+refuses it. A custom profile's **×** deletes it after a question, and the configs that used it use
+Default from then on.
+
+The chips choose only which profile the page shows and edits. **Which profile a config uses is
+chosen in its editor** (*Split profile*); a config that names none, or one that was deleted, uses
+Default. The app, the Quick Settings tile and Android's Always-on VPN all build the session with
+the profile of the config that is selected, so they route alike. Editing that profile while split
+tunnelling is on builds a running session again (the rules reach a session only that way);
+editing another profile, or choosing which to edit, restarts nothing.
+
+**Rules.** *Recommended for Russia* adds the list to the profile being edited, skipping what it has.
+The list is `data/split/recommended-russia.txt`, one file for this app and the desktop: the build copies
+it into the APK's assets, and the desktop has it compiled in. A new installation starts with split
+tunnelling on and Default holding that list, as the desktop's does. An update from 1.0.0 puts the one
+list of domains and the one of applications it kept into Default, sorted. Words typed into the field are
+added if they are rules, and the ones that are not are named in the desktop's words. Applications
+are added from the picker, one to a visit; one that is no longer installed is listed by its package
+name, so that it can be removed.
+
+**Storage.** The profiles are the preferences' `split_profiles`, as JSON. Each saved config has a
+`profile` of its own (absent for Default). 1.0.0's `domains` and `apps` stay, written with every change
+as a copy of the lists of the profile the selected config uses, so that going back to 1.0.0 finds
+a working set.
 
 | Mode | Rules | Behavior |
 | --- | --- | --- |
 | Bypass VPN | Apps and/or destinations | Selected traffic bypasses VPN |
 | Through VPN | Apps only | Native general mode plus Android app allowlist |
 | Through VPN | Destinations only | Native selective mode without app filtering |
-| Through VPN | Empty / all selected apps removed | Full VPN with warning |
-| Through VPN | Apps and destinations | Full VPN with warning |
+| Through VPN | Empty / all selected apps removed | Full VPN with a notice |
+| Through VPN | Apps and destinations | Full VPN with a notice |
 
 The adapter cannot express the union of Android app and destination rules: those
-filters intersect. Full VPN protects both selections explicitly; use one rule
-type for selective routing. Imported modes/exclusions are preserved when split
-settings are disabled, and changing modes does not reverse imported exclusions.
+filters intersect. Full VPN protects both selections explicitly, and the page says so in a notice
+that names the config and its profile; use one rule type for selective routing. The notices come from
+the same code that builds the session (`RoutingConfig.prepare`), so they say what it will do.
+Imported modes/exclusions are preserved when split
+settings are disabled, and changing modes does not reverse imported exclusions; the page lists
+the rules the selected config brings with it.
 Destination `/0` rules and whole-family bypass exclusions are rejected; default
 routes remain valid in `included_routes`. Domains support IDN and whitespace,
 commas or semicolons as separators.
