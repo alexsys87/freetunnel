@@ -8,6 +8,8 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.content.res.Configuration
+import android.graphics.Color
+import android.graphics.drawable.BitmapDrawable
 import android.os.ParcelFileDescriptor
 import android.os.SystemClock
 import android.provider.Settings
@@ -19,22 +21,29 @@ import android.view.inspector.WindowInspector
 import android.widget.Button
 import android.widget.CheckBox
 import android.widget.EditText
+import android.widget.ImageView
+import android.widget.ListView
 import android.widget.ScrollView
 import android.widget.TextView
 import androidx.test.filters.SdkSuppress
 import androidx.test.platform.app.InstrumentationRegistry
+import io.nayuki.qrcodegen.QrCode
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Assume.assumeFalse
 import org.junit.Before
 import org.junit.Test
+import java.net.ConnectException
+import java.net.Socket
+import java.net.URI
+import java.net.URLEncoder
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.TimeUnit
 
 // Android TV: the TV launcher entry, a focus stop with a key and a ring on every
-// control, focus and scroll kept when render() rebuilds the views, Back, and the
-// screens TVs leave out. Both device legs run it: the TV leg for the TV, the
-// phone leg for phones, which must work as before.
+// control, focus and scroll kept when render() rebuilds the views, Back, the
+// screens TVs leave out, and Receive from phone. Both device legs run it: the TV
+// leg for the TV, the phone leg for phones, which must work as before.
 class TvDeviceTest {
     private val instrumentation get() = InstrumentationRegistry.getInstrumentation()
     private val context get() = instrumentation.targetContext
@@ -523,5 +532,198 @@ class TvDeviceTest {
             }
             instrumentation.waitForIdleSync()
         }
+    }
+
+    // Receive from phone. The link is DeepLinkImportTest's V2_PLAIN: vpn.example.com,
+    // with no name of its own.
+    private val link = "tt://?AAECAQ92cG4uZXhhbXBsZS5jb20FBWFsaWNlBgZzZWNyZXQCCzEuMi4zLjQ6NDQz"
+    private fun receiver(a: MainActivity) = onMain { field("linkReceiver").get(a) as LinkReceiver? }
+    private fun windows() = WindowInspector.getGlobalWindowViews()
+    private fun saved() = org.json.JSONArray(ConfigStore.read(prefs)).let { list -> (0 until list.length()).map { list.getJSONObject(it) } }
+    // As a phone's browser sends it, over a raw socket: this test runs in the app's
+    // process, where the default network security config refuses cleartext HTTP to
+    // HttpURLConnection. request() is given the Host and the page's path.
+    private fun http(url: String, request: (host: String, path: String) -> String): String {
+        val page = URI(url)
+        return Socket(page.host, page.port).use { socket ->
+            socket.soTimeout = 10_000
+            socket.getOutputStream().write(request("${page.host}:${page.port}", page.rawPath).toByteArray())
+            socket.getInputStream().readBytes().toString(Charsets.UTF_8)
+        }
+    }
+    private fun formPost(host: String, path: String, text: String): String {
+        val body = "link=" + URLEncoder.encode(text, "UTF-8")
+        return "POST $path HTTP/1.1\r\nHost: $host\r\nContent-Type: application/x-www-form-urlencoded\r\n" +
+            "Content-Length: ${body.length}\r\n\r\n$body"
+    }
+    // stop() closes the port, but the receiver's thread, waiting in accept(), lets go
+    // of it only once it wakes, a moment later on a slow emulator. Until then a
+    // connection is taken or reset rather than refused. With a connect timeout: a
+    // port that no one takes connections on any more fills its queue, and a connect
+    // would then wait for minutes.
+    private fun assertClosed(url: String) = eventually("$url must be closed", 2_000) {
+        val page = URI(url)
+        try { Socket().use { it.connect(java.net.InetSocketAddress(page.host, page.port), 500) }; false }
+        catch (_: ConnectException) { true }
+        catch (_: java.io.IOException) { false }
+    }
+
+    @SdkSuppress(minSdkVersion = 29)
+    @Test fun receiveFromPhoneIsOfferedFirstOnATvAndNowhereElse() {
+        val a = open()
+        render(a, 1)
+        onMain { method("addMenu").invoke(a) }
+        instrumentation.waitForIdleSync()
+        val menu = onMain { windows().mapNotNull { window -> descendants(window).filterIsInstance<ListView>().firstOrNull() }.last() }
+        val items = onMain { (0 until menu.adapter.count).map { menu.adapter.getItem(it).toString() } }
+        val others = listOf(R.string.text_import_toml_file, R.string.text_paste_from_clipboard, R.string.text_create_manually)
+            .map { context.getString(it) }
+        if (!isTv) {
+            assertEquals(others, items)
+            instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
+            return
+        }
+        assertEquals(listOf(context.getString(R.string.text_receive_from_phone)) + others, items)
+        // Each item still runs its own action, now that the TV's comes first.
+        onMain { menu.performItemClick(menu.getChildAt(0), 0, menu.adapter.getItemId(0)) }
+        instrumentation.waitForIdleSync()
+        assertNotNull("Receive from phone must open the receiver", receiver(a))
+        onMain { method("stopReceiver").invoke(a) }
+    }
+
+    // Both legs: what a phone's browser does, end to end, through the emulator's own
+    // network address.
+    @SdkSuppress(minSdkVersion = 29)
+    @Test fun aLinkFromAPhoneIsAddedOnlyOnceTheTvConfirmsIt() {
+        val a = open()
+        render(a, 1)
+        onMain { method("receiveFromPhone").invoke(a) }
+        instrumentation.waitForIdleSync()
+        val opened = receiver(a)
+        assertNotNull("The emulator must have a private-network IPv4 address on Wi-Fi or Ethernet", opened)
+        val url = opened!!.url()
+        val host = URI(url).host
+        assertTrue("$url must be on the network a phone is on", Regex("http://(10|172|192)\\.[0-9.]+:[0-9]+/[0-9A-Z]{4}-[0-9A-Z]{4}").matches(url))
+        onMain {
+            val dialog = windows().last { descendants(it).any { view -> view is TextView && view.text.toString() == url } }
+            assertTrue("Cancel shows the focus", dialog.findViewById<Button>(android.R.id.button2).foreground?.isStateful == true)
+            // The QR code: square, black on white, a whole number of pixels a module,
+            // with the quiet zone and the top left finder pattern where they belong.
+            val qr = (descendants(dialog).filterIsInstance<ImageView>().single { it.drawable is BitmapDrawable }.drawable as BitmapDrawable).bitmap
+            val modules = QrCode.encodeText(url, QrCode.Ecc.MEDIUM).size + 8
+            val scale = qr.width / modules
+            assertTrue(scale >= 2)
+            assertEquals(modules * scale, qr.width)
+            assertEquals(qr.width, qr.height)
+            assertEquals(Color.WHITE, qr.getPixel(0, 0))
+            assertEquals(Color.BLACK, qr.getPixel(4 * scale, 4 * scale))
+        }
+        // Any path shows the page, in the TV's language.
+        val page = http(url) { h, _ -> "GET /favicon.ico HTTP/1.1\r\nHost: $h\r\n\r\n" }
+        assertTrue(page, page.startsWith("HTTP/1.1 200 ") && page.contains(context.getString(R.string.receive_page_send)))
+        // A wrong code is turned away, and the TV goes on waiting.
+        val wrong = http(url) { h, path -> formPost(h, path.dropLast(1) + (if (path.endsWith("Z")) "Y" else "Z"), link) }
+        assertTrue(wrong, wrong.startsWith("HTTP/1.1 404 "))
+        assertSame(opened, receiver(a))
+        val sent = http(url) { h, path -> formPost(h, path, link) }
+        assertTrue(sent, sent.startsWith("HTTP/1.1 200 ") && sent.contains(context.getString(R.string.receive_page_sent)))
+        // One text, and the port closes.
+        eventually("The receiver must stop") { receiver(a) == null }
+        assertClosed(url)
+        // The TV shows the server and the sender's address, and asks.
+        val from = context.getString(R.string.text_nsent_from_s, host).trim()
+        fun confirmation() = windows().lastOrNull { window ->
+            window.findViewById<TextView>(android.R.id.message)?.text?.let { it.contains("vpn.example.com") && it.contains(from) } == true
+        }
+        eventually("The confirmation must name the server and \"$from\"", 30_000) { onMain { confirmation() != null } }
+        assertEquals("Nothing is added before the TV confirms", 2, saved().size)
+        onMain { confirmation()!!.findViewById<Button>(android.R.id.button1).performClick() }
+        eventually("Add must save it") { saved().size == 3 }
+        assertEquals("vpn.example.com", saved().last().getString("name"))
+        assertTrue(saved().last().getString("toml").contains("hostname = \"vpn.example.com\""))
+    }
+
+    @SdkSuppress(minSdkVersion = 29)
+    @Test fun cancelOrLeavingTheAppClosesThePort() {
+        val a = open()
+        // With a remote, the dialog opens on Cancel, not on the code above it.
+        leaveTouchMode(a)
+        onMain { method("receiveFromPhone").invoke(a) }
+        instrumentation.waitForIdleSync()
+        val first = receiver(a)!!.url()
+        val cancel = onMain { windows().last { it.findViewById<View>(android.R.id.button2) != null }.findViewById<Button>(android.R.id.button2) }
+        eventually("A remote must start on Cancel") { onMain { cancel.isFocused } }
+        onMain { cancel.performClick() }
+        instrumentation.waitForIdleSync()
+        assertNull("Cancel must stop the receiver", receiver(a))
+        assertClosed(first)
+        // Each time is a new code on a new port.
+        onMain { method("receiveFromPhone").invoke(a) }
+        instrumentation.waitForIdleSync()
+        val second = receiver(a)!!.url()
+        assertNotEquals(first, second)
+        // Home, as a screensaver does, stops the activity.
+        shell("input keyevent KEYCODE_HOME")
+        eventually("Leaving the app must stop the receiver") { receiver(a) == null }
+        assertClosed(second)
+    }
+
+    // A file sets the name and the server that the confirmation shows. Line breaks or
+    // a long run of text in them must not push what comes after, the sender and that
+    // verification is off, out of a message a remote cannot scroll. The confirmation
+    // is opened directly, as after the checks: whether the core takes such a server
+    // name is the core's to say.
+    @SdkSuppress(minSdkVersion = 29)
+    @Test fun theConfirmationShowsTheSenderWhateverTheFileSays() {
+        val a = open()
+        val toml = source.replace("hostname = \"vpn.invalid\"",
+            "hostname = \"my-real-vpn.example${"\\n".repeat(40)}${"x".repeat(62)}\"\nskip_verification = true")
+        val name = "My \uD83D\uDD12 VPN" + "\u2028\u2029\r".repeat(20) + "y".repeat(72)
+        onMain {
+            method("showImportConfirmation", String::class.java, RoutingConfig.Import::class.java, String::class.java)
+                .invoke(a, name, RoutingConfig.Import(toml, false), "192.0.2.7")
+        }
+        instrumentation.waitForIdleSync()
+        val dialog = onMain { windows().last { it.findViewById<View>(android.R.id.button2) != null } }
+        try {
+            val message = onMain { dialog.findViewById<TextView>(android.R.id.message).text.toString() }
+            // Each on one line and cut to 80 characters, so the sender is the third line.
+            // On one line, the name is 80, so it is shown whole, and the server is 81.
+            val shownName = "My \uD83D\uDD12 VPN" + "y".repeat(72)
+            val shownServer = "my-real-vpn.example" + "x".repeat(60) + "…"
+            assertTrue(message, message.startsWith(context.getString(R.string.text_add_configuration_36) + shownName +
+                context.getString(R.string.text_nserver) + shownServer + context.getString(R.string.text_nsent_from_s, "192.0.2.7") +
+                context.getString(R.string.text_nserver_certificate_verification_is_disabled)))
+            assertEquals(context.getString(R.string.text_nsent_from_s, "192.0.2.7").trim(), message.split("\n")[2])
+        } finally {
+            onMain { dialog.findViewById<Button>(android.R.id.button2).performClick() }
+            instrumentation.waitForIdleSync()
+        }
+    }
+
+    // "Create manually" reads a pasted link as the link, under the name typed there: on
+    // a TV, a phone's keyboard can paste one where a whole TOML file is too much.
+    @SdkSuppress(minSdkVersion = 29)
+    @Test fun theEditorReadsAPastedLink() {
+        val a = open()
+        onMain { method("editConfig", Int::class.javaPrimitiveType).invoke(a, -1) }
+        instrumentation.waitForIdleSync()
+        val editor = onMain { windows().last { it.findViewById<View>(android.R.id.button1) != null } }
+        val save = onMain { editor.findViewById<Button>(android.R.id.button1) }
+        val fields = onMain { descendants(editor).filterIsInstance<EditText>().toList() }
+        fun requests() = onMain { field("validationRequest").getLong(a) }
+        val before = requests()
+        // A link with no server settings is refused as such a link is, before any check.
+        onMain { fields.first().setText("Pasted"); fields.last().setText("tt://?AAEC"); save.performClick() }
+        instrumentation.waitForIdleSync()
+        assertEquals("A refused link starts no check", before, requests())
+        assertTrue(onMain { editor.isShown })
+        onMain { fields.last().setText(" $link\n"); save.performClick() }
+        (field("validationWorker").get(a) as ExecutorService).submit {}.get(30, TimeUnit.SECONDS)
+        instrumentation.waitForIdleSync()
+        eventually("Save must close the editor") { onMain { !editor.isShown } }
+        assertEquals(3, saved().size)
+        assertEquals("Pasted", saved().last().getString("name"))
+        assertTrue(saved().last().getString("toml").contains("hostname = \"vpn.example.com\""))
     }
 }

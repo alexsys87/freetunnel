@@ -16,11 +16,17 @@ import android.content.res.Configuration;
 import android.database.Cursor;
 import android.provider.OpenableColumns;
 import android.provider.Settings;
+import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.GradientDrawable;
 import android.graphics.drawable.StateListDrawable;
+import android.net.ConnectivityManager;
+import android.net.LinkAddress;
+import android.net.LinkProperties;
+import android.net.Network;
+import android.net.NetworkCapabilities;
 import android.net.Uri;
 import android.net.VpnService;
 import android.os.Bundle;
@@ -51,10 +57,13 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.io.InputStream;
+import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
+import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
@@ -97,6 +106,9 @@ public final class MainActivity extends Activity {
     private boolean storageFailed;
     private TextView updateStatus;
     private TextView updateAction;
+    // Receive from phone: the open port and its dialog, both closed by stopReceiver().
+    private LinkReceiver linkReceiver;
+    private AlertDialog receiveDialog;
     private long validationRequest;
     private final java.util.concurrent.ExecutorService validationWorker = java.util.concurrent.Executors.newSingleThreadExecutor();
     private final BroadcastReceiver vpnReceiver = new BroadcastReceiver() {
@@ -158,6 +170,13 @@ public final class MainActivity extends Activity {
         super.onPause();
     }
 
+    // Home, a screensaver or a recreation closes the port: it is open only while its
+    // dialog is on the screen.
+    @Override protected void onStop() {
+        stopReceiver();
+        super.onStop();
+    }
+
     @Override protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         setIntent(intent);
@@ -168,7 +187,7 @@ public final class MainActivity extends Activity {
         if (intent == null || !Intent.ACTION_VIEW.equals(intent.getAction())) return;
         Uri uri = intent.getData();
         intent.setData(null); // Do not import again if Android recreates the activity.
-        if (uri != null) importDeepLink(uri.toString());
+        if (uri != null) importDeepLink(uri.toString(), null);
     }
 
     private int dp(float n) { return Math.round(n * getResources().getDisplayMetrics().density); }
@@ -615,19 +634,22 @@ public final class MainActivity extends Activity {
     }
     private void addMenu() {
         if (storageFailed) { toast(getString(R.string.text_storage_is_unavailable_saved_data_has_been_preserved)); return; }
+        List<String> labels = new ArrayList<>();
+        List<Runnable> actions = new ArrayList<>();
+        // A TV has no camera for a link's QR code, and a remote is no way to type one.
+        if (isTv()) { labels.add(getString(R.string.text_receive_from_phone)); actions.add(this::receiveFromPhone); }
+        labels.add(getString(R.string.text_import_toml_file)); actions.add(this::pickFile);
+        labels.add(getString(R.string.text_paste_from_clipboard)); actions.add(this::pasteFromClipboard);
+        labels.add(getString(R.string.text_create_manually)); actions.add(() -> editConfig(-1));
         show(new AlertDialog.Builder(this).setTitle(getString(R.string.text_add_configuration))
-                .setItems(new String[]{getString(R.string.text_import_toml_file), getString(R.string.text_paste_from_clipboard), getString(R.string.text_create_manually)}, (d, which) -> {
-                    if (which == 0) pickFile();
-                    else if (which == 1) {
-                        ClipboardManager cm = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
-                        ClipData clip = cm.getPrimaryClip();
-                        if (clip == null || clip.getItemCount() == 0) { toast(getString(R.string.text_clipboard_is_empty)); return; }
-                        CharSequence value = clip.getItemAt(0).coerceToText(this);
-                        String text = value == null ? "" : value.toString().trim();
-                        if (DeepLinkImport.looksLikeLink(text)) importDeepLink(text);
-                        else importToml(getString(R.string.text_from_clipboard), text);
-                    } else editConfig(-1);
-                }));
+                .setItems(labels.toArray(new String[0]), (d, which) -> actions.get(which).run()));
+    }
+    private void pasteFromClipboard() {
+        ClipboardManager cm = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+        ClipData clip = cm.getPrimaryClip();
+        if (clip == null || clip.getItemCount() == 0) { toast(getString(R.string.text_clipboard_is_empty)); return; }
+        CharSequence value = clip.getItemAt(0).coerceToText(this);
+        importText(getString(R.string.text_from_clipboard), value == null ? "" : value.toString().trim(), null);
     }
     // Many TVs have no document picker. Some have one for GET_CONTENT only, which
     // onActivityResult reads the same way.
@@ -635,9 +657,15 @@ public final class MainActivity extends Activity {
         for (String action : new String[]{Intent.ACTION_OPEN_DOCUMENT, Intent.ACTION_GET_CONTENT}) {
             if (startForResult(new Intent(action).setType("*/*").addCategory(Intent.CATEGORY_OPENABLE), PICK_CONFIG)) return;
         }
-        toast(getString(R.string.text_no_file_picker));
+        toast(getString(isTv() ? R.string.text_no_file_picker_receive : R.string.text_no_file_picker));
     }
-    private void importDeepLink(String link) {
+    // A link, or else a TOML file named fallbackName unless it names its server.
+    // origin is the address it was sent from, null when it came from this device.
+    private void importText(String fallbackName, String text, String origin) {
+        if (DeepLinkImport.looksLikeLink(text)) importDeepLink(text, origin);
+        else importToml(fallbackName, text, origin);
+    }
+    private void importDeepLink(String link, String origin) {
         final DeepLinkImport.Imported imported;
         try { imported = DeepLinkImport.parse(link); }
         catch (DeepLinkImport.ParseException e) { refuseImport(e.messageResource); return; }
@@ -645,13 +673,103 @@ public final class MainActivity extends Activity {
         // The text is the app's own, and the subscription and whatever in the
         // certificate is not a certificate were left out as the link was read.
         validateAsync(imported.toml, false, checked -> showImportConfirmation(imported.name,
-                new RoutingConfig.Import(checked.getToml(), imported.subscriptionNotKept, imported.certificateIgnored)), () -> {});
+                new RoutingConfig.Import(checked.getToml(), imported.subscriptionNotKept, imported.certificateIgnored), origin), () -> {});
     }
     // Named after where the text came from, unless it is an endpoint's export that
     // names its server.
-    private void importToml(String name, String toml) {
+    private void importToml(String name, String toml, String origin) {
         validateAsync(stripBom(toml), true, checked -> showImportConfirmation(
-                checked.getName() != null ? checked.getName() : name, checked), () -> {});
+                checked.getName() != null ? checked.getName() : name, checked, origin), () -> {});
+    }
+
+    // Receive from phone: a phone on the same network opens the page the QR code or
+    // the address leads to, and sends a link or a TOML file from there (LinkReceiver).
+    // What arrives goes through the same checks and confirmation as any import.
+    private void receiveFromPhone() {
+        stopReceiver();
+        InetAddress address = lanAddress();
+        if (address == null) { toast(getString(R.string.text_receive_no_network)); return; }
+        final LinkReceiver r;
+        try { r = new LinkReceiver(address, LinkReceiver.newCode(new SecureRandom()), receivePages()); }
+        catch (IOException e) { toast(getString(R.string.text_receive_failed)); return; }
+        linkReceiver = r;
+        LinearLayout box = column(); box.setGravity(Gravity.CENTER_HORIZONTAL); box.setPadding(dp(20), dp(8), dp(20), 0);
+        // Drawn at its own size, a whole number of pixels a module, so it is never blurred.
+        LinkReceiver.Qr qr = LinkReceiver.qr(r.url(), dp(220));
+        ImageView code = new ImageView(this);
+        code.setImageBitmap(Bitmap.createBitmap(qr.pixels, qr.side, qr.side, Bitmap.Config.ARGB_8888));
+        code.setContentDescription(r.url());
+        box.addView(code, lp(-2, -2));
+        gap(box, 10);
+        // For typing on a laptop.
+        TextView url = label(r.url(), 16, dialogTextColor(), true); url.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
+        url.setGravity(Gravity.CENTER); box.addView(url, lp(-1, -2));
+        gap(box, 10);
+        box.addView(label(getString(R.string.text_receive_hint), 13, dialogHintColor(), false), lp(-1, -2));
+        ScrollView scroll = new ScrollView(this); scroll.addView(box);
+        AlertDialog dialog = new AlertDialog.Builder(this).setTitle(getString(R.string.text_receive_from_phone))
+                .setView(scroll).setNegativeButton(getString(R.string.text_cancel), null).create();
+        dialog.setOnDismissListener(d -> { if (linkReceiver == r) stopReceiver(); });
+        receiveDialog = dialog;
+        show(dialog);
+        // No screensaver while the phone is used instead of the remote: it would stop the activity, and the receiver with it.
+        dialog.getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        // A remote starts on Cancel. Left to itself, the focus would go to the scroll
+        // view around the code, which has no ring and does nothing on OK. As in the
+        // editor, Cancel is the view focused by default rather than asked about touch
+        // mode here, before the dialog is attached.
+        dialog.getButton(AlertDialog.BUTTON_NEGATIVE).setFocusedByDefault(true);
+        // These arrive on the receiver's thread, and count only for the receiver still open.
+        r.start(new LinkReceiver.Listener() {
+            @Override public void received(String text, String sender) {
+                runOnUiThread(() -> {
+                    if (isDestroyed() || linkReceiver != r) return;
+                    stopReceiver();
+                    importText(getString(R.string.text_from_another_device), text, sender);
+                });
+            }
+            @Override public void stopped(LinkReceiver.Stop reason) {
+                runOnUiThread(() -> {
+                    if (isDestroyed() || linkReceiver != r) return;
+                    stopReceiver();
+                    if (reason == LinkReceiver.Stop.LOCKED_OUT)
+                        show(new AlertDialog.Builder(MainActivity.this).setTitle(getString(R.string.text_receive_from_phone))
+                                .setMessage(getString(R.string.text_receive_locked_out)).setPositiveButton(getString(R.string.text_ok), null));
+                    else toast(getString(reason == LinkReceiver.Stop.TIMEOUT ? R.string.text_receive_timed_out : R.string.text_receive_failed));
+                });
+            }
+        });
+    }
+    private void stopReceiver() {
+        if (linkReceiver != null) { linkReceiver.stop(); linkReceiver = null; }
+        if (receiveDialog != null) { AlertDialog dialog = receiveDialog; receiveDialog = null; dialog.dismiss(); }
+    }
+    // The address a phone on the same Wi-Fi or Ethernet reaches this device at: the
+    // active network's first, and never a VPN's. FreeTunnel is left out of its own VPN,
+    // so the phone's connection comes in past it.
+    @SuppressWarnings("deprecation") // getAllNetworks(): a one-off look needs no network callback.
+    private InetAddress lanAddress() {
+        ConnectivityManager connectivity = getSystemService(ConnectivityManager.class);
+        List<Network> networks = new ArrayList<>();
+        Network active = connectivity.getActiveNetwork();
+        if (active != null) networks.add(active);
+        for (Network network : connectivity.getAllNetworks()) if (!network.equals(active)) networks.add(network);
+        List<InetAddress> addresses = new ArrayList<>();
+        for (Network network : networks) {
+            NetworkCapabilities capabilities = connectivity.getNetworkCapabilities(network);
+            LinkProperties link = connectivity.getLinkProperties(network);
+            if (capabilities == null || link == null || !capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
+                    || !(capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)
+                    || capabilities.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET))) continue;
+            for (LinkAddress linkAddress : link.getLinkAddresses()) addresses.add(linkAddress.getAddress());
+        }
+        return LinkReceiver.pickAddress(addresses);
+    }
+    // The phone's page in this device's language.
+    private LinkReceiver.Pages receivePages() {
+        return new LinkReceiver.Pages(java.util.Locale.getDefault().toLanguageTag(), getString(R.string.receive_page_title),
+                getString(R.string.receive_page_prompt), getString(R.string.receive_page_send), getString(R.string.receive_page_note),
+                getString(R.string.receive_page_sent), getString(R.string.receive_page_wrong_code), getString(R.string.receive_page_locked_out));
     }
     // These two refusals are about what this version cannot do yet, and say what to
     // do instead. That is more than the two lines a toast shows, so they get a dialog.
@@ -669,10 +787,14 @@ public final class MainActivity extends Activity {
         if (checked.getCertificateIgnored()) notes += getString(R.string.text_nextra_data_in_the_certificate_was_ignored);
         return notes;
     }
-    private void showImportConfirmation(String name, RoutingConfig.Import checked) {
+    // origin is the address the text was sent from, shown so that a text someone
+    // else on the network sent first can be told apart; null when it came from here.
+    private void showImportConfirmation(String name, RoutingConfig.Import checked, String origin) {
         String source = checked.getToml();
         org.tomlj.TomlTable parsed = RoutingConfig.validate(source);
-        String message = getString(R.string.text_add_configuration_36) + name + getString(R.string.text_nserver) + parsed.getString("endpoint.hostname");
+        String message = getString(R.string.text_add_configuration_36) + shown(name) + getString(R.string.text_nserver)
+                + shown(parsed.getString("endpoint.hostname"));
+        if (origin != null) message += getString(R.string.text_nsent_from_s, origin);
         if (Boolean.TRUE.equals(parsed.getBoolean("endpoint.skip_verification")))
             message += getString(R.string.text_nserver_certificate_verification_is_disabled);
         message += importNotes(checked);
@@ -691,6 +813,18 @@ public final class MainActivity extends Activity {
                     if (configs.size() == 1) activeIndex = 0;
                     saveConfigs(); page = 1; render();
                 }));
+    }
+    // A name or a server as the confirmation shows it: on one line, and cut to 80
+    // characters. A file sets both, and a remote cannot scroll a dialog's message,
+    // so line breaks or a long run of text in them could push the lines after them,
+    // where the text was sent from and that verification is off, out of sight.
+    // What is saved stays as it was.
+    private static String shown(String text) {
+        StringBuilder line = new StringBuilder(text.length());
+        text.codePoints().filter(c -> !Character.isISOControl(c) && Character.getType(c) != Character.LINE_SEPARATOR
+                && Character.getType(c) != Character.PARAGRAPH_SEPARATOR).forEach(line::appendCodePoint);
+        if (line.codePointCount(0, line.length()) <= 80) return line.toString();
+        return line.substring(0, line.offsetByCodePoints(0, 79)) + "…";
     }
     private static String stripBom(String toml) {
         return toml.startsWith("\uFEFF") ? toml.substring(1) : toml;
@@ -743,14 +877,23 @@ public final class MainActivity extends Activity {
                     String n = name.getText().toString().trim();
                     String t = stripBom(raw.getText().toString().trim());
                     if (n.isEmpty()) { toast(getString(R.string.text_enter_a_configuration_name)); return; }
+                    // A link pasted here is read as the link it is. On a TV, a phone's
+                    // keyboard, such as the Google TV app's, can paste one where a whole
+                    // file is a lot to get across.
+                    final DeepLinkImport.Imported link;
+                    try { link = DeepLinkImport.looksLikeLink(t) ? DeepLinkImport.parse(t) : null; }
+                    catch (DeepLinkImport.ParseException e) { refuseImport(e.messageResource); return; }
                     checking[0] = true;
                     if (save.isInTouchMode()) save.setEnabled(false);
                     // Checked as an import: the hint asks for a whole TrustTunnel file, and
                     // one pasted here, or saved by an earlier version, can carry a
                     // subscription address, an auth key or a private key with its
                     // certificate just as an imported one can. An endpoint's export is
-                    // turned into a whole file, and the name stays the one typed here.
-                    validateAsync(t, true, checked -> {
+                    // turned into a whole file, and the name stays the one typed here,
+                    // as it does for a link, which is checked as importDeepLink() checks it.
+                    validateAsync(link != null ? link.toml : t, link == null, result -> {
+                        RoutingConfig.Import checked = link == null ? result
+                                : new RoutingConfig.Import(result.getToml(), link.subscriptionNotKept, link.certificateIgnored);
                         if (!editor.isShowing()) return;
                         if (editing == null) configs.add(new Config(n, checked.getToml()));
                         else {
@@ -797,7 +940,7 @@ public final class MainActivity extends Activity {
             if (name == null || name.isEmpty()) name = uri.getLastPathSegment();
             if (name == null || name.isEmpty()) name = getString(R.string.text_configuration);
             int slash = name.lastIndexOf('/'); if (slash >= 0) name = name.substring(slash + 1);
-            importToml(name, out.toString(StandardCharsets.UTF_8.name()));
+            importToml(name, out.toString(StandardCharsets.UTF_8.name()), null);
         } catch (Exception e) { toast(getString(R.string.text_could_not_open_file)); }
     }
 
@@ -1098,6 +1241,7 @@ public final class MainActivity extends Activity {
         body.addView(panel, new LinearLayout.LayoutParams(-1, 0, 1));
     }
     @Override protected void onDestroy() {
+        stopReceiver();
         validationRequest++;
         validationWorker.shutdown();
         super.onDestroy();
