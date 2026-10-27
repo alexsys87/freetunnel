@@ -590,7 +590,7 @@ class TvDeviceTest {
                     assertEquals(Math.round(dp(a, 44f)), box.height)
                 }
                 val arrows = descendants(pageRoot(a)).filterIsInstance<TextView>().filter { it.text.toString() == "↓" || it.text.toString() == "↑" }
-                assertEquals(listOf(theme(a).success, theme(a).textDim), arrows.sortedBy { it.text.toString() }.reversed().map { it.currentTextColor })
+                assertEquals(listOf(theme(a).success, theme(a).textDim), arrows.sortedByDescending { it.text.toString() }.map { it.currentTextColor })
             }
         } finally {
             started.setLong(null, 0L)
@@ -619,7 +619,7 @@ class TvDeviceTest {
         eventually("The focus is back on the selector") { focusedKey(a) == "home:config" }
         // The one that is selected already does nothing.
         click(a, "home:config")
-        eventually { overlayTag(a, "homepicker") != null }
+        eventually("The dropdown opens") { overlayTag(a, "homepicker") != null }
         val requests = onMain { field("validationRequest").getLong(a) }
         click(a, "home:pick:1")
         eventually("It closes") { overlayTag(a, "homepicker") == null }
@@ -631,20 +631,20 @@ class TvDeviceTest {
         val a = open()
         render(a, 0)
         click(a, "home:config")
-        eventually { overlayTag(a, "homepicker") != null }
+        eventually("The dropdown opens") { overlayTag(a, "homepicker") != null }
         instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
         eventually("Back closes it") { overlayTag(a, "homepicker") == null }
         assertFalse("and does not leave the app", onMain { a.isFinishing })
         assertEquals(0, onMain { field("page").getInt(a) })
         click(a, "home:config")
-        eventually { overlayTag(a, "homepicker") != null }
+        eventually("The dropdown opens") { overlayTag(a, "homepicker") != null }
         // The backdrop is what a tap outside lands on.
         val layer = overlayTag(a, "homepicker") as ViewGroup
         onMain { assertTrue(layer.getChildAt(0).performClick()) }
         eventually("A tap outside closes it") { overlayTag(a, "homepicker") == null }
         // And a page that is no longer Home takes it away.
         click(a, "home:config")
-        eventually { overlayTag(a, "homepicker") != null }
+        eventually("The dropdown opens") { overlayTag(a, "homepicker") != null }
         render(a, 3)
         eventually("Another page closes it") { overlayTag(a, "homepicker") == null }
     }
@@ -656,7 +656,7 @@ class TvDeviceTest {
         val a = open()
         render(a, 0)
         click(a, "home:config")
-        eventually { overlayTag(a, "homepicker") != null }
+        eventually("The dropdown opens") { overlayTag(a, "homepicker") != null }
         instrumentation.waitForIdleSync()
         onMain {
             val layer = root(a).findViewWithTag<ViewGroup>("overlay:homepicker")
@@ -817,7 +817,7 @@ class TvDeviceTest {
             .setType("application/octet-stream"), 0)
         if (picker == null) {
             click(a, "config:0:export")
-            eventually { overlayTag(a, "select") != null }
+            eventually("The export menu opens again") { overlayTag(a, "select") != null }
             click(a, "select:0")
             eventually("With no screen to save to, it says so") { context.getString(R.string.export_no_picker) in toastTexts(a) }
         }

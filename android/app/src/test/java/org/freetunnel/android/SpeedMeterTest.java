@@ -54,6 +54,18 @@ public final class SpeedMeterTest {
         assertEquals(100_000, meter.upBytesPerSecond(), 0.001);
     }
 
+    @Test public void aDeviceThatKeepsOnlyOneOfTheTwoCountersGivesNeitherSpeed() {
+        SpeedMeter meter = new SpeedMeter();
+        meter.sample(0, 0, 0);
+        meter.sample(1_000_000, 1_000_000, 1_000);
+        meter.sample(2_000_000, SpeedMeter.UNSUPPORTED, 2_000);
+        assertEquals(0, meter.downBytesPerSecond(), 0);
+        assertEquals(0, meter.upBytesPerSecond(), 0);
+        meter.sample(SpeedMeter.UNSUPPORTED, 3_000_000, 3_000);
+        assertEquals(0, meter.downBytesPerSecond(), 0);
+        assertEquals(0, meter.upBytesPerSecond(), 0);
+    }
+
     @Test public void aCounterThatWentBackIsZeroNotNegative() {
         SpeedMeter meter = new SpeedMeter();
         meter.sample(5_000_000, 5_000_000, 0);

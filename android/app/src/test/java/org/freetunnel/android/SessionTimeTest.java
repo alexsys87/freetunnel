@@ -26,6 +26,8 @@ public final class SessionTimeTest {
             long wait = SessionTime.untilNextSecond(elapsed);
             assertTrue("elapsed " + elapsed + " waits " + wait, wait > 0 && wait <= 1_015);
             assertEquals("It lands in the next second: " + elapsed, elapsed / 1000 + 1, (elapsed + wait) / 1000);
+            // After the boundary, not on it, where a clock a hair slow would draw the old second again.
+            assertTrue("It lands just after the boundary: " + elapsed, (elapsed + wait) % 1000 > 0);
         }
     }
 }
