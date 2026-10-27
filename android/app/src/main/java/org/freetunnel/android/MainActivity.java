@@ -36,6 +36,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
 import android.text.Editable;
+import android.text.InputFilter;
 import android.text.InputType;
 import android.text.TextWatcher;
 import android.text.Layout;
@@ -84,6 +85,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
+import java.util.function.Consumer;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Matcher;
@@ -144,6 +146,20 @@ public final class MainActivity extends Activity {
     private boolean stopping;
     private final Runnable clearStopping = () -> { if (stopping) { stopping = false; if (page <= 1) render(); } };
     private String pendingConfig;
+    private String pendingProfile;
+    // The Split page's profiles are in the preferences (SplitStore); this is how they are reached. They are read from there
+    // whenever they are wanted, and a change is a read, the change and a commit under one lock, so that the VPN service,
+    // which saves there too, and this never overwrite one another.
+    private SplitPrefs splitPrefs;
+    // The "+" chip's field for the name of a new profile: open or not, what was typed in it, and the field itself while the
+    // page shows it. It stays on the page, hidden, so that opening and closing it rebuilds nothing.
+    private boolean profileNameOpen;
+    private String profileNameDraft = "";
+    private EditText profileNameInput;
+    // True while render() takes the page apart: a field that loses its focus to that has not been left.
+    private boolean rendering;
+    // The key of what takes the focus when the next render() is done, if it is none of what had it.
+    private String focusAfterRender;
     private boolean receiverRegistered;
     private boolean storageFailed;
     // What to tell the user while storage is failed: the amber banner on Configs and Settings, and a toast.
@@ -184,7 +200,11 @@ public final class MainActivity extends Activity {
     private static final class Config {
         String name;
         String toml;
-        Config(String name, String toml) { this.name = name; this.toml = toml; }
+        // The split profile this config uses, as it is named there: Default unless the config was given another in
+        // the editor. A name that is no longer a profile counts as Default (SplitProfiles.effective).
+        String profile;
+        Config(String name, String toml) { this(name, toml, SplitProfiles.DEFAULT); }
+        Config(String name, String toml, String profile) { this.name = name; this.toml = toml; this.profile = profile; }
     }
 
     @Override public void onCreate(Bundle state) {
@@ -199,7 +219,12 @@ public final class MainActivity extends Activity {
         buildHost();
         activeIndex = prefs.getInt("active", 0);
         vpnState = FreeTunnelVpnService.state(this);
+        // Before anything else touches the preferences: the first start of this version makes the profiles out of what
+        // is there, and tells a new installation (nothing saved at all) from an update by that (SplitStore).
+        splitPrefs = new SplitPrefs(prefs);
+        splitModel();
         loadConfigs();
+        syncMirror();
         render();
         // A phone that starts taking keys, or a keyboard put away, changes what rests in a
         // strong fill (see remote). Not rebuilt in the middle of the touch that caused it.
@@ -373,7 +398,12 @@ public final class MainActivity extends Activity {
             restoreScrollY = pageScroll != null && renderedPage == page ? pageScroll.getScrollY() : 0;
         } else if (renderedPage != page) restoreScrollY = 0;
         if (pageFocus) { restoreKey = null; pageFocus = false; }
+        // The control a change asked to have the focus after it, in place of whichever had it: a field left open for the
+        // next one, or the + chip a new profile's name was typed from.
+        if (focusAfterRender != null) { restoreKey = focusAfterRender; focusAfterRender = null; }
         int generation = ++renderGeneration;
+        // The field for a new profile's name belongs to the Split page: on any other it is dropped.
+        if (page != 2) { profileNameOpen = false; profileNameDraft = ""; }
         homeContinues = !homeFresh && renderedPage == 0 && page == 0;
         homeFresh = false;
         dark = Theme.isDark(themeMode, nightMode());
@@ -385,7 +415,10 @@ public final class MainActivity extends Activity {
         // The window itself too, so that nothing of the system theme's dark shows before a frame, or at an edge.
         getWindow().setBackgroundDrawable(new ColorDrawable(t.bg));
         host.setBackgroundColor(t.bg);
-        pageRoot.removeAllViews();
+        // A field that has the focus loses it to this, and has not been left (see closeProfileName).
+        rendering = true;
+        try { pageRoot.removeAllViews(); } finally { rendering = false; }
+        profileNameInput = null;
         nav();
         pageScroll = null;
         if (page != 0) {
@@ -413,6 +446,7 @@ public final class MainActivity extends Activity {
         }
         renderedPage = page;
         restoreFocus(generation, restoreKey, restoreScrollY);
+        refocusFields(restoreKey);
         // Its list is the configs as they were: with another page or another list it is no longer what it was opened on.
         Overlay picker = overlay("homepicker");
         if (picker != null && (page != 0 || configs.size() != homePickerCount)) closeOverlay(picker);
@@ -448,6 +482,20 @@ public final class MainActivity extends Activity {
             }
         });
     }
+    // In touch mode restoreFocus does nothing, which suits a page that was only drawn again, but not a field that is being typed
+    // in: the one for a new profile's name while it is open, and the domains field after one Enter, for the next.
+    private void refocusFields(String key) {
+        if (page != 2 || !getWindow().getDecorView().isInTouchMode()) return;
+        String wanted = profileNameOpen ? "profile:name" : "domains:input".equals(key) ? key : null;
+        if (wanted == null) return;
+        View field = pageRoot.findViewWithTag(wanted);
+        if (!(field instanceof EditText)) return;
+        field.post(() -> {
+            if (!field.isAttachedToWindow() || !overlays.isEmpty() || field.getVisibility() != View.VISIBLE) return;
+            field.requestFocus();
+            showKeyboard(field);
+        });
+    }
     private static final Pattern NUMBERED_KEY = Pattern.compile("([a-z]+):(\\d{1,5})(:[a-z]+)?");
     // The control with this key. When it is gone, such as after a deletion, the nearest
     // one before it: config:2:edit, then config:1:edit and config:0:edit. Otherwise the
@@ -473,6 +521,8 @@ public final class MainActivity extends Activity {
     @Override public void onBackPressed() {
         Overlay top = topOverlay();
         if (top != null) { escape(top); return; }
+        // The field for a new profile's name is what Back closes first, as Escape does on the desktop.
+        if (profileNameOpen) { closeProfileName(); return; }
         if (isTv() && page != 0) { page = 0; pageFocus = true; render(); return; }
         super.onBackPressed();
     }
@@ -1285,9 +1335,11 @@ public final class MainActivity extends Activity {
         }
         // Nothing to connect to: the way to something, as the desktop's logo is.
         if (configs.isEmpty()) { addConfigOnConfigsPage(); return; }
-        Config config = configs.get(Math.max(0, Math.min(activeIndex, configs.size() - 1)));
-        validateAsync(config.toml, () -> {
+        Config config = activeConfig();
+        String profile = activeProfileName();
+        validateAsync(config.toml, profile, () -> {
             pendingConfig = config.toml;
+            pendingProfile = profile;
             Intent prepare = VpnService.prepare(this);
             if (prepare == null) startVpnWithPendingConfig();
             else if (!startForResult(prepare, PREPARE_VPN)) {
@@ -1303,8 +1355,9 @@ public final class MainActivity extends Activity {
 
     private void startVpnWithPendingConfig() {
         if (pendingConfig == null) return;
-        FreeTunnelVpnService.start(this, pendingConfig);
+        FreeTunnelVpnService.start(this, pendingConfig, pendingProfile);
         pendingConfig = null;
+        pendingProfile = null;
         vpnState = 1;
         render();
         QuickTileService.refresh(this);
@@ -1317,10 +1370,11 @@ public final class MainActivity extends Activity {
             vpnState = 0;
             return;
         }
-        Config config = configs.get(Math.max(0, Math.min(activeIndex, configs.size() - 1)));
-        validateAsync(config.toml, () -> {
+        Config config = activeConfig();
+        String profile = activeProfileName();
+        validateAsync(config.toml, profile, () -> {
             if (FreeTunnelVpnService.state(this) == 0) return;
-            FreeTunnelVpnService.start(this, config.toml);
+            FreeTunnelVpnService.start(this, config.toml, profile);
             toast(getString(R.string.text_applying_routing_settings));
         }, () -> {});
     }
@@ -1329,21 +1383,21 @@ public final class MainActivity extends Activity {
     // it gives its server, if it gives one.
     private interface Checked { void accept(RoutingConfig.Import checked); }
 
-    private void validateAsync(String source, Runnable accepted, Runnable rejected) {
-        validateAsync(source, false, checked -> accepted.run(), rejected);
+    private void validateAsync(String source, String profile, Runnable accepted, Runnable rejected) {
+        validateAsync(source, profile, false, checked -> accepted.run(), rejected);
     }
 
     // With asImport, the text is first checked as a file to add (RoutingConfig.cleanImport),
     // which may refuse it, or take out a subscription or whatever in its certificate
     // is not a certificate. Here on the worker, since that parses the whole file once more.
-    private void validateAsync(String source, boolean asImport, Checked accepted, Runnable rejected) {
+    private void validateAsync(String source, String profile, boolean asImport, Checked accepted, Runnable rejected) {
         if (storageFailed) { toast(getString(R.string.text_storage_is_unavailable_data_has_not_been_changed)); rejected.run(); return; }
         final long request = ++validationRequest;
         toast(getString(R.string.validating_config));
         validationWorker.execute(() -> {
             try {
                 RoutingConfig.Import checked = asImport ? RoutingConfig.cleanImport(source) : new RoutingConfig.Import(source, false);
-                RoutingConfig.Plan plan = RoutingConfig.prepare(this, checked.getToml());
+                RoutingConfig.Plan plan = RoutingConfig.prepare(this, checked.getToml(), profile);
                 NativeConfigValidator.INSTANCE.validate(getApplicationContext(), plan.getToml());
                 runOnUiThread(() -> {
                     if (isDestroyed()) return;
@@ -1574,7 +1628,7 @@ public final class MainActivity extends Activity {
 
         // The text is the app's own, and the subscription and whatever in the
         // certificate is not a certificate were left out as the link was read.
-        validateAsync(imported.toml, false, checked -> showImportConfirmation(imported.name, false,
+        validateAsync(imported.toml, SplitProfiles.DEFAULT, false, checked -> showImportConfirmation(imported.name, false,
                 new RoutingConfig.Import(checked.getToml(), imported.subscriptionNotKept, imported.certificateIgnored), origin, true, done),
                 () -> answered(done, true));
     }
@@ -1582,7 +1636,7 @@ public final class MainActivity extends Activity {
     // export that names its server.
     private void importToml(String name, String toml, String origin) { importToml(name, toml, origin, null); }
     private void importToml(String name, String toml, String origin, Answered done) {
-        validateAsync(stripBom(toml), true, checked -> showImportConfirmation(
+        validateAsync(stripBom(toml), SplitProfiles.DEFAULT, true, checked -> showImportConfirmation(
                 checked.getName() != null ? checked.getName() : name, checked.getName() == null, checked, origin, false, done),
                 () -> answered(done, true));
     }
@@ -1843,7 +1897,8 @@ public final class MainActivity extends Activity {
     private void replaceImported(Config existing, String name, String source) {
         int at = configs.indexOf(existing);
         if (at < 0) { addImported(name, source); return; }
-        configs.set(at, new Config(name, source));
+        // The config goes where the old one was, and uses the profile it used.
+        configs.set(at, new Config(name, source, existing.profile));
         if (!saveConfigs()) return;
         if (at == activeIndex) applyCurrentRules();
         render();
@@ -1853,12 +1908,13 @@ public final class MainActivity extends Activity {
         return toml.startsWith("\uFEFF") ? toml.substring(1) : toml;
     }
     // The editor: the desktop's card (qml/CreateConfigOverlay.qml), with ← and the title, a Name field, the
+    // Split profile this config uses as a select box (where a config's profile is chosen, as on the desktop), the
     // TOML in a text area of its own, Show TOML and password as a toggle row, and Cancel and Save at the
     // bottom right. It opens on the name, and a remote never lands on the toggle by itself, first or after a
     // Save that is refused, where an OK would show the password to the room. The TOML holds the password,
     // so while the card is up the window is FLAG_SECURE. Back, ←, Cancel and a tap outside ask before they
     // drop what was typed. Keys: editor:back, editor:name, editor:toml, editor:show, editor:cancel and
-    // editor:save.
+    // editor:save; the select box is editor:profile.
     private void editConfig(int index) {
         if (storageFailed) { toast(getString(R.string.text_storage_is_unavailable_data_has_not_been_changed)); return; }
         if (overlay("editor") != null) return;
@@ -1879,9 +1935,11 @@ public final class MainActivity extends Activity {
                 | EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING);
         raw.setTransformationMethod(PasswordTransformationMethod.getInstance());
         if (editing != null) { name.setText(editing.name); raw.setText(editing.toml); }
+        // The profile the config uses; a new one uses Default.
+        final String[] chosenProfile = {editing == null ? SplitProfiles.DEFAULT : splitModel().effective(editing.profile)};
         // What was there when it opened. Joined on a character no text holds, so that moving a boundary
         // between the two is a change.
-        final String opened = name.getText() + "\u001f" + raw.getText();
+        final String opened = name.getText() + "\u001f" + raw.getText() + "\u001f" + chosenProfile[0];
         ToggleView show = ui.toggle(false, false, "editor:show");
         show.setContentDescription(getString(R.string.text_show_toml_and_password));
         show.setListener((v, checked) -> raw.setTransformationMethod(checked ? null : PasswordTransformationMethod.getInstance()));
@@ -1890,7 +1948,7 @@ public final class MainActivity extends Activity {
         final Runnable tryClose = () -> {
             Overlay editor = shown[0];
             if (editor == null || editor.closed) return;
-            if ((name.getText() + "\u001f" + raw.getText()).equals(opened)) { closeOverlay(editor); return; }
+            if ((name.getText() + "\u001f" + raw.getText() + "\u001f" + chosenProfile[0]).equals(opened)) { closeOverlay(editor); return; }
             // A second Cancel, or a Back, while the question is up or waits is no second question.
             if (asking[0]) return;
             asking[0] = true;
@@ -1904,6 +1962,19 @@ public final class MainActivity extends Activity {
         LinearLayout form = column();
         form.setPadding(dp(18), 0, dp(18), 0);
         form.addView(ui.field(getString(R.string.editor_name), name, "editor:name"), lp(-1, -2));
+        gap(form, 10);
+        TextView[] profileValue = new TextView[1];
+        form.addView(ui.selectField(getString(R.string.editor_split_profile), profileLabel(chosenProfile[0]), "editor:profile", profileValue, v -> {
+            // The keyboard would cover the choices.
+            hideKeyboard();
+            List<String> names = splitModel().names();
+            String[] labels = new String[names.size()];
+            for (int i = 0; i < labels.length; i++) labels[i] = profileLabel(names.get(i));
+            showSelect("editor:profile", labels, names.indexOf(chosenProfile[0]), which -> {
+                chosenProfile[0] = names.get(which);
+                profileValue[0].setText(profileLabel(chosenProfile[0]));
+            });
+        }), lp(-1, -2));
         gap(form, 10);
         form.addView(ui.fieldArea(getString(R.string.editor_toml), raw, "editor:toml", 150), lp(-1, -2));
         gap(form, 10);
@@ -1957,15 +2028,15 @@ public final class MainActivity extends Activity {
             // certificate just as an imported one can. An endpoint's export is
             // turned into a whole file, and the name stays the one typed here,
             // as it does for a link, which is checked as importDeepLink() checks it.
-            validateAsync(link != null ? link.toml : text, link == null, result -> {
+            validateAsync(link != null ? link.toml : text, chosenProfile[0], link == null, result -> {
                 RoutingConfig.Import checked = link == null ? result
                         : new RoutingConfig.Import(result.getToml(), link.subscriptionNotKept, link.certificateIgnored);
                 if (overlay.closed) return;
-                if (editing == null) configs.add(new Config(n, checked.getToml()));
+                if (editing == null) configs.add(new Config(n, checked.getToml(), chosenProfile[0]));
                 else {
                     int current = configs.indexOf(editing);
                     if (current < 0) { checking[0] = false; save.setEnabled(true); return; }
-                    configs.set(current, new Config(n, checked.getToml()));
+                    configs.set(current, new Config(n, checked.getToml(), chosenProfile[0]));
                 }
                 boolean saved = saveConfigs();
                 closeOverlay(overlay);
@@ -2024,103 +2095,372 @@ public final class MainActivity extends Activity {
         } catch (Exception e) { toast(getString(R.string.text_could_not_open_file)); }
     }
 
+    // The Split page (qml/pages/SplitPage.qml), top to bottom: the Split Tunneling switch; the Mode, as a value and its ▾; the
+    // notices that apply; Profile and its chips, the edited one in accent, with a + that opens the field for a new name;
+    // the rules header, with Recommended for Russia and Clear all, the domains as chips and the field to add them; and the
+    // applications header, with Choose… and Clear all, and the applications as chips. The chips are the profile being edited
+    // (SplitProfiles.edited), which is not the profile the selected config uses: that is chosen in the editor.
+    // Keys: split:enabled, split:mode, profile:N, profile:N:remove, profile:add, profile:name, domains:russia, domains:clear,
+    // domain:N, domains:input, apps:choose, apps:clear and app:N.
     private void split(LinearLayout body) {
-        Theme t = t();
-        ToggleView splitSwitch = ui.toggle(prefs.getBoolean("split_enabled", false), false, "split:enabled");
+        SplitProfiles model = splitModel();
+        final String edited = model.edited();
+        boolean enabled = prefs.getBoolean("split_enabled", false);
+        boolean through = prefs.getBoolean("through", false);
+        ToggleView splitSwitch = ui.toggle(enabled, false, "split:enabled");
         splitSwitch.setContentDescription(getString(R.string.text_split_tunnelling));
         splitSwitch.setListener((v, checked) -> {
             prefs.edit().putBoolean("split_enabled", checked).apply();
             applyCurrentRules();
+            // The notice depends on it.
+            render();
         });
         body.addView(ui.toggleRow(getString(R.string.text_split_tunnelling), null, splitSwitch), lp(-1, -2));
-        boolean through = prefs.getBoolean("through", false);
         // Only the value and its ▾ are the control: the label is plain text.
         body.addView(ui.dropdown(getString(R.string.text_mode), through ? getString(R.string.text_through_vpn_62) : getString(R.string.text_bypass_vpn_61),
                 "split:mode", v -> showSelect("split:mode",
                 new String[]{getString(R.string.text_bypass_vpn_61), getString(R.string.text_through_vpn_62)}, through ? 1 : 0, which -> {
                     prefs.edit().putBoolean("through", which == 1).apply(); applyCurrentRules(); render();
                 })), lp(-1, -2));
-        TextView explanation = ui.paragraph(getString(R.string.text_for_through_vpn_choose_applications_or_addresses_sel), 12, t.textDim, 0);
-        body.addView(explanation, lp(-1, -2));
-        for (Config config : configs) {
-            if (configs.indexOf(config) != activeIndex) continue;
-            try {
-                org.tomlj.TomlArray imported = RoutingConfig.validate(config.toml).getArray("exclusions");
-                if (imported != null && imported.size() > 0) body.addView(label(getString(R.string.imported_routing_rules, imported.toList().toString()),
-                        12, t.textDim), lp(-1, -2));
-            } catch (Exception ignored) { }
+        for (CharSequence notice : splitNotices(model, enabled, through)) {
+            gap(body, 6);
+            body.addView(ui.notice(notice), lp(-1, -2));
         }
-        if (prefs.getBoolean("rules_migrated", false)) {
-            body.addView(label(getString(R.string.legacy_rules_removed), 12, t.textDim), lp(-1, -2));
-        }
-        gap(body, 14);
-        LinearLayout domainHeader = row();
-        domainHeader.addView(label(through ? getString(R.string.text_rules_through_vpn) : getString(R.string.text_rules_bypass_vpn), 12, t.textFaint),
-                weighted());
-        TextView clearDomains = ui.link(getString(R.string.text_clear), 12, Ui.LinkKind.ACCENT, "domains:clear");
-        clearDomains.setOnClickListener(v -> { prefs.edit().remove("domains").apply(); applyCurrentRules(); render(); });
-        domainHeader.addView(clearDomains, lp(-2, -2)); body.addView(domainHeader, lp(-1, -2));
         gap(body, 6);
-        Set<String> rules = new HashSet<>(prefs.getStringSet("domains", Collections.emptySet()));
-        LinearLayout domains = column();
-        List<String> shownRules = sorted(rules);
-        for (int i = 0; i < shownRules.size(); i++) {
-            String rule = shownRules.get(i);
-            LinearLayout chip = ui.chip(rule, false, false, null, true);
-            ImageView del = ui.chipX("domain:" + i, false);
-            del.setContentDescription(getString(R.string.text_delete));
-            del.setOnClickListener(v -> { rules.remove(rule); prefs.edit().putStringSet("domains", rules).apply(); applyCurrentRules(); render(); });
-            chip.addView(del, ui.chipXLp());
-            domains.addView(chip, lp(-1, 28)); gap(domains, 6);
+        body.addView(ui.sectionLabel(getString(R.string.split_profile)), lp(-1, -2));
+        FlowLayout profiles = new FlowLayout(this, dp(6));
+        List<String> names = model.names();
+        for (int i = 0; i < names.size(); i++) {
+            final String name = names.get(i);
+            boolean current = name.equals(edited);
+            LinearLayout chip = ui.chip(profileLabel(name), current, true, "profile:" + i, false);
+            chip.setOnClickListener(v -> selectProfile(name));
+            // Default is the one that cannot be deleted.
+            if (!SplitProfiles.DEFAULT.equals(name)) {
+                ImageView x = ui.chipX("profile:" + i + ":remove", current && !ui.remote());
+                x.setContentDescription(getString(R.string.text_delete) + " " + name);
+                x.setOnClickListener(v -> confirmRemoveProfile(name));
+                chip.addView(x, ui.chipXLp());
+                ui.linkChipX(chip, x);
+            }
+            profiles.addView(chip);
         }
-        body.addView(domains, lp(-1, -2));
-        EditText domainInput = ui.pageInput(getString(R.string.text_domains_or_ips_space_comma), "domains:input");
-        domainInput.setOnEditorActionListener((field, action, event) -> {
-            addDomains(domainInput.getText().toString()); domainInput.setText(""); return true;
+        TextView plus = ui.plusChip(getString(R.string.split_profile_add), "profile:add");
+        plus.setOnClickListener(v -> openProfileName());
+        profiles.addView(plus);
+        LinearLayout.LayoutParams profilesLp = lp(-1, -2);
+        profilesLp.topMargin = dp(2);
+        body.addView(profiles, profilesLp);
+        // The field for the name of a new profile: there all the time, and shown while it is wanted.
+        EditText nameInput = ui.pageInput(getString(R.string.split_profile_name_hint), "profile:name");
+        nameInput.setFilters(new InputFilter[]{new InputFilter.LengthFilter(SplitProfiles.MAX_NAME)});
+        nameInput.setImeOptions(EditorInfo.IME_ACTION_DONE);
+        nameInput.setText(profileNameDraft);
+        nameInput.addTextChangedListener(new TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence text, int start, int count, int after) { }
+            @Override public void onTextChanged(CharSequence text, int start, int before, int count) { }
+            @Override public void afterTextChanged(Editable text) { profileNameDraft = text.toString(); }
         });
-        body.addView(domainInput, lp(-1, 36));
+        // Enter adds it; Escape, or going to another control, drops it.
+        nameInput.setOnEditorActionListener((field, action, event) -> {
+            if (event != null && event.getAction() != KeyEvent.ACTION_DOWN) return true;
+            addProfile(nameInput.getText().toString());
+            return true;
+        });
+        nameInput.setOnKeyListener((field, keyCode, event) -> {
+            if (keyCode != KeyEvent.KEYCODE_ESCAPE) return false;
+            if (event.getAction() == KeyEvent.ACTION_UP) closeProfileName();
+            return true;
+        });
+        nameInput.setOnFocusChangeListener((field, hasFocus) -> { if (!hasFocus && !rendering) closeProfileName(); });
+        nameInput.setVisibility(profileNameOpen ? View.VISIBLE : View.GONE);
+        LinearLayout.LayoutParams nameLp = lp(-1, 36);
+        nameLp.topMargin = dp(6);
+        body.addView(nameInput, nameLp);
+        profileNameInput = nameInput;
         gap(body, 14);
+
+        // Rules: the domains of the profile being edited.
+        List<String> domainRules = model.domains(edited);
+        LinearLayout domainHeader = row();
+        TextView rulesTitle = ui.sectionLabel(through ? getString(R.string.text_rules_through_vpn) : getString(R.string.text_rules_bypass_vpn));
+        rulesTitle.setSingleLine(true);
+        rulesTitle.setEllipsize(TextUtils.TruncateAt.END);
+        domainHeader.addView(rulesTitle, weighted());
+        TextView recommended = ui.link(getString(R.string.split_recommended), 12, Ui.LinkKind.ACCENT, "domains:russia");
+        recommended.setOnClickListener(v -> addRecommendedRussia());
+        domainHeader.addView(recommended, lp(-2, -2));
+        if (!domainRules.isEmpty()) {
+            TextView clearDomains = ui.link(getString(R.string.split_clear_all), 12, Ui.LinkKind.DANGER, "domains:clear");
+            clearDomains.setOnClickListener(v -> showConfirm(getString(R.string.split_clear_domains_question), getString(R.string.text_clear),
+                    () -> editRules(m -> m.clearDomains(m.edited()))));
+            domainHeader.addView(clearDomains, lp(-2, -2));
+        }
+        body.addView(domainHeader, lp(-1, -2));
+        if (!domainRules.isEmpty()) {
+            gap(body, 6);
+            FlowLayout domains = new FlowLayout(this, dp(6));
+            for (int i = 0; i < domainRules.size(); i++) {
+                final int index = i;
+                final String rule = domainRules.get(i);
+                LinearLayout chip = ui.chip(rule, false, false, null, false);
+                // A rule goes at once, without being asked about, as the desktop's does.
+                ImageView x = ui.chipX("domain:" + i, false);
+                x.setContentDescription(getString(R.string.text_delete) + " " + rule);
+                x.setOnClickListener(v -> editRules(m -> m.removeDomain(m.edited(), index)));
+                chip.addView(x, ui.chipXLp());
+                domains.addView(chip);
+            }
+            body.addView(domains, lp(-1, -2));
+        }
+        EditText domainInput = ui.pageInput(getString(R.string.split_domains_hint), "domains:input");
+        domainInput.setOnEditorActionListener((field, action, event) -> {
+            if (event != null && event.getAction() != KeyEvent.ACTION_DOWN) return true;
+            if (enterDomains(domainInput.getText().toString())) domainInput.setText("");
+            return true;
+        });
+        LinearLayout.LayoutParams domainInputLp = lp(-1, 36);
+        domainInputLp.topMargin = dp(6);
+        body.addView(domainInput, domainInputLp);
+        gap(body, 14);
+
+        // Applications: those of the profile being edited, by the name the picker showed. No field for typing one in:
+        // the picker is the way in.
+        List<String> appRules = model.apps(edited);
         LinearLayout appHeader = row();
-        appHeader.addView(label(through ? getString(R.string.text_applications_through_vpn) : getString(R.string.text_applications_bypass_vpn), 12, t.textFaint),
-                weighted());
+        TextView appsTitle = ui.sectionLabel(through ? getString(R.string.text_applications_through_vpn) : getString(R.string.text_applications_bypass_vpn));
+        appsTitle.setSingleLine(true);
+        appsTitle.setEllipsize(TextUtils.TruncateAt.END);
+        appHeader.addView(appsTitle, weighted());
         TextView chooseLink = ui.link(getString(R.string.text_choose), 12, Ui.LinkKind.ACCENT, "apps:choose");
         chooseLink.setOnClickListener(v -> appPicker());
-        appHeader.addView(chooseLink, lp(-2, -2)); body.addView(appHeader, lp(-1, -2));
-        gap(body, 6);
-        LinearLayout apps = column();
-        Set<String> selected = prefs.getStringSet("apps", Collections.emptySet());
-        PackageManager pm = getPackageManager();
-        int appRows = 0;
-        for (String pkg : sorted(selected)) {
-            try {
-                android.content.pm.ApplicationInfo appInfo = pm.getApplicationInfo(pkg, 0);
-                LinearLayout appRow = ui.chip(appInfo.loadLabel(pm).toString(), false, false, null, true);
-                ImageView appIcon = new ImageView(this); appIcon.setImageDrawable(appInfo.loadIcon(pm));
-                appRow.addView(appIcon, 0, lp(20, 20));
-                appRow.addView(new View(this), 1, lp(8, 1));
-                ImageView remove = ui.chipX("app:" + appRows++, false);
-                remove.setContentDescription(getString(R.string.text_delete));
-                remove.setOnClickListener(v -> {
-                    Set<String> next = new HashSet<>(prefs.getStringSet("apps", Collections.emptySet()));
-                    next.remove(pkg); prefs.edit().putStringSet("apps", next).apply(); applyCurrentRules(); render();
-                });
-                appRow.addView(remove, ui.chipXLp()); apps.addView(appRow, lp(-1, 28)); gap(apps, 6);
-            } catch (PackageManager.NameNotFoundException ignored) { }
+        appHeader.addView(chooseLink, lp(-2, -2));
+        if (!appRules.isEmpty()) {
+            TextView clearApps = ui.link(getString(R.string.split_clear_all), 12, Ui.LinkKind.DANGER, "apps:clear");
+            clearApps.setOnClickListener(v -> showConfirm(getString(R.string.split_clear_apps_question), getString(R.string.text_clear),
+                    () -> editRules(m -> m.clearApps(m.edited()))));
+            appHeader.addView(clearApps, lp(-2, -2));
         }
-        body.addView(apps, lp(-1, -2));
-        TextView addApp = label(getString(R.string.text_choose_installed_applications), 13, t.textFaint);
-        addApp.setPadding(dp(12), 0, dp(12), 0);
-        ui.focus(addApp, "apps:add", Ui.Look.FIELD).setOnClickListener(v -> appPicker());
-        body.addView(addApp, lp(-1, 36));
+        body.addView(appHeader, lp(-1, -2));
+        if (!appRules.isEmpty()) {
+            gap(body, 6);
+            FlowLayout apps = new FlowLayout(this, dp(6));
+            PackageManager pm = getPackageManager();
+            for (int i = 0; i < appRules.size(); i++) {
+                final int index = i;
+                final String label = appLabel(pm, appRules.get(i));
+                LinearLayout chip = ui.chip(label, false, false, null, false);
+                ImageView x = ui.chipX("app:" + i, false);
+                x.setContentDescription(getString(R.string.text_delete) + " " + label);
+                x.setOnClickListener(v -> editRules(m -> m.removeApp(m.edited(), index)));
+                chip.addView(x, ui.chipXLp());
+                apps.addView(chip);
+            }
+            body.addView(apps, lp(-1, -2));
+        }
     }
-    private void addDomains(String inputText) {
-        Set<String> rules = new HashSet<>(prefs.getStringSet("domains", Collections.emptySet()));
-        try {
-            for (String rule : SplitRules.INSTANCE.normalize(inputText, false)) rules.add(rule);
-        } catch (IllegalArgumentException e) { toast(getString(R.string.invalid_routing_rule)); return; }
-        prefs.edit().putStringSet("domains", rules).apply(); applyCurrentRules(); render();
+
+    // The name an application is listed by: the one the launcher shows, or its package where it is no longer installed, which is
+    // all there is to know it by, and to take it out of the list by.
+    private String appLabel(PackageManager pm, String pkg) {
+        try { return pm.getApplicationInfo(pkg, 0).loadLabel(pm).toString(); }
+        catch (PackageManager.NameNotFoundException gone) { return pkg; }
     }
-    private List<String> sorted(Set<String> set) { List<String> list = new ArrayList<>(set); Collections.sort(list); return list; }
+
+    // The built-in profile is stored as "Default" and shown in the language of the app.
+    private String profileLabel(String name) {
+        return SplitProfiles.DEFAULT.equals(name) ? getString(R.string.split_profile_default) : name;
+    }
+
+    // What the page says is wrong or worth knowing, one notice each, in this order:
+    //  - Through VPN would route nothing (the desktop's words, naming the config and the profile it uses), worked out by the
+    //    code that builds the plan (RoutingConfig.prepare): its warning for no rules at all. The full tunnel stays on;
+    //  - applications and domains both listed under Through VPN, which Android can not add together (VpnService takes the
+    //    applications and the destinations as an intersection), so the full tunnel stays on then too: Android's own;
+    //  - rules the selected config brings in with it, which count too; and rules an older preview let be saved that were dropped.
+    private List<CharSequence> splitNotices(SplitProfiles model, boolean enabled, boolean through) {
+        List<CharSequence> notices = new ArrayList<>();
+        if (enabled && through) {
+            if (configs.isEmpty()) {
+                SplitStore.Rules rules = SplitStore.rules(splitPrefs, null, SplitProfiles.DEFAULT);
+                if (rules.domains.isEmpty() && installedApps(rules.apps).isEmpty()) notices.add(getString(R.string.split_notice_nothing_no_configs));
+            } else {
+                Config active = activeConfig();
+                String profile = model.effective(active.profile);
+                SplitStore.Rules rules = SplitStore.rules(splitPrefs, null, profile);
+                Integer warning = null;
+                try { warning = RoutingConfig.prepare(active.toml, true, true, rules.domains, installedApps(rules.apps), true).getWarning(); }
+                catch (Exception unusable) { /* a config that does not pass is said so where it is used */ }
+                String config = ShownText.elideMiddle(ShownText.oneLine(active.name), 36);
+                if (warning != null && warning == R.string.text_no_through_vpn_rules_full_vpn_is_enabled)
+                    notices.add(getString(R.string.split_notice_nothing, config, profileLabel(profile)));
+                else if (warning != null && warning == R.string.text_applications_and_addresses_are_selected_full_vpn_pro)
+                    notices.add(getString(R.string.split_notice_both, config, profileLabel(profile)));
+            }
+        }
+        if (!configs.isEmpty()) {
+            try {
+                org.tomlj.TomlArray imported = RoutingConfig.validate(activeConfig().toml).getArray("exclusions");
+                if (imported != null && imported.size() > 0) {
+                    List<String> shown = new ArrayList<>();
+                    for (int i = 0; i < imported.size(); i++) shown.add(ShownText.of(imported.getString(i)));
+                    notices.add(getString(R.string.imported_routing_rules, TextUtils.join(", ", shown)));
+                }
+            } catch (Exception ignored) { }
+        }
+        if (prefs.getBoolean(SplitStore.RULES_MIGRATED, false)) notices.add(getString(R.string.legacy_rules_removed));
+        return notices;
+    }
+
+    // The packages of these that are installed here, other than this app, as the plan will use them.
+    private List<String> installedApps(List<String> packages) {
+        PackageManager pm = getPackageManager();
+        List<String> installed = new ArrayList<>();
+        for (String pkg : packages) {
+            if (pkg.equals(getPackageName())) continue;
+            try { pm.getApplicationInfo(pkg, 0); installed.add(pkg); }
+            catch (PackageManager.NameNotFoundException gone) { /* left out of the plan, kept in the profile */ }
+        }
+        return installed;
+    }
+
+    // The profiles.
+
+    private SplitProfiles splitModel() { return SplitStore.load(splitPrefs, RussiaList.seed(this)); }
+    private boolean splitEdit(Consumer<SplitProfiles> change) { return SplitStore.edit(splitPrefs, RussiaList.seed(this), change); }
+    private Config activeConfig() { return configs.get(Math.max(0, Math.min(activeIndex, configs.size() - 1))); }
+    // The profile the selected config uses (Default for one that names a profile that is gone, and with no configs), which
+    // the VPN is built with and the rules of which "Through VPN" is about.
+    private String activeProfileName() {
+        return configs.isEmpty() ? SplitProfiles.DEFAULT : splitModel().effective(activeConfig().profile);
+    }
+    // The old global lists, which 1.0.0 reads, are a copy of the lists of the profile the selected config uses.
+    private void syncMirror() {
+        String profile = activeProfileName();
+        splitEdit(m -> m.setMirrored(profile));
+    }
+
+    private void selectProfile(String name) {
+        // Which one the page shows. It changes nothing the VPN runs on, so nothing restarts.
+        final boolean[] changed = {false};
+        splitEdit(m -> changed[0] = m.select(name));
+        if (changed[0]) render();
+    }
+
+    private void confirmRemoveProfile(String name) {
+        showConfirm(getString(R.string.split_profile_delete_question, ShownText.elideMiddle(ShownText.oneLine(name), 36)),
+                getString(R.string.text_delete), () -> removeProfile(name));
+    }
+
+    private void removeProfile(String name) {
+        boolean usedByActive = name.equals(activeProfileName());
+        final boolean[] removed = {false};
+        splitEdit(m -> removed[0] = m.remove(name));
+        if (!removed[0]) return;
+        // The configs that used it use Default from now on.
+        for (Config config : configs) config.profile = SplitProfiles.afterRemoval(config.profile, name);
+        saveConfigs();
+        if (usedByActive) applyCurrentRules();
+        render();
+    }
+
+    private void openProfileName() {
+        if (profileNameInput == null) return;
+        profileNameOpen = true;
+        profileNameDraft = "";
+        profileNameInput.setText("");
+        profileNameInput.setVisibility(View.VISIBLE);
+        EditText input = profileNameInput;
+        input.requestFocus();
+        // A phone types at once; a TV opens its keyboard when OK is pressed on the field.
+        if (!isTv()) input.post(() -> showKeyboard(input));
+    }
+
+    // Escape, or the focus gone elsewhere, or Back: nothing is added.
+    private void closeProfileName() {
+        if (!profileNameOpen) return;
+        profileNameOpen = false;
+        profileNameDraft = "";
+        EditText input = profileNameInput;
+        if (input == null) return;
+        // A remote's focus goes to the + chip it was opened from, and not to wherever Android finds first when a field
+        // that has the focus is hidden.
+        View plus = host.findViewWithTag("profile:add");
+        if (input.hasFocus() && plus != null && !getWindow().getDecorView().isInTouchMode()) plus.requestFocus();
+        if (input.hasFocus()) hideKeyboard();
+        input.setText("");
+        input.setVisibility(View.GONE);
+    }
+
+    private void addProfile(String text) {
+        final SplitProfiles.NameResult[] result = new SplitProfiles.NameResult[1];
+        splitEdit(m -> result[0] = m.add(text));
+        profileNameOpen = false;
+        profileNameDraft = "";
+        hideKeyboard();
+        focusAfterRender = "profile:add";
+        // Adding a name that differs only in case from one that is there is refused, and says so.
+        if (result[0] != null && result[0].status == SplitProfiles.NameStatus.CASE_CLASH)
+            toast(getString(R.string.split_profile_exists, ShownText.of(result[0].existing)));
+        render();
+    }
+
+    // The rules.
+
+    // A change to the profile being edited. If it changed anything, the VPN is built again when the profile is the one the
+    // selected config uses (and the split switch is on, or nothing it is built from changed), and the page is drawn again;
+    // editing another profile restarts nothing. Whether it changed anything.
+    private boolean editRules(Consumer<SplitProfiles> change) {
+        final String[] profile = new String[1];
+        final boolean[] changed = {false};
+        splitEdit(m -> {
+            profile[0] = m.edited();
+            String before = m.toJson();
+            change.accept(m);
+            changed[0] = !before.equals(m.toJson());
+        });
+        if (changed[0]) rulesChanged(profile[0]);
+        return changed[0];
+    }
+
+    private void rulesChanged(String profile) {
+        if (prefs.getBoolean("split_enabled", false) && profile.equals(activeProfileName())) applyCurrentRules();
+        render();
+    }
+
+    private void addRecommendedRussia() {
+        final List<String> list;
+        try { list = RussiaList.read(this); }
+        catch (IOException unreadable) { toast(getString(R.string.text_could_not_open_file)); return; }
+        editRules(m -> m.addRecommended(m.edited(), list));
+    }
+
+    // What was typed in the domains field: the words that are rules are added, and the ones that are not are named. The field is
+    // cleared if something was added, and keeps what was typed if nothing was, for it to be put right.
+    private boolean enterDomains(String text) {
+        final SplitProfiles.Entered[] entered = new SplitProfiles.Entered[1];
+        final String[] profile = new String[1];
+        splitEdit(m -> { profile[0] = m.edited(); entered[0] = m.addDomains(profile[0], text); });
+        if (entered[0] == null) return false;
+        if (!entered[0].refused.isEmpty()) toast(refusedRulesMessage(entered[0].refused));
+        if (entered[0].added.isEmpty()) return false;
+        // The field stays where the cursor is, for the next one.
+        focusAfterRender = "domains:input";
+        rulesChanged(profile[0]);
+        return true;
+    }
+
+    // As the desktop says it (Backend refusedRulesMessage): which words, and, for the two reasons that deserve it, why.
+    private String refusedRulesMessage(List<String> refused) {
+        List<String> shown = new ArrayList<>();
+        for (String word : refused) shown.add(ShownText.of(word));
+        String list = TextUtils.join(", ", shown);
+        switch (SplitProfiles.refusal(refused)) {
+            case WILDCARD_ON_ADDRESS: return getString(R.string.split_refused_wildcard, list);
+            case EVERY_ADDRESS: return getString(R.string.split_refused_every, list);
+            default: return getString(R.string.split_refused, list);
+        }
+    }
     // The app picker (qml/AppPickerOverlay.qml): a card with ← and the title, a search box, and the installed
     // applications, a row each with the name over its package. One application to a visit: a tap adds it and
     // the card closes, as does Enter, which adds the first match. They are listed on a worker, and the card
@@ -2251,15 +2591,12 @@ public final class MainActivity extends Activity {
             }
         }
 
-        // The application goes in the list of those the VPN does not carry, or carries alone; and the card goes.
+        // The application goes in the list of the profile being edited, of those the VPN does not carry, or carries alone;
+        // and the card goes.
         private void choose(AppEntry app) {
             if (overlay.closed) return;
-            Set<String> next = new HashSet<>(prefs.getStringSet("apps", Collections.emptySet()));
-            next.add(app.pkg);
             closeOverlay(overlay);
-            prefs.edit().putStringSet("apps", next).apply();
-            applyCurrentRules();
-            render();
+            editRules(m -> m.addApp(m.edited(), app.pkg));
         }
     }
 
@@ -2581,7 +2918,8 @@ public final class MainActivity extends Activity {
         try {
             JSONArray array = new JSONArray(ConfigStore.read(prefs));
             for (int i = 0; i < array.length(); i++) {
-                JSONObject o = array.getJSONObject(i); configs.add(new Config(o.getString("name"), o.getString("toml")));
+                JSONObject o = array.getJSONObject(i);
+                configs.add(new Config(o.getString("name"), o.getString("toml"), SavedProfile.profileOf(o)));
             }
         } catch (Exception error) {
             storageFailed = true;
@@ -2610,7 +2948,13 @@ public final class MainActivity extends Activity {
         JSONArray array = new JSONArray();
         for (Config config : configs) {
             JSONObject o = new JSONObject();
-            try { o.put("name", config.name); o.put("toml", config.toml); array.put(o); } catch (Exception ignored) { }
+            try {
+                o.put("name", config.name); o.put("toml", config.toml);
+                // Only a profile other than Default is written: a config saved before there were profiles has none, and
+                // is Default, and so is one that names no profile.
+                if (!SplitProfiles.DEFAULT.equals(config.profile)) o.put("profile", config.profile);
+                array.put(o);
+            } catch (Exception ignored) { }
         }
         if (!ConfigStore.write(prefs, array.toString())) {
             storageFailed = true;
@@ -2619,6 +2963,7 @@ public final class MainActivity extends Activity {
             configs.clear(); loadConfigs(); render(); return false;
         }
         prefs.edit().putInt("active", activeIndex).apply();
+        syncMirror();
         return true;
     }
 }

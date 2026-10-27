@@ -1,7 +1,6 @@
 package org.freetunnel.android
 
 import org.tomlj.Toml
-import androidx.core.content.edit
 import org.tomlj.TomlArray
 import org.tomlj.TomlTable
 
@@ -220,19 +219,22 @@ object RoutingConfig {
 
     data class Plan(val toml: String, val apps: List<String>, val allowApps: Boolean, val warning: Int?)
 
-    @JvmStatic fun prepare(context: android.content.Context, source: String): Plan {
+    /**
+     * The plan for a session on this config with the rules of [profile], the split profile it uses: the
+     * domains and applications that profile lists (SplitStore.rules), with the on and off, the mode and the kill switch,
+     * which are the app's and not a profile's. The app, the tile and Always-on all come here with the profile of the
+     * config they run, so that they route alike. An application that is no longer installed is left out of the
+     * plan and stays in the profile, where it can be removed.
+     */
+    @JvmStatic fun prepare(context: android.content.Context, source: String, profile: String): Plan {
         val prefs = context.getSharedPreferences("freetunnel", android.content.Context.MODE_PRIVATE)
-        val apps = prefs.getStringSet("apps", emptySet()).orEmpty().filter { it != context.packageName }.filter {
+        val rules = SplitStore.rules(SplitPrefs(prefs), null, profile)
+        val apps = rules.apps.filter { it != context.packageName }.filter {
             try { context.packageManager.getApplicationInfo(it, 0); true }
             catch (_: android.content.pm.PackageManager.NameNotFoundException) { false }
         }
-        val saved = prefs.getStringSet("domains", emptySet()).orEmpty()
-        val valid = saved.filter { SplitRules.core(it) != null }.toSet()
-        if (valid.size != saved.size) {
-            prefs.edit { putStringSet("domains", valid); putBoolean("rules_migrated", true) }
-        }
         return prepare(source, prefs.getBoolean("split_enabled", false), prefs.getBoolean("through", false),
-            valid.toList(), apps, prefs.getBoolean("killswitch", true))
+            rules.domains, apps, prefs.getBoolean("killswitch", true))
     }
 
     @JvmStatic fun prepare(source: String, enabled: Boolean, through: Boolean,

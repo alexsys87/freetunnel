@@ -35,7 +35,7 @@ import android.widget.TextView;
  */
 final class Ui {
     /** What a control's rest, hover and focus look like. */
-    enum Look { TILE, HERO, ROW, MENU_ROW, PILL, LINK, ICON, CHIP, BUTTON, PRIMARY, DANGER, FIELD, BOX, TOGGLE }
+    enum Look { TILE, HERO, ROW, MENU_ROW, PILL, LINK, ICON, CHIP, BUTTON, PRIMARY, DANGER, FIELD, SELECT, BOX, TOGGLE }
     /** The four buttons the desktop has. */
     enum Kind { PRIMARY, SECONDARY, NEUTRAL, DESTRUCTIVE }
     /** The three colours of link: accent, text colour and danger. */
@@ -55,6 +55,8 @@ final class Ui {
      * while the pointer is over one of its icons.
      */
     static final int F_HOLDS_FOCUS = 16;
+    /** A 1 px border in the border colour at rest, such as the + chip's. Gone with the focus, which fills it. */
+    static final int F_BORDER = 32;
 
     /** The desktop animates every hover colour for 120 ms. */
     static final int FADE_MS = 120;
@@ -213,6 +215,9 @@ final class Ui {
         int focused = danger || look == Look.DANGER ? t.danger : t.accent;
         int stroke = 0;
         int focusStroke = 0;
+        // The border under the pointer, when it is not the one at rest.
+        int hotStroke = 0;
+        boolean hotStrokeSet = false;
         float radius = 8;
         switch (look) {
             case TILE:
@@ -260,6 +265,17 @@ final class Ui {
                 focused = remote ? t.surface : t.inputBg;
                 focusStroke = t.accent;
                 break;
+            case SELECT:
+                // A select box (the editor's): a field that opens a choice. As a field, and its border turns accent under the
+                // pointer, as the desktop's does.
+                rest = t.inputBg;
+                hot = t.inputBg;
+                stroke = t.inputBorder;
+                hotStroke = t.accent;
+                hotStrokeSet = true;
+                focused = remote ? t.surface : t.inputBg;
+                focusStroke = t.accent;
+                break;
             case BOX:
                 // A box of text that a remote scrolls, such as a license or the log: the
                 // desktop's surface, radius 8; with the focus, the field's accent border.
@@ -275,12 +291,14 @@ final class Ui {
                 break;
         }
         if ((flags & F_ROUND) != 0) radius = 99;
+        if ((flags & F_BORDER) != 0) stroke = t.border;
+        if (!hotStrokeSet) hotStroke = stroke;
         StateListDrawable states = new StateListDrawable();
         // The focus comes first: OK held on a focused control presses it, and it keeps its focus look.
         states.addState(new int[]{android.R.attr.state_focused}, box(focused, radius, focusStroke));
         if ((flags & F_HOLDS_FOCUS) != 0) states.addState(new int[]{android.R.attr.state_activated}, box(t.surface, radius, stroke));
-        states.addState(new int[]{android.R.attr.state_pressed}, box(hot, radius, stroke));
-        states.addState(new int[]{android.R.attr.state_hovered}, box(hot, radius, stroke));
+        states.addState(new int[]{android.R.attr.state_pressed}, box(hot, radius, hotStroke));
+        states.addState(new int[]{android.R.attr.state_hovered}, box(hot, radius, hotStroke));
         states.addState(new int[]{}, box(rest, radius, stroke));
         states.setEnterFadeDuration(FADE_MS);
         states.setExitFadeDuration(FADE_MS);
@@ -464,6 +482,29 @@ final class Ui {
         return box;
     }
 
+    /**
+     * The editor's select box (qml/Field.qml's look, CreateConfigOverlay's Protocol and Split profile): a label, 13 in textDim, over a
+     * box 34 high, radius 8, on inputBg, with the value (14, the text colour) 10 in from the left and ▾ (16, textDim) 10 from the right. The
+     * box is the control; its border turns accent under the pointer, as a field's does with the focus. Where the
+     * value is shown is put in {@code valueOut}, for the caller to change it when a choice is made.
+     */
+    LinearLayout selectField(CharSequence name, CharSequence value, String key, TextView[] valueOut, View.OnClickListener open) {
+        LinearLayout field = column();
+        field.addView(label(name, 13, t.textDim), lp(-1, -2));
+        gap(field, 4);
+        LinearLayout box = row();
+        box.setPadding(dp(10), 0, dp(10), 0);
+        TextView shown = label(value, 14, t.text);
+        shown.setSingleLine(true);
+        shown.setEllipsize(TextUtils.TruncateAt.END);
+        box.addView(shown, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+        box.addView(label("▾", 16, t.textDim), lp(-2, -2));
+        focus(box, key, Look.SELECT).setOnClickListener(open);
+        field.addView(box, lp(-1, 34));
+        if (valueOut != null) valueOut[0] = shown;
+        return field;
+    }
+
     /** The editor's toggle row: its label, 13 in textDim, and the toggle, 32 high. */
     LinearLayout editorToggleRow(CharSequence title, ToggleView toggle) {
         LinearLayout r = row();
@@ -529,7 +570,9 @@ final class Ui {
      * ChipX at the end, if {@code fill}.
      */
     LinearLayout chip(CharSequence value, boolean selected, boolean selectable, String key, boolean fill) {
-        LinearLayout c = row();
+        LinearLayout c = new ChipRow(context);
+        c.setOrientation(LinearLayout.HORIZONTAL);
+        c.setGravity(Gravity.CENTER_VERTICAL);
         c.setPadding(dp(11), 0, dp(11), 0);
         boolean accentFill = selected && !remote;
         int rest = selected ? (remote ? t.accent : t.accentText) : t.text;
@@ -548,6 +591,55 @@ final class Ui {
         return c;
     }
     /**
+     * A chip's row. Its label gives way to the ChipX at its end: a name too long for the row is cut with an ellipsis, as the
+     * desktop cuts it (the label is no wider than the chip less 39), and the ChipX is still there to be pressed. A plain
+     * LinearLayout gives the first child all the room it asks for and the last what is left, which may be none.
+     */
+    static final class ChipRow extends LinearLayout {
+        ChipRow(Context context) { super(context); }
+
+        @Override protected void measureChildWithMargins(View child, int parentWidthMeasureSpec, int widthUsed,
+                                                         int parentHeightMeasureSpec, int heightUsed) {
+            int count = getChildCount();
+            if (count > 1 && child == getChildAt(0) && getChildAt(count - 1).getLayoutParams() instanceof MarginLayoutParams) {
+                MarginLayoutParams x = (MarginLayoutParams) getChildAt(count - 1).getLayoutParams();
+                widthUsed += Math.max(0, x.width) + x.leftMargin + x.rightMargin;
+            }
+            super.measureChildWithMargins(child, parentWidthMeasureSpec, widthUsed, parentHeightMeasureSpec, heightUsed);
+        }
+    }
+
+    /**
+     * A remote reaches a ChipX from its chip with Right, and the chip from it with Left: it is inside the chip, where Android's
+     * search for the next control to the right finds none.
+     */
+    void linkChipX(View chip, View x) {
+        if (chip.getId() == View.NO_ID) chip.setId(View.generateViewId());
+        if (x.getId() == View.NO_ID) x.setId(View.generateViewId());
+        chip.setNextFocusRightId(x.getId());
+        x.setNextFocusLeftId(chip.getId());
+        // The chip's focus is the accent, and what it holds sits on it.
+        chip.setOnFocusChangeListener((v, hasFocus) -> x.setSelected(hasFocus));
+    }
+
+    /**
+     * The + chip that makes a new one (Split's profiles): 34 by 28, radius 13, on surface with a border, a + of 17 in accent.
+     * With the focus the accent fills it, border and all.
+     */
+    TextView plusChip(CharSequence description, String key) {
+        TextView v = label("+", 17, t.accent);
+        v.setTextColor(colors(t.accent, t.accent, t.accentText));
+        v.setGravity(Gravity.CENTER);
+        v.setIncludeFontPadding(false);
+        v.setMinWidth(dp(34));
+        v.setMinimumWidth(dp(34));
+        v.setMinHeight(dp(28));
+        v.setMinimumHeight(dp(28));
+        v.setContentDescription(description);
+        return focus(v, key, Look.CHIP, F_BORDER);
+    }
+
+    /**
      * ChipX: the close icon, 14 in a cell 22 wide, danger under the pointer; with a remote
      * a danger circle with a white cross. A chip is 28 high, and its ChipX sits 3 from the label.
      */
@@ -555,7 +647,8 @@ final class Ui {
         ImageView x = new ImageView(context);
         x.setImageResource(R.drawable.ic_close);
         x.setPadding(dp(4), dp(4), dp(4), dp(4));
-        x.setImageTintList(colors(overAccent ? t.accentText : t.textDim, t.danger, t.onDanger));
+        // Selected, as the chip it is in is while it has the focus (see linkChipX): the chip is then the accent, and the cross on it accentText.
+        x.setImageTintList(colors(overAccent ? t.accentText : t.textDim, t.danger, t.onDanger, t.accentText));
         return focus(x, key, Look.ICON, F_DANGER | F_ROUND);
     }
     /** Where a ChipX sits in its chip: 3 from the label, and the chip's 11 of padding less 8 beyond it. */

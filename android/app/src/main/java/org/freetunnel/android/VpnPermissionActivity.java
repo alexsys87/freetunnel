@@ -27,7 +27,8 @@ public final class VpnPermissionActivity extends Activity {
     }
     private void startVpn() {
         try {
-            FreeTunnelVpnService.start(this, SavedProfile.selected(getSharedPreferences("freetunnel", MODE_PRIVATE)));
+            SavedProfile.Choice selected = SavedProfile.selected(getSharedPreferences("freetunnel", MODE_PRIVATE));
+            FreeTunnelVpnService.start(this, selected.toml, selected.profile);
         } catch (Exception e) {
             Toast.makeText(this, getString(R.string.text_open_the_app_and_check_the_saved_configuration), Toast.LENGTH_LONG).show();
         }

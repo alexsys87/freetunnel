@@ -34,6 +34,7 @@ class FreeTunnelVpnService : VpnService() {
         const val ACTION_STOP = "org.freetunnel.android.STOP_VPN"
         const val ACTION_STATE = "org.freetunnel.android.VPN_STATE"
         const val EXTRA_CONFIG = "config"
+        const val EXTRA_PROFILE = "profile"
         const val EXTRA_STATE = "state"
         private const val CHANNEL = "freetunnel_vpn"
         private const val FAILURE_CHANNEL = "freetunnel_vpn_failure"
@@ -61,8 +62,13 @@ class FreeTunnelVpnService : VpnService() {
         @JvmStatic fun state(context: Context): Int = currentState
         /** SystemClock.elapsedRealtime() at the moment the connection last became connected, or 0 where it is not. */
         @JvmStatic fun sessionStart(): Long = sessionStartedAt
-        @JvmStatic fun start(context: Context, source: String) {
+        /**
+         * Starts the VPN on this config. [profile] is the split profile it uses; without one, it is the profile of the
+         * config the app has selected, which is the config this is wherever the app starts it.
+         */
+        @JvmStatic @JvmOverloads fun start(context: Context, source: String, profile: String? = null) {
             val intent = Intent(context, FreeTunnelVpnService::class.java).setAction(ACTION_START).putExtra(EXTRA_CONFIG, source)
+            if (profile != null) intent.putExtra(EXTRA_PROFILE, profile)
             context.startForegroundService(intent)
         }
         @JvmStatic fun stop(context: Context) { send(context, ACTION_STOP) }
@@ -94,6 +100,8 @@ class FreeTunnelVpnService : VpnService() {
     private var establishedThisRequest = false
     private var keepBlocked = true
     private var activeSource: String? = null
+    // The split profile activeSource runs with.
+    private var activeProfile: String? = null
     // Automatic recovery while the kill switch blocks traffic. retainedTun was
     // built from activePlan; blocked lasts from a fatal failure until the core
     // reports 2 or the TUN is closed.
@@ -173,11 +181,19 @@ class FreeTunnelVpnService : VpnService() {
             val previous = client
             establishedThisRequest = false
             try {
-                val source = intent?.getStringExtra(EXTRA_CONFIG) ?: activeSource ?: SavedProfile.selected(prefs)
-                val plan = RoutingConfig.prepare(this, source)
+                val given = intent?.getStringExtra(EXTRA_CONFIG)
+                // A start with no config in it runs the one the app has selected, with the split profile that config
+                // uses: Android's Always-on, a restart of a killed service, and the notification's Reconnect when
+                // nothing runs yet. The tile and the app say which they start, and the profile with it.
+                val saved = if (given == null && activeSource == null) SavedProfile.selected(prefs) else null
+                val source = given ?: activeSource ?: saved?.toml ?: error("No configuration")
+                val profile = intent?.getStringExtra(EXTRA_PROFILE) ?: saved?.profile
+                    ?: (if (given == null) activeProfile else null) ?: SavedProfile.profile(prefs)
+                val plan = RoutingConfig.prepare(this, source, profile)
                 check(VpnService.prepare(this) == null) { "VPN permission is required" }
                 replace(plan, startId, epoch)
                 activeSource = source
+                activeProfile = profile
             } catch (error: Throwable) {
                 if (!destroyed && startId == latestStartId && epoch == permissionEpoch) {
                     if (retainedTun != null && client === previous && !establishedThisRequest) {
@@ -311,6 +327,7 @@ class FreeTunnelVpnService : VpnService() {
         blocked = false
         attempts = 0
         activeSource = null
+        activeProfile = null
         getSystemService(NotificationManager::class.java).cancel(BLOCKED_ID)
         if (publish) publishState(0)
     }
