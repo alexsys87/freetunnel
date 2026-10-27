@@ -833,17 +833,23 @@ class TvDeviceTest {
             profiles.put(org.json.JSONObject().put("name", "Down").put("toml", source.replace("192.0.2.1:443", "127.0.0.1:$closedPort")))
             assertTrue(ConfigStore.write(prefs, profiles.toString()))
             val a = open()
+            leaveTouchMode(a)
             render(a, 1)
+            focusOn(a, "config:1:edit")
             assertEquals("Nothing is known yet", listOf("", ""), listOf(pingOf(a, 0), pingOf(a, 1)))
             val gate = java.util.concurrent.CountDownLatch(1)
             val pool = field("pingWorker").get(a) as ExecutorService
             repeat(4) { pool.execute { gate.await() } }
             click(a, "configs:ping")
             assertEquals("Pending while it is waiting", listOf("…", "…"), listOf(pingOf(a, 0), pingOf(a, 1)))
+            // Each result builds the page again, and the focus is where it was.
+            eventually("The focus stays through the rebuild that shows the pending marks") { focusedKey(a) == "config:1:edit" }
             gate.countDown()
             eventually("Both answer") { pingOf(a, 0) != "…" && pingOf(a, 1) != "…" }
             assertTrue("A time: " + pingOf(a, 0), Regex("\\d+ (ms|мс)").matches(pingOf(a, 0)))
             assertEquals("A dash for a refusal", "—", pingOf(a, 1))
+            instrumentation.waitForIdleSync()
+            eventually("and stays through the results") { focusedKey(a) == "config:1:edit" }
         } finally {
             up.close()
         }

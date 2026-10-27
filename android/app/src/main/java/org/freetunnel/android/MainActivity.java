@@ -398,9 +398,9 @@ public final class MainActivity extends Activity {
         else {
             ScrollView scroll = new ScrollView(this); scroll.setFillViewport(true); scroll.setClipToPadding(false);
             scroll.setVerticalScrollBarEnabled(false);
-            // On a TV the cards would otherwise stretch across the whole screen.
-            int sides = isTv() ? dp(48) : 0;
-            int side = isTv() ? Math.max(dp(18), (getResources().getDisplayMetrics().widthPixels - 2 * sides - dp(640)) / 2) : dp(18);
+            // The desktop's pages fill the width with 18 on each side and have no widest: at a TV's width a config's row goes from edge
+            // to edge with its icons at the far right (the TV's own overscan is the host's padding).
+            int side = dp(18);
             LinearLayout body = column(); body.setPadding(side, dp(8), side, dp(26)); scroll.addView(body);
             pageRoot.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
             pageScroll = scroll;
