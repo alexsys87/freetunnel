@@ -35,7 +35,7 @@ import android.widget.TextView;
  */
 final class Ui {
     /** What a control's rest, hover and focus look like. */
-    enum Look { TILE, ROW, MENU_ROW, PILL, LINK, ICON, CHIP, BUTTON, PRIMARY, DANGER, FIELD, BOX, TOGGLE }
+    enum Look { TILE, HERO, ROW, MENU_ROW, PILL, LINK, ICON, CHIP, BUTTON, PRIMARY, DANGER, FIELD, BOX, TOGGLE }
     /** The four buttons the desktop has. */
     enum Kind { PRIMARY, SECONDARY, NEUTRAL, DESTRUCTIVE }
     /** The three colours of link: accent, text colour and danger. */
@@ -49,6 +49,12 @@ final class Ui {
     static final int F_DANGER = 4;
     /** Fully round, such as a ChipX or a toggle's backdrop. */
     static final int F_ROUND = 8;
+    /**
+     * A row that holds controls of its own, such as a config row with its icons: while one of them has
+     * the focus the row is activated (setActivated), and rests on surface, as the desktop's row does
+     * while the pointer is over one of its icons.
+     */
+    static final int F_HOLDS_FOCUS = 16;
 
     /** The desktop animates every hover colour for 120 ms. */
     static final int FADE_MS = 120;
@@ -152,6 +158,15 @@ final class Ui {
             {android.R.attr.state_focused}, {android.R.attr.state_pressed}, {android.R.attr.state_hovered}, {}},
             new int[]{focused, hot, hot, rest});
     }
+    /**
+     * As above, and a colour for while the view is selected, which a row sets on its icons while the row itself has
+     * the focus: they sit on its accent then, as the row's own words do.
+     */
+    static ColorStateList colors(int rest, int hot, int focused, int selected) {
+        return new ColorStateList(new int[][]{
+            {android.R.attr.state_focused}, {android.R.attr.state_selected}, {android.R.attr.state_pressed}, {android.R.attr.state_hovered}, {}},
+            new int[]{focused, selected, hot, hot, rest});
+    }
     /** What a control's content turns to while it has the focus: accentText, or white on danger. */
     int onFocus(Look look, int flags) { return (flags & F_DANGER) != 0 || look == Look.DANGER ? t.onDanger : t.accentText; }
 
@@ -206,6 +221,11 @@ final class Ui {
                 rest = current ? t.infoBg : Color.TRANSPARENT;
                 hot = current ? t.infoBg : t.surface;
                 break;
+            case HERO:
+                // The logo as a control: the nav tile's proportions (8 on 38), at 132. It has no hover look of
+                // its own on the desktop, only its press, which the logo does by scaling.
+                radius = 28;
+                break;
             case ROW: hot = t.surface; break;
             case MENU_ROW: hot = t.surface; radius = 6; break;
             case PILL: hot = t.surface; break;
@@ -258,6 +278,7 @@ final class Ui {
         StateListDrawable states = new StateListDrawable();
         // The focus comes first: OK held on a focused control presses it, and it keeps its focus look.
         states.addState(new int[]{android.R.attr.state_focused}, box(focused, radius, focusStroke));
+        if ((flags & F_HOLDS_FOCUS) != 0) states.addState(new int[]{android.R.attr.state_activated}, box(t.surface, radius, stroke));
         states.addState(new int[]{android.R.attr.state_pressed}, box(hot, radius, stroke));
         states.addState(new int[]{android.R.attr.state_hovered}, box(hot, radius, stroke));
         states.addState(new int[]{}, box(rest, radius, stroke));
@@ -581,5 +602,88 @@ final class Ui {
         ToggleView v = new ToggleView(context, t, small);
         v.setChecked(checked);
         return focus(v, key, Look.TOGGLE);
+    }
+
+    // Home.
+
+    /**
+     * Home's config selector: the active config's name, 15 in Medium and elided at the right to the room
+     * there is, and 6 later the ▾ (15), as one control that is as wide as they are. Both are the text colour, and
+     * accent under the pointer, with the name underlined; with the focus, the accent around them and accentText
+     * in them. Without configs it is "Add a config" alone, with no ▾.
+     */
+    LinearLayout selector(CharSequence name, boolean arrow, int maxNameWidthPx, String key) {
+        LinearLayout box = row();
+        box.setPadding(dp(6), dp(4), dp(6), dp(4));
+        LinkText label = new LinkText(context);
+        label.setText(name);
+        label.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
+        label.setTypeface(MEDIUM);
+        label.setGravity(Gravity.CENTER_VERTICAL);
+        label.setSingleLine(true);
+        label.setEllipsize(TextUtils.TruncateAt.END);
+        if (maxNameWidthPx > 0) label.setMaxWidth(maxNameWidthPx);
+        label.setTextColor(colors(t.text, t.accent, t.accentText));
+        label.setDuplicateParentStateEnabled(true);
+        box.addView(label, lp(-2, -2));
+        if (arrow) {
+            TextView triangle = follow(label("▾", 15, t.text), t.text, t.accent, t.accentText);
+            LinearLayout.LayoutParams p = lp(-2, -2);
+            p.leftMargin = dp(6);
+            box.addView(triangle, p);
+        }
+        return focus(box, key, Look.LINK);
+    }
+
+    /** One of the two speed tiles at the foot of Home: 116 by 44, radius 8, on the tile colour. Not a control. */
+    LinearLayout speedTile(String arrow, int arrowColor, TextView[] valueOut) {
+        LinearLayout tile = row();
+        tile.setGravity(Gravity.CENTER);
+        tile.setBackground(shape(t.tile, 8));
+        tile.addView(label(arrow, 14, arrowColor), lp(-2, -2));
+        TextView value = medium("", 15, t.text);
+        LinearLayout.LayoutParams p = lp(-2, -2);
+        p.leftMargin = dp(5);
+        tile.addView(value, p);
+        valueOut[0] = value;
+        return tile;
+    }
+
+    // The Configs page's rows.
+
+    /**
+     * A pill of text on infoBg: radius 10, 20 high, 8 in from each side, 11 in Medium. A config row's
+     * badge says connected (in success) or connecting… (in textDim). It follows its row's focus: accentText on
+     * the translucent accentText that infoBg is on an accent row.
+     */
+    TextView badge(CharSequence value, int color) {
+        TextView v = medium(value, 11, color);
+        v.setGravity(Gravity.CENTER);
+        v.setPadding(dp(8), 0, dp(8), 0);
+        v.setSingleLine(true);
+        follow(v, color, color, t.accentText);
+        StateListDrawable states = new StateListDrawable();
+        states.addState(new int[]{android.R.attr.state_focused}, shape(Theme.withAlpha(t.accentText, 0x29), 10));
+        states.addState(new int[]{}, shape(t.infoBg, 10));
+        v.setBackground(states);
+        v.setDuplicateParentStateEnabled(true);
+        return v;
+    }
+
+    /**
+     * A config row's icon: a cell 26 wide and as high as it is given, the icon centred in it, textDim, and the
+     * text colour (danger for the close icon) under the pointer. It is a focus stop of its own: with the
+     * focus, an accent cell with the icon in accentText (danger and white for close). While the row it is in
+     * has the focus, the row sets the cell selected, and the icon is accentText on the row's accent.
+     */
+    FrameLayout rowIcon(int drawable, int iconDp, CharSequence description, String key, boolean close) {
+        FrameLayout cell = new FrameLayout(context);
+        cell.setContentDescription(description);
+        ImageView icon = new ImageView(context);
+        icon.setImageResource(drawable);
+        icon.setImageTintList(colors(t.textDim, close ? t.danger : t.text, close ? t.onDanger : t.accentText, t.accentText));
+        icon.setDuplicateParentStateEnabled(true);
+        cell.addView(icon, new FrameLayout.LayoutParams(dp(iconDp), dp(iconDp), Gravity.CENTER));
+        return focus(cell, key, Look.ICON, close ? F_DANGER : 0);
     }
 }
