@@ -611,17 +611,18 @@ class VpnDeviceTest {
                 MainActivity::class.java.getDeclaredMethod("editConfig", Int::class.javaPrimitiveType).apply { isAccessible = true }.invoke(activity, 0)
             }
             instrumentation.waitForIdleSync()
-            fun click(buttonId: Int) {
+            // The editor is an overlay of the activity's own window, its buttons found by their tags.
+            fun click(key: String) {
                 instrumentation.runOnMainSync {
-                    val button = android.view.inspector.WindowInspector.getGlobalWindowViews()
-                        .mapNotNull { it.findViewById<android.widget.Button>(buttonId) }.lastOrNull()
-                    assertNotNull("Dialog action must exist", button)
+                    val button = activity.window.decorView.findViewWithTag<android.view.View?>(key)
+                    assertNotNull("The editor's $key must exist", button)
                     assertTrue(button!!.performClick())
                 }
                 instrumentation.waitForIdleSync()
             }
-            click(android.R.id.button1)
-            click(android.R.id.button2)
+            // Save starts a check, which waits behind the gate; Cancel closes the editor, nothing in it changed, and the check with it.
+            click("editor:save")
+            click("editor:cancel")
             instrumentation.runOnMainSync {
                 val configs = MainActivity::class.java.getDeclaredField("configs").apply { isAccessible = true }.get(activity) as MutableList<*>
                 configs.removeAt(0)
@@ -658,24 +659,25 @@ class VpnDeviceTest {
         instrumentation.runOnMainSync { try { block() } catch (t: Throwable) { failure = t } }
         failure?.let { throw it }
     }
-    // Opens one of MainActivity's dialogs on the main thread, hands check the dialog's
-    // window and the view MainActivity put in it, and closes the dialog with Cancel.
-    private fun inDialog(start: () -> Unit, check: (android.view.View, android.view.ViewGroup) -> Unit) {
+    // Opens one of MainActivity's overlays on the main thread, hands check the overlay's layer in the activity's own window,
+    // and closes it with Back, which asks nothing of an editor in which nothing was typed.
+    private fun inOverlay(activity: MainActivity, name: String, start: () -> Unit, check: (android.view.ViewGroup) -> Unit) {
         onMain { start() }
         instrumentation.waitForIdleSync()
         onMain {
-            val window = android.view.inspector.WindowInspector.getGlobalWindowViews()
-                .last { it.findViewById<android.view.View>(android.R.id.custom) != null }
-            try { check(window, window.findViewById<android.view.ViewGroup>(android.R.id.custom)) }
-            finally { window.findViewById<android.widget.Button>(android.R.id.button2)?.performClick() }
+            val layer = activity.window.decorView.findViewWithTag<android.view.ViewGroup?>("overlay:$name")
+            assertNotNull("The $name must be an overlay of the activity's window", layer)
+            check(layer!!)
         }
+        instrumentation.sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_BACK)
         instrumentation.waitForIdleSync()
+        onMain { assertNull("Back must close the $name", activity.window.decorView.findViewWithTag<android.view.View?>("overlay:$name")) }
     }
 
     @androidx.test.filters.SdkSuppress(minSdkVersion = 29)
     @Test fun editorKeepsTheTomlOutOfTheKeyboardsFullScreenView() {
         withMainActivity { activity ->
-            inDialog({ privateMethod("editConfig", Int::class.javaPrimitiveType).invoke(activity, -1) }) { _, content ->
+            inOverlay(activity, "editor", { privateMethod("editConfig", Int::class.javaPrimitiveType).invoke(activity, -1) }) { content ->
                 val toml = descendants(content).filterIsInstance<android.widget.EditText>()
                     .single { it.inputType and android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE != 0 }
                 // What a keyboard is given when the field takes focus.
@@ -691,39 +693,62 @@ class VpnDeviceTest {
         }
     }
 
-    // A system dialog (until the in-app overlays replace them) takes the app's theme, the light
-    // Material dialog in the light theme and the dark one in the dark, and what MainActivity puts
-    // in it is drawn in the theme's own colours: it has to read against the dialog's background in both.
+    // The fill a control rests on, when it has one that covers: the colour its own text is read against.
+    private fun restFill(view: android.view.View): Int? {
+        val states = view.background as? android.graphics.drawable.StateListDrawable ?: return null
+        states.setState(intArrayOf())
+        val drawable = states.current as? android.graphics.drawable.GradientDrawable ?: return null
+        val color = drawable.color?.defaultColor ?: return null
+        return if (android.graphics.Color.alpha(color) == 255) color else null
+    }
+
+    // Every overlay is drawn in the theme's own colours on its own card, which is the theme's bg in the theme in use: what is in
+    // it has to read against that, in both themes. Text takes its colour from the theme's tokens and is at least 4.5:1 against what
+    // it is on (3 on the desktop's red button, which is white on #e06a6a in its dark theme); the desktop's textFaint, which is what
+    // its placeholders and an application's package are in, is lighter by design, and is held to what its own palette gives:
+    // 3.2 dark and 2.3 light on the card, 3.4 and 1.9 on a field.
     @androidx.test.filters.SdkSuppress(minSdkVersion = 29)
-    @Test fun dialogTextIsReadableInBothThemes() {
+    @Test fun overlayTextIsReadableAgainstTheOverlaysOwnBackgroundInBothThemes() {
+        val profiles = org.json.JSONArray().put(org.json.JSONObject().put("name", "Profile A").put("toml", source))
+        assertTrue(ConfigStore.write(prefs, profiles.toString()))
         withMainActivity { activity ->
-            val dialogs = listOf<() -> Unit>(
-                { privateMethod("editConfig", Int::class.javaPrimitiveType).invoke(activity, -1) },
-                { privateMethod("appPicker").invoke(activity) })
+            val overlays = listOf("editor" to { privateMethod("editConfig", Int::class.javaPrimitiveType).invoke(activity, -1) },
+                "picker" to { privateMethod("appPicker").invoke(activity) },
+                "licenses" to { privateMethod("openSourceLicenses").invoke(activity) },
+                "confirm" to { privateMethod("confirmRemove", Int::class.javaPrimitiveType).invoke(activity, 0) })
             for (dark in listOf(false, true)) {
+                val theme = Theme.of(dark)
+                val which = if (dark) "dark" else "light"
+                // The setting, then a render(), which is what makes a theme the one the controls are drawn in.
                 onMain {
-                    MainActivity::class.java.getDeclaredField("dark").apply { isAccessible = true }.setBoolean(activity, dark)
+                    MainActivity::class.java.getDeclaredField("themeMode").apply { isAccessible = true }.set(activity, which)
+                    privateMethod("render").invoke(activity)
                 }
-                for (start in dialogs) inDialog(start) { window, content ->
-                    val attributes = window.context.obtainStyledAttributes(intArrayOf(android.R.attr.colorBackground))
-                    val background = try { attributes.getColor(0, android.graphics.Color.TRANSPARENT) } finally { attributes.recycle() }
-                    assertEquals("A dialog is dark in the dark theme and light in the light",
-                        dark, androidx.core.graphics.ColorUtils.calculateLuminance(background) < 0.5)
-                    val texts = descendants(content).filterIsInstance<android.widget.TextView>().filter { it.isShown }.toList()
-                    assertFalse("The dialog shows no text to check", texts.isEmpty())
+                val tokens = listOf(theme.text, theme.textDim, theme.textFaint, theme.accent, theme.accentText, theme.danger, theme.onDanger)
+                for ((name, start) in overlays) inOverlay(activity, name, { start() }) { layer ->
+                    val card = layer.getChildAt(1)
+                    val background = (card.background as android.graphics.drawable.GradientDrawable).color!!.defaultColor
+                    assertEquals("The $name's own background is the theme's bg, in the $which theme", theme.bg, background)
+                    val texts = descendants(layer).filterIsInstance<android.widget.TextView>().filter { it.isShown }.toList()
+                    assertFalse("The $name shows no text to check", texts.isEmpty())
                     for (text in texts) {
-                        val where = "\"${text.hint ?: text.text}\" in the ${if (dark) "dark" else "light"} theme"
-                        val contrast = androidx.core.graphics.ColorUtils.calculateContrast(text.currentTextColor, background)
-                        assertTrue("$where: contrast $contrast", contrast >= 4.5)
-                        // Hints are drawn lighter on purpose, and an empty editor shows only
-                        // its hints. 3:1 is the minimum for them and for the check boxes.
-                        if (text.hint != null) {
-                            val hintContrast = androidx.core.graphics.ColorUtils.calculateContrast(text.currentHintTextColor, background)
-                            assertTrue("$where: hint contrast $hintContrast", hintContrast >= 3.0)
+                        val where = "\"${text.hint ?: text.text}\" in the $name, in the $which theme"
+                        val fill = restFill(text)
+                        val under = fill ?: background
+                        val color = text.currentTextColor
+                        assertTrue("$where: ${Integer.toHexString(color)} is no colour of this theme", color in tokens)
+                        val floor = when {
+                            color == theme.textFaint -> if (dark) 3.2 else 2.3
+                            fill != null && color == theme.onDanger -> 3.0
+                            else -> 4.5
                         }
-                        val tint = (text as? android.widget.CompoundButton)?.buttonTintList ?: continue
-                        val boxContrast = androidx.core.graphics.ColorUtils.calculateContrast(tint.defaultColor, background)
-                        assertTrue("$where: check box contrast $boxContrast", boxContrast >= 3.0)
+                        val contrast = androidx.core.graphics.ColorUtils.calculateContrast(color, under)
+                        assertTrue("$where: contrast $contrast", contrast >= floor)
+                        if (text.hint != null) {
+                            assertEquals("$where: its hint is textFaint", theme.textFaint, text.currentHintTextColor)
+                            val hintContrast = androidx.core.graphics.ColorUtils.calculateContrast(text.currentHintTextColor, fill ?: background)
+                            assertTrue("$where: hint contrast $hintContrast", hintContrast >= if (dark) 3.4 else 1.9)
+                        }
                     }
                 }
             }

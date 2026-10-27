@@ -219,6 +219,63 @@ class UpdateDeviceTest {
         assertFalse(shows(context.getString(R.string.update_unofficial)))
     }
 
+    // The overlay of the app's own window with this tag, or null.
+    private fun overlayView(tag: String): View? {
+        var found: View? = null
+        instrumentation.runOnMainSync { found = activity!!.window.decorView.findViewWithTag(tag) }
+        return found
+    }
+    private fun click(tag: String) {
+        instrumentation.runOnMainSync {
+            val view = activity!!.window.decorView.findViewWithTag<View?>(tag)
+            assertNotNull("No control has the tag $tag", view)
+            assertTrue(view!!.performClick())
+        }
+    }
+
+    // Installing replaces the app, and Android stops the VPN with it, so with the VPN on Install update asks first: in an overlay of
+    // the app's own window, not a system dialog, with Cancel first in the focus and the red Install update after 400 ms. Cancel
+    // installs nothing and leaves the update ready; Install update goes on to Android's own installer, which is cancelled here.
+    @Test fun installUpdateWarnsInAnOverlayWhileTheVpnIsOn() {
+        assertTrue("Grant REQUEST_INSTALL_PACKAGES appop before device tests", context.packageManager.canRequestPackageInstalls())
+        readyToInstall()
+        field("verifiedVersionCode", 4242L)
+        vpnState(2)
+        openApp()
+        fun ask() {
+            instrumentation.runOnMainSync {
+                MainActivity::class.java.getDeclaredMethod("installUpdate").apply { isAccessible = true }.invoke(activity)
+            }
+            instrumentation.waitForIdleSync()
+        }
+        ask()
+        assertNotNull("The warning is an overlay of the window", overlayView("overlay:confirm"))
+        var message = ""
+        var label = ""
+        instrumentation.runOnMainSync {
+            message = (activity!!.window.decorView.findViewWithTag<View>("confirm:message") as TextView).text.toString()
+            label = (activity!!.window.decorView.findViewWithTag<View>("confirm:ok") as TextView).text.toString()
+        }
+        assertEquals(context.getString(R.string.update_disconnect_warning), message)
+        assertEquals(context.getString(R.string.update_install), label)
+        assertFalse("Nothing has gone to Android's installer yet", androidsDialogShown())
+        // Cancel installs nothing.
+        click("confirm:cancel")
+        eventually { overlayView("overlay:confirm") == null }
+        assertEquals(AndroidUpdater.State.READY, AndroidUpdater.state)
+        assertTrue(installer.mySessions.isEmpty())
+        assertFalse(prefs.contains(FreeTunnelVpnService.RESUME_AFTER_UPDATE))
+        // Install update, once it is armed, goes on, and the VPN is to come back after the update.
+        ask()
+        SystemClock.sleep(500)
+        click("confirm:ok")
+        eventually { androidsDialogShown() }
+        assertEquals(4242L, prefs.getLong(FreeTunnelVpnService.RESUME_AFTER_UPDATE, 0L))
+        cancelAndroidsDialog()
+        eventually { AndroidUpdater.state == AndroidUpdater.State.READY }
+        eventually { !prefs.contains(FreeTunnelVpnService.RESUME_AFTER_UPDATE) }
+    }
+
     @Test fun cancelReturnsToAvailableWhateverEndsTheDownload() {
         // A cancel that lands while a read is blocked ends the download with
         // that read's timeout, not with Cancelled. Here the queued download is

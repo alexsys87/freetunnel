@@ -24,13 +24,12 @@ import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
-import android.view.inspector.WindowInspector
+import android.view.WindowManager
 import android.widget.Button
-import android.widget.CheckBox
+import android.text.TextUtils
 import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.ImageView
-import android.widget.ListView
 import android.widget.ScrollView
 import android.widget.TextView
 import androidx.test.filters.SdkSuppress
@@ -50,8 +49,9 @@ import java.util.concurrent.TimeUnit
 
 // Android TV: the TV launcher entry, a focus stop with a key and the desktop's focus
 // look on every control, focus and scroll kept when render() rebuilds the views, the
-// overlays that survive it and take the focus, Back, the screens TVs leave out, and
-// Receive from phone. Both device legs run it: the TV leg for the TV, the phone leg
+// overlays (every dialog, menu, picker and confirmation of the app is one, a view of
+// its own window found by its tag) that survive it and take the focus, Back, the
+// screens TVs leave out, and Receive from phone. Both device legs run it: the TV leg for the TV, the phone leg
 // for phones, which must work as before.
 class TvDeviceTest {
     private val instrumentation get() = InstrumentationRegistry.getInstrumentation()
@@ -247,7 +247,14 @@ class TvDeviceTest {
                 assertEquals("$name: the border of a focused field", theme.accent, look.focusedEdge)
                 assertEquals("$name: the border of a field at rest", theme.inputBorder, look.restEdge)
             }
+            // A box of text a remote scrolls, such as a license: the surface, with the field's accent border.
+            key == "licenses:text" -> {
+                assertEquals("$name: the border of a focused box of text", theme.accent, look.focusedEdge)
+                assertEquals("$name: a box of text at rest", theme.surface, look.restEdge)
+            }
             Regex("(domain|app):\\d+").matches(key) -> assertEquals("$name: a ChipX focuses in danger", theme.danger, look.focusedFill)
+            // The red button, whichever confirmation it answers.
+            key == "confirm:ok" -> assertEquals("$name: the red button focuses in danger", theme.danger, look.focusedFill)
             else -> assertEquals("$name: the focus is the accent", theme.accent, look.focusedFill)
         }
     }
@@ -401,10 +408,7 @@ class TvDeviceTest {
         focusOn(a, "config:11:remove")
         onMain { method("confirmRemove", Int::class.javaPrimitiveType).invoke(a, 11) }
         instrumentation.waitForIdleSync()
-        onMain {
-            WindowInspector.getGlobalWindowViews().last { it.findViewById<View>(android.R.id.button1) != null }
-                .findViewById<Button>(android.R.id.button1).performClick()
-        }
+        answerYes(a)
         eventually("The focus must move to the one before") { focusedKey(a) == "config:10:remove" }
         // A VPN state broadcast rebuilds Home.
         render(a, 0)
@@ -536,27 +540,27 @@ class TvDeviceTest {
     // With a remote, the focus must never land on "Show TOML and password" by itself,
     // where an OK shows the password to the room: not as the editor opens, and not
     // after a Save that the check refuses.
-    @SdkSuppress(minSdkVersion = 29)
     @Test fun aRemoteNeverLandsOnShowTomlAndPassword() {
         val a = open()
         leaveTouchMode(a)
         onMain { method("editConfig", Int::class.javaPrimitiveType).invoke(a, 0) }
         instrumentation.waitForIdleSync()
-        val editor = onMain { WindowInspector.getGlobalWindowViews().last { it.findViewById<View>(android.R.id.button1) != null } }
         // The check runs on the activity's worker and answers on the main thread.
         fun checked() {
             (field("validationWorker").get(a) as ExecutorService).submit {}.get(30, TimeUnit.SECONDS)
             instrumentation.waitForIdleSync()
         }
         fun requests() = onMain { field("validationRequest").getLong(a) }
+        val name = byKey(a, "editor:name") as EditText
+        val raw = byKey(a, "editor:toml") as EditText
+        val save = byKey(a, "editor:save")
+        val original = onMain { raw.text.toString() }
         try {
-            eventually("The editor must open on the name") {
-                onMain { (editor.findFocus() as? EditText)?.text?.toString() == "Profile 0" }
-            }
-            val save = onMain { editor.findViewById<Button>(android.R.id.button1) }
+            eventually("The editor must open on the name") { focusedKey(a) == "editor:name" }
+            assertEquals("Profile 0", onMain { name.text.toString() })
             val before = requests()
             onMain {
-                descendants(editor).filterIsInstance<EditText>().last().setText("not a configuration")
+                raw.setText("not a configuration")
                 assertTrue("Save must take the focus", save.requestFocus())
                 save.performClick()
                 save.performClick()
@@ -564,22 +568,25 @@ class TvDeviceTest {
             assertEquals("A second OK while the check runs starts no other", before + 1, requests())
             checked()
             onMain {
-                assertTrue("A refused Save leaves the editor open", editor.isShown)
-                assertSame("A refused Save keeps the focus", save, editor.findFocus())
+                assertNotNull("A refused Save leaves the editor open", root(a).findViewWithTag<View?>("overlay:editor"))
+                assertSame("A refused Save keeps the focus", save, a.currentFocus)
+                assertNotEquals("and never moves it onto Show TOML and password", "editor:show", a.currentFocus?.tag)
                 assertTrue(save.isEnabled)
-                assertFalse(descendants(editor).filterIsInstance<CheckBox>().single().isChecked)
+                assertFalse((root(a).findViewWithTag<View>("editor:show") as ToggleView).isChecked)
                 save.performClick()
             }
             assertEquals("Once refused, Save checks again", before + 2, requests())
             checked()
             // A tap, as on a phone, greys Save out until the check answers.
             instrumentation.setInTouchMode(true)
-            eventually("The editor must be in touch mode") { onMain { editor.isInTouchMode } }
+            eventually("The editor must be in touch mode") { inTouchMode(a) }
             onMain { save.performClick(); assertFalse("Save must be greyed out during a check", save.isEnabled) }
             checked()
             assertTrue(onMain { save.isEnabled })
         } finally {
-            onMain { editor.findViewById<Button>(android.R.id.button2).performClick() }
+            // As it was when it opened, so that closing it asks nothing.
+            onMain { raw.setText(original) }
+            onMain { root(a).findViewWithTag<View?>("editor:cancel")?.performClick() }
             instrumentation.waitForIdleSync()
         }
     }
@@ -607,79 +614,134 @@ class TvDeviceTest {
         assertEquals("settings:update", focusedKey(a))
     }
 
-    // Dialogs stay dark in both themes, and a remote needs to see which button has the focus.
-    @SdkSuppress(minSdkVersion = 29)
-    @Test fun dialogButtonsAndCheckBoxesShowTheFocus() {
+    // An overlay of the app's own shows the focus as the desktop's controls do, in the theme's colours: no foreground, a
+    // background that changes with the state, the accent with the focus, danger for the red button, and an accent
+    // border for a field or a box of text; and it is a view of the activity's window, found by its tag.
+    private class Shown(val what: String, val tag: String, val start: () -> Any?)
+
+    @Test fun overlayButtonsShowTheDesktopFocusLook() {
         assertTrue("Grant REQUEST_INSTALL_PACKAGES appop before device tests", context.packageManager.canRequestPackageInstalls())
         // With the VPN on, Install update warns first.
         serviceState(2)
         val a = open()
-        val dialogs = listOf<Pair<String, () -> Any?>>(
-            "Delete" to { method("confirmRemove", Int::class.javaPrimitiveType).invoke(a, 0) },
-            "the editor" to { method("editConfig", Int::class.javaPrimitiveType).invoke(a, -1) },
-            "the app picker" to { method("appPicker").invoke(a) },
-            "Install update" to { method("installUpdate").invoke(a) })
-        for ((name, start) in dialogs) {
-            onMain { start() }
+        leaveTouchMode(a)
+        val overlays = listOf(
+            Shown("Delete", "confirm") { method("confirmRemove", Int::class.javaPrimitiveType).invoke(a, 0) },
+            Shown("the editor", "editor") { method("editConfig", Int::class.javaPrimitiveType).invoke(a, -1) },
+            Shown("the app picker", "picker") { method("appPicker").invoke(a) },
+            Shown("Install update", "confirm") { method("installUpdate").invoke(a) },
+            Shown("the licenses", "licenses") { method("openSourceLicenses").invoke(a) },
+            Shown("Receive from phone", "receive") { method("receiveFromPhone").invoke(a) })
+        for (shown in overlays) {
+            onMain { shown.start() }
             instrumentation.waitForIdleSync()
+            if (shown.tag == "picker") eventually("The apps must be listed") { onMain { root(a).findViewWithTag<View?>("picker:status") == null } }
             onMain {
-                val window = WindowInspector.getGlobalWindowViews().last { it.findViewById<View>(android.R.id.button2) != null }
-                try {
-                    for (id in listOf(android.R.id.button1, android.R.id.button2))
-                        assertTrue("$name: a button shows no focus ring", window.findViewById<Button>(id).foreground?.isStateful == true)
-                    for (box in descendants(window).filterIsInstance<CheckBox>())
-                        assertTrue("$name: \"${box.text}\" shows no focus ring", box.foreground?.isStateful == true)
-                } finally {
-                    window.findViewById<Button>(android.R.id.button2).performClick()
+                val layer = root(a).findViewWithTag<View?>("overlay:${shown.tag}")
+                assertNotNull("${shown.what} must be an overlay of the window", layer)
+                val controls = descendants(layer!!).filter { it.isShown && it.isFocusable }.toList()
+                assertTrue("${shown.what} shows no controls", controls.isNotEmpty())
+                for (view in controls) {
+                    val name = "${view.javaClass.simpleName} \"${view.tag}\" in ${shown.what}"
+                    assertTrue("$name has no key", view.tag is String)
+                    assertFocusLook(view, name, theme(a))
                 }
             }
+            instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
+            eventually("${shown.what} must close with Back") { overlayTag(a, shown.tag) == null }
+        }
+    }
+
+    // A remote reaches every control of an overlay with the arrows, from the one that has the focus first, and none leaves it.
+    @Test fun theArrowsReachEveryControlOfAnOverlay() {
+        val a = open()
+        leaveTouchMode(a)
+        val overlays = listOf(
+            Shown("the editor", "editor") { method("editConfig", Int::class.javaPrimitiveType).invoke(a, 0) },
+            Shown("the app picker", "picker") { method("appPicker").invoke(a) },
+            Shown("the licenses", "licenses") { method("openSourceLicenses").invoke(a) },
+            Shown("a confirmation with an alternative", "confirm") {
+                method("showConfirm", CharSequence::class.java, CharSequence::class.java, CharSequence::class.java,
+                    Runnable::class.java, Runnable::class.java, Runnable::class.java)
+                    .invoke(a, "Replace it?", "Replace", "Add copy", null, null, null)
+            })
+        for (shown in overlays) {
+            onMain { shown.start() }
             instrumentation.waitForIdleSync()
+            if (shown.tag == "picker") eventually("The apps must be listed") { onMain { root(a).findViewWithTag<View?>("picker:status") == null } }
+            onMain {
+                val layer = root(a).findViewWithTag<ViewGroup>("overlay:${shown.tag}")
+                val keys = descendants(layer).filter { it.isShown && it.isFocusable }.mapNotNull { it.tag as? String }.toSet()
+                assertTrue("${shown.what} has controls", keys.isNotEmpty())
+                val seen = HashSet<View>()
+                val queue = ArrayDeque<View>().apply { add(a.currentFocus ?: layer.findViewWithTag<View>(keys.first())) }
+                while (queue.isNotEmpty()) {
+                    val view = queue.removeFirst()
+                    if (!seen.add(view)) continue
+                    for (direction in listOf(View.FOCUS_UP, View.FOCUS_DOWN, View.FOCUS_LEFT, View.FOCUS_RIGHT)) {
+                        val next = FocusFinder.getInstance().findNextFocus(layer, view, direction)
+                        if (next != null) {
+                            assertTrue("An arrow leaves ${shown.what} for ${next.tag}", (next.tag as? String) in keys)
+                            queue.add(next)
+                        }
+                    }
+                }
+                assertEquals("Controls of ${shown.what} that the arrows never reach", emptySet<String>(), keys - seen.mapNotNull { it.tag as? String }.toSet())
+            }
+            instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
+            eventually("${shown.what} must close with Back") { overlayTag(a, shown.tag) == null }
         }
     }
 
     // Settings, About, Open-source licenses lists the notices and the license texts
-    // the APK carries, and not the desktop's. With a remote, a text starts with the
-    // focus on it, its frame shows the ring, and Down scrolls it.
-    @SdkSuppress(minSdkVersion = 29)
+    // the APK carries, and not the desktop's, in one card. With a remote, a text starts
+    // with the focus on it, its box shows the accent border, and Down scrolls it; Back
+    // and the arrow go back to the list, and from the list out.
     @Test fun theOpenSourceLicensesOpenAndScrollWithTheArrows() {
         val a = open()
         leaveTouchMode(a)
         render(a, 3)
-        onMain { assertTrue(root(a).findViewWithTag<View>("settings:licenses").performClick()) }
+        click(a, "settings:licenses")
         instrumentation.waitForIdleSync()
-        val list = onMain { windows().mapNotNull { window -> descendants(window).filterIsInstance<ListView>().firstOrNull() }.last() }
-        val items = onMain { (0 until list.adapter.count).map { list.adapter.getItem(it).toString() } }
+        val items = onMain {
+            descendants(root(a).findViewWithTag<View>("overlay:licenses")).filter { (it.tag as? String)?.matches(Regex("licenses:\\d+")) == true }
+                .map { (it as TextView).text.toString() }
+        }
         assertEquals(listOf("THIRD_PARTY_NOTICES.md", "LICENSE"), items.take(2))
         assertTrue("The core's license texts are listed", items.contains("licenses/common/nghttp2.txt"))
         assertTrue("The app's license texts are listed", items.contains("licenses/android/EPL-1.0.txt"))
         assertFalse("The desktop's license texts stay out of the APK", items.any { it.startsWith("licenses/desktop/") })
-        onMain { list.performItemClick(list.getChildAt(0), 0, list.adapter.getItemId(0)) }
+        eventually("A remote starts on the first row") { focusedKey(a) == "licenses:0" }
+        click(a, "licenses:0")
         instrumentation.waitForIdleSync()
-        val dialog = onMain { windows().last { it.findViewById<View>(android.R.id.button1) != null } }
-        try {
-            // The text's, not the button bar's: in the framework's Material
-            // AlertDialog the buttons sit in a ScrollView too (buttonPanel, shown
-            // while the dialog has a button), around a ButtonBarLayout.
-            val scroll = onMain { descendants(dialog).filterIsInstance<ScrollView>().single { it.isShown && it.getChildAt(0) is TextView } }
-            onMain {
-                assertTrue((scroll.getChildAt(0) as TextView).text.startsWith("# Third-party notices"))
-                assertTrue("The text's frame shows the focus", (scroll.parent as View).foreground?.isStateful == true)
-                assertTrue("Done shows the focus", dialog.findViewById<Button>(android.R.id.button1).foreground?.isStateful == true)
-            }
-            eventually("A remote starts on the text") { onMain { scroll.isFocused } }
-            instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_DOWN)
-            eventually("Down scrolls the text") { onMain { scroll.scrollY > 0 } }
-        } finally {
-            onMain { dialog.findViewById<Button>(android.R.id.button1).performClick() }
-            instrumentation.waitForIdleSync()
+        val scroll = byKey(a, "licenses:text") as ScrollView
+        onMain {
+            assertTrue((scroll.getChildAt(0) as TextView).text.startsWith("# Third-party notices"))
+            assertTrue("The card's title is the file",
+                descendants(root(a).findViewWithTag<View>("overlay:licenses")).filterIsInstance<TextView>().any { it.text.toString() == "THIRD_PARTY_NOTICES.md" })
+            assertFocusLook(scroll, "the license text", theme(a))
+            assertEquals("The text is monospace", android.graphics.Typeface.MONOSPACE, (scroll.getChildAt(0) as TextView).typeface)
         }
+        eventually("A remote starts on the text") { onMain { scroll.isFocused } }
+        instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_DOWN)
+        eventually("Down scrolls the text") { onMain { scroll.scrollY > 0 } }
+        // Back goes to the list, with the focus on the file that was open, and then out.
+        instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
+        eventually("Back goes back to the list") { overlayTag(a, "licenses") != null && onMain { root(a).findViewWithTag<View?>("licenses:text") == null } }
+        eventually("with the focus on the file that was open") { focusedKey(a) == "licenses:0" }
+        click(a, "licenses:1")
+        instrumentation.waitForIdleSync()
+        click(a, "licenses:back")
+        eventually("The arrow goes back to the list too") { onMain { root(a).findViewWithTag<View?>("licenses:text") == null } }
+        instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
+        eventually("Back from the list leaves the card") { overlayTag(a, "licenses") == null }
+        eventually("and the focus is back on what opened it") { focusedKey(a) == "settings:licenses" }
     }
 
     // Receive from phone. The link is DeepLinkImportTest's V2_PLAIN: vpn.example.com,
     // with no name of its own.
     private val link = "tt://?AAECAQ92cG4uZXhhbXBsZS5jb20FBWFsaWNlBgZzZWNyZXQCCzEuMi4zLjQ6NDQz"
     private fun receiver(a: MainActivity) = onMain { field("linkReceiver").get(a) as LinkReceiver? }
-    private fun windows() = WindowInspector.getGlobalWindowViews()
     private fun saved() = org.json.JSONArray(ConfigStore.read(prefs)).let { list -> (0 until list.length()).map { list.getJSONObject(it) } }
     // As a phone's browser sends it, over a raw socket: this test runs in the app's
     // process, where the default network security config refuses cleartext HTTP to
@@ -723,27 +785,38 @@ class TvDeviceTest {
         catch (_: java.io.IOException) { false }
     }
 
-    @SdkSuppress(minSdkVersion = 29)
+    // The add menu under the + has the desktop's rows, in its order and its words, with Receive from phone first on a TV
+    // and only there; each row runs its action.
     @Test fun receiveFromPhoneIsOfferedFirstOnATvAndNowhereElse() {
         val a = open()
         render(a, 1)
-        onMain { method("addMenu").invoke(a) }
+        click(a, "configs:add")
         instrumentation.waitForIdleSync()
-        val menu = onMain { windows().mapNotNull { window -> descendants(window).filterIsInstance<ListView>().firstOrNull() }.last() }
-        val items = onMain { (0 until menu.adapter.count).map { menu.adapter.getItem(it).toString() } }
-        val others = listOf(R.string.text_import_toml_file, R.string.text_paste_from_clipboard, R.string.text_create_manually)
-            .map { context.getString(it) }
+        val rows = onMain {
+            descendants(root(a).findViewWithTag<View>("overlay:addmenu")).filter { (it.tag as? String)?.startsWith("add:") == true }
+                .map { it.tag as String to descendants(it).filterIsInstance<TextView>().first().text.toString() }
+        }
+        val others = listOf("add:paste" to context.getString(R.string.text_paste_from_clipboard),
+            "add:file" to context.getString(R.string.add_from_file), "add:create" to context.getString(R.string.add_create_new))
         if (!isTv) {
-            assertEquals(others, items)
+            assertEquals(others, rows)
+            instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
+            eventually("Back closes the menu") { overlayTag(a, "addmenu") == null }
+            // Create new… opens the editor, as the desktop's does.
+            click(a, "configs:add")
+            click(a, "add:create")
+            eventually("Create new… opens the editor") { overlayTag(a, "editor") != null }
+            assertTrue(shows(a, context.getString(R.string.text_new_configuration)))
             instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
             return
         }
-        assertEquals(listOf(context.getString(R.string.text_receive_from_phone)) + others, items)
+        assertEquals(listOf("add:receive" to context.getString(R.string.text_receive_from_phone)) + others, rows)
         // Each item still runs its own action, now that the TV's comes first.
-        onMain { menu.performItemClick(menu.getChildAt(0), 0, menu.adapter.getItemId(0)) }
-        instrumentation.waitForIdleSync()
-        assertNotNull("Receive from phone must open the receiver", receiver(a))
+        click(a, "add:receive")
+        eventually("Receive from phone must open the receiver") { receiver(a) != null }
+        assertNotNull(overlayTag(a, "receive"))
         onMain { method("stopReceiver").invoke(a) }
+        eventually("and stopping it closes the card") { overlayTag(a, "receive") == null }
     }
 
     // Both legs: what a phone's browser does, end to end, through the emulator's own
@@ -760,11 +833,15 @@ class TvDeviceTest {
         val host = URI(url).host
         assertTrue("$url must be on the network a phone is on", Regex("http://(10|172|192)\\.[0-9.]+:[0-9]+/[0-9A-Z]{4}-[0-9A-Z]{4}").matches(url))
         onMain {
-            val dialog = windows().last { descendants(it).any { view -> view is TextView && view.text.toString() == url } }
-            assertTrue("Cancel shows the focus", dialog.findViewById<Button>(android.R.id.button2).foreground?.isStateful == true)
+            val card = root(a).findViewWithTag<View>("overlay:receive")
+            assertTrue("The address is on the card, to type", descendants(card).any { view -> view is TextView && view.text.toString() == url })
+            assertFocusLook(card.findViewWithTag<View>("receive:close"), "Close", theme(a))
+            assertTrue("The screen stays on while the card is open", a.window.attributes.flags and WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON != 0)
             // The QR code: square, black on white, a whole number of pixels a module,
             // with the quiet zone and the top left finder pattern where they belong.
-            val qr = (descendants(dialog).filterIsInstance<ImageView>().single { it.drawable is BitmapDrawable }.drawable as BitmapDrawable).bitmap
+            val code = descendants(card).filterIsInstance<ImageView>().single { it.drawable is BitmapDrawable }
+            assertEquals("on its own white tile, in either theme", Color.WHITE, ((code.parent as View).background as GradientDrawable).color?.defaultColor)
+            val qr = (code.drawable as BitmapDrawable).bitmap
             val modules = QrCode.encodeText(url, QrCode.Ecc.MEDIUM).size + 8
             val scale = qr.width / modules
             assertTrue(scale >= 2)
@@ -782,20 +859,29 @@ class TvDeviceTest {
         assertSame(opened, receiver(a))
         val sent = http(url) { h, path -> formPost(h, path, link) }
         assertTrue(sent, sent.startsWith("HTTP/1.1 200 ") && sent.contains(context.getString(R.string.receive_page_sent)))
-        // One text, and the port closes.
+        // One text, and the port closes, and the card with it.
         eventually("The receiver must stop") { receiver(a) == null }
         assertClosed(url)
-        // The TV shows the server and the sender's address, and asks.
+        assertNull("The card closes with the port", overlayTag(a, "receive"))
+        assertFalse("and the screen may go off again", onMain { a.window.attributes.flags and WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON != 0 })
+        // The TV shows the server and the sender's address, and asks: the desktop's question, the server on its second line
+        // and where it was sent from on its third.
         val from = context.getString(R.string.text_nsent_from_s, host).trim()
-        fun confirmation() = windows().lastOrNull { window ->
-            window.findViewById<TextView>(android.R.id.message)?.text?.let { it.contains("vpn.example.com") && it.contains(from) } == true
+        eventually("The confirmation must name the server and \"$from\"", 30_000) {
+            confirmMessage(a)?.let { it.contains("vpn.example.com") && it.contains(from) } == true
         }
-        eventually("The confirmation must name the server and \"$from\"", 30_000) { onMain { confirmation() != null } }
+        val lines = confirmMessage(a)!!.split("\n")
+        assertTrue(lines[0], lines[0].startsWith(context.getString(R.string.import_question_link)))
+        assertEquals(context.getString(R.string.import_server, "vpn.example.com"), lines[1])
+        assertEquals(from, lines[2])
         assertEquals("Nothing is added before the TV confirms", 2, saved().size)
-        onMain { confirmation()!!.findViewById<Button>(android.R.id.button1).performClick() }
-        eventually("Add must save it") { saved().size == 3 }
+        answerYes(a)
+        eventually("Import must save it") { saved().size == 3 }
         assertEquals("vpn.example.com", saved().last().getString("name"))
         assertTrue(saved().last().getString("toml").contains("hostname = \"vpn.example.com\""))
+        // The toast says what was added; the page stays where it was.
+        assertEquals(listOf(context.getString(R.string.config_added, "vpn.example.com")), toastTexts(a))
+        assertEquals("An import does not change the page", 1, onMain { field("page").getInt(a) })
     }
 
     // Both legs: a file chosen on the phone instead of pasted. A send with nothing
@@ -834,17 +920,16 @@ class TvDeviceTest {
         eventually("The receiver must stop") { receiver(a) == null }
         assertClosed(url)
         // Shown without what would reverse the rest; saved as the file has it, as one
-        // picked on the TV is.
+        // picked on the TV is. It is a file, not a link, that is asked about.
         val name = "Home\\Office \"TV\" VPN.toml"
         val from = context.getString(R.string.text_nsent_from_s, URI(url).host).trim()
-        fun confirmation() = windows().lastOrNull { window ->
-            window.findViewById<TextView>(android.R.id.message)?.text
-                ?.let { it.contains(name) && it.contains("file.example.com") && it.contains(from) } == true
+        eventually("The confirmation must name the file, the server and \"$from\"", 30_000) {
+            confirmMessage(a)?.let { it.contains(name) && it.contains("file.example.com") && it.contains(from) } == true
         }
-        eventually("The confirmation must name the file, the server and \"$from\"", 30_000) { onMain { confirmation() != null } }
+        assertTrue(confirmMessage(a)!!.startsWith(context.getString(R.string.import_question_file)))
         assertEquals("Nothing is added before the TV confirms", 2, saved().size)
-        onMain { confirmation()!!.findViewById<Button>(android.R.id.button1).performClick() }
-        eventually("Add must save it") { saved().size == 3 }
+        answerYes(a)
+        eventually("Import must save it") { saved().size == 3 }
         assertEquals("Home\\Office \"TV\"\u202E VPN.toml", saved().last().getString("name"))
         assertTrue(saved().last().getString("toml").contains("hostname = \"file.example.com\""))
     }
@@ -870,42 +955,55 @@ class TvDeviceTest {
             assertTrue(sent, sent.startsWith("HTTP/1.1 200 ") && sent.contains(context.getString(R.string.receive_page_sent)))
             eventually("The receiver must stop") { receiver(a) == null }
             val from = context.getString(R.string.text_nsent_from_s, URI(url).host).trim()
-            fun confirmation() = windows().lastOrNull { window ->
-                window.findViewById<TextView>(android.R.id.message)?.text
-                    ?.let { it.contains(named) && it.contains(server) && it.contains(from) } == true
+            eventually("The confirmation must say \"$named\", $server and \"$from\"", 30_000) {
+                confirmMessage(a)?.let { it.contains(named) && it.contains(server) && it.contains(from) } == true
             }
-            eventually("The confirmation must say \"$named\", $server and \"$from\"", 30_000) { onMain { confirmation() != null } }
             val before = saved().size
-            onMain { confirmation()!!.findViewById<Button>(android.R.id.button1).performClick() }
-            eventually("Add must save it") { saved().size == before + 1 }
+            answerYes(a)
+            eventually("Import must save it") { saved().size == before + 1 }
             assertEquals(named, saved().last().getString("name"))
             assertTrue(saved().last().getString("toml").contains("hostname = \"$server\""))
         }
     }
 
-    @SdkSuppress(minSdkVersion = 29)
-    @Test fun cancelOrLeavingTheAppClosesThePort() {
+    // Close, Back and the arrow close the card and stop the receiver; so does leaving the app. A remote starts on Close, and the
+    // screen stays on while the card is open.
+    @Test fun closeBackTheArrowOrLeavingTheAppClosesThePort() {
         val a = open()
-        // With a remote, the dialog opens on Cancel, not on the code above it.
+        // With a remote, the card opens on Close, not on the arrow above the code.
         leaveTouchMode(a)
-        onMain { method("receiveFromPhone").invoke(a) }
-        instrumentation.waitForIdleSync()
-        val first = receiver(a)!!.url()
-        val cancel = onMain { windows().last { it.findViewById<View>(android.R.id.button2) != null }.findViewById<Button>(android.R.id.button2) }
-        eventually("A remote must start on Cancel") { onMain { cancel.isFocused } }
-        onMain { cancel.performClick() }
-        instrumentation.waitForIdleSync()
-        assertNull("Cancel must stop the receiver", receiver(a))
+        fun keepOn() = onMain { a.window.attributes.flags and WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON != 0 }
+        fun openCard(): String {
+            onMain { method("receiveFromPhone").invoke(a) }
+            instrumentation.waitForIdleSync()
+            assertNotNull("The card must be up", overlayTag(a, "receive"))
+            assertTrue("No screensaver while the card is up", keepOn())
+            return receiver(a)!!.url()
+        }
+        val first = openCard()
+        eventually("A remote must start on Close") { focusedKey(a) == "receive:close" }
+        click(a, "receive:close")
+        eventually("Close must close the card") { overlayTag(a, "receive") == null }
+        assertNull("Close must stop the receiver", receiver(a))
         assertClosed(first)
+        assertFalse("and the screen may go off again", keepOn())
         // Each time is a new code on a new port.
-        onMain { method("receiveFromPhone").invoke(a) }
-        instrumentation.waitForIdleSync()
-        val second = receiver(a)!!.url()
+        val second = openCard()
         assertNotEquals(first, second)
+        instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
+        eventually("Back must close the card") { overlayTag(a, "receive") == null }
+        assertNull(receiver(a))
+        assertClosed(second)
+        val third = openCard()
+        click(a, "receive:back")
+        eventually("The arrow must close the card") { overlayTag(a, "receive") == null }
+        assertNull(receiver(a))
+        assertClosed(third)
+        val fourth = openCard()
         // Home, as a screensaver does, stops the activity.
         shell("input keyevent KEYCODE_HOME")
         eventually("Leaving the app must stop the receiver") { receiver(a) == null }
-        assertClosed(second)
+        assertClosed(fourth)
     }
 
     // A file sets the name and the server that the confirmation shows. Line breaks,
@@ -914,7 +1012,6 @@ class TvDeviceTest {
     // is off, out of a message a remote cannot scroll, or paint over it. The
     // confirmation is opened directly, as after the checks: whether the core takes
     // such a server name is the core's to say.
-    @SdkSuppress(minSdkVersion = 29)
     @Test fun theConfirmationShowsTheSenderWhateverTheFileSays() {
         val a = open()
         // The confirmation's message for that name and server, then cancelled.
@@ -922,29 +1019,28 @@ class TvDeviceTest {
             val toml = source.replace("hostname = \"vpn.invalid\"", "hostname = \"$hostname\"\nskip_verification = true")
             onMain {
                 method("showImportConfirmation", String::class.java, Boolean::class.javaPrimitiveType,
-                    RoutingConfig.Import::class.java, String::class.java)
-                    .invoke(a, name, false, RoutingConfig.Import(toml, false), "192.0.2.7")
+                    RoutingConfig.Import::class.java, String::class.java, Boolean::class.javaPrimitiveType)
+                    .invoke(a, name, false, RoutingConfig.Import(toml, false), "192.0.2.7", false)
             }
             instrumentation.waitForIdleSync()
-            val dialog = onMain { windows().last { it.findViewById<View>(android.R.id.button2) != null } }
             try {
-                return onMain { dialog.findViewById<TextView>(android.R.id.message).text.toString() }
+                return confirmMessage(a)!!
             } finally {
-                onMain { dialog.findViewById<Button>(android.R.id.button2).performClick() }
-                instrumentation.waitForIdleSync()
+                click(a, "confirm:cancel")
+                eventually("The confirmation must close") { overlayTag(a, "confirm") == null }
             }
         }
         // Each on one line and cut to 80 characters, so the sender is the third line.
         fun assertShown(message: String, shownName: String, shownServer: String) {
-            assertTrue(message, message.startsWith(context.getString(R.string.text_add_configuration_36) + shownName +
-                context.getString(R.string.text_nserver) + shownServer + context.getString(R.string.text_nsent_from_s, "192.0.2.7") +
-                context.getString(R.string.text_nserver_certificate_verification_is_disabled)))
-            assertEquals(context.getString(R.string.text_nsent_from_s, "192.0.2.7").trim(), message.split("\n")[2])
+            val sentFrom = context.getString(R.string.text_nsent_from_s, "192.0.2.7")
+            assertTrue(message, message.startsWith(context.getString(R.string.import_question_file) + " \u201C" + shownName + "\u201D\n" +
+                context.getString(R.string.import_server, shownServer) + sentFrom + "\n" + context.getString(R.string.import_skips_file)))
+            assertEquals(sentFrom.trim(), message.split("\n")[2])
         }
         // On one line, the name is 80, so it is shown whole, and the server is 81.
         assertShown(message("My \uD83D\uDD12 VPN" + "\u2028\u2029\r\u202E\u2066".repeat(20) + "y".repeat(72),
                 "my-real-vpn.example${"\\n".repeat(40)}${"x".repeat(62)}"),
-            "My \uD83D\uDD12 VPN" + "y".repeat(72), "my-real-vpn.example" + "x".repeat(60) + "…")
+            "My \uD83D\uDD12 VPN" + "y".repeat(72), "my-real-vpn.example" + "x".repeat(60) + "\u2026")
         // A letter and 79 marks under it fit in 80 characters, and drawn, a stack that
         // tall would cover the lines below it. Each character is shown with two at most.
         val stack = "\u0316\u0317\u0318\u0319".repeat(20).dropLast(1)
@@ -956,10 +1052,9 @@ class TvDeviceTest {
     // itself, or in its extension, still is. A link's or an export's own name is
     // counted whole, as is the server a link without one is named after: "раураӏ.com"
     // is Cyrillic made to look like "paypal.com".
-    @SdkSuppress(minSdkVersion = 29)
     @Test fun aFilesExtensionIsNoOtherAlphabet() {
         val a = open()
-        val note = context.getString(R.string.text_nthe_name_mixes_similar_characters_from_different_al).trim()
+        val note = context.getString(R.string.import_mixed_name)
         val lookalike = "\u0440\u0430\u0443\u0440\u0430\u04cf.com"
         for ((name, namedAfterFile, mixed) in listOf(Triple("\u0414\u043e\u043c.toml", true, false),
                 Triple("\u0414o\u043c.toml", true, true), Triple("\u0414\u043e\u043c.t\u043eml", true, true),
@@ -967,42 +1062,41 @@ class TvDeviceTest {
                 Triple("home.toml", false, false))) {
             onMain {
                 method("showImportConfirmation", String::class.java, Boolean::class.javaPrimitiveType,
-                    RoutingConfig.Import::class.java, String::class.java)
-                    .invoke(a, name, namedAfterFile, RoutingConfig.Import(source, false), "192.0.2.7")
+                    RoutingConfig.Import::class.java, String::class.java, Boolean::class.javaPrimitiveType)
+                    .invoke(a, name, namedAfterFile, RoutingConfig.Import(source, false), "192.0.2.7", false)
             }
             instrumentation.waitForIdleSync()
-            val dialog = onMain { windows().last { it.findViewById<View>(android.R.id.button2) != null } }
             try {
-                val message = onMain { dialog.findViewById<TextView>(android.R.id.message).text.toString() }
+                val message = confirmMessage(a)!!
                 assertEquals("$name, named after a file: $namedAfterFile: $message", mixed, message.contains(note))
             } finally {
-                onMain { dialog.findViewById<Button>(android.R.id.button2).performClick() }
-                instrumentation.waitForIdleSync()
+                click(a, "confirm:cancel")
+                eventually("The confirmation must close") { overlayTag(a, "confirm") == null }
             }
         }
     }
 
     // "Create manually" reads a pasted link as the link, under the name typed there: on
     // a TV, a phone's keyboard can paste one where a whole TOML file is too much.
-    @SdkSuppress(minSdkVersion = 29)
     @Test fun theEditorReadsAPastedLink() {
         val a = open()
         onMain { method("editConfig", Int::class.javaPrimitiveType).invoke(a, -1) }
         instrumentation.waitForIdleSync()
-        val editor = onMain { windows().last { it.findViewById<View>(android.R.id.button1) != null } }
-        val save = onMain { editor.findViewById<Button>(android.R.id.button1) }
-        val fields = onMain { descendants(editor).filterIsInstance<EditText>().toList() }
+        val save = byKey(a, "editor:save")
+        val name = byKey(a, "editor:name") as EditText
+        val raw = byKey(a, "editor:toml") as EditText
         fun requests() = onMain { field("validationRequest").getLong(a) }
         val before = requests()
-        // A link with no server settings is refused as such a link is, before any check.
-        onMain { fields.first().setText("Pasted"); fields.last().setText("tt://?AAEC"); save.performClick() }
+        // A link with no server settings is refused as such a link is, before any check, and in a toast.
+        onMain { name.setText("Pasted"); raw.setText("tt://?AAEC"); save.performClick() }
         instrumentation.waitForIdleSync()
         assertEquals("A refused link starts no check", before, requests())
-        assertTrue(onMain { editor.isShown })
-        onMain { fields.last().setText(" $link\n"); save.performClick() }
+        assertNotNull(overlayTag(a, "editor"))
+        assertEquals(listOf(context.getString(R.string.text_the_link_is_missing_required_server_settings)), toastTexts(a))
+        onMain { raw.setText(" $link\n"); save.performClick() }
         (field("validationWorker").get(a) as ExecutorService).submit {}.get(30, TimeUnit.SECONDS)
         instrumentation.waitForIdleSync()
-        eventually("Save must close the editor") { onMain { !editor.isShown } }
+        eventually("Save must close the editor") { overlayTag(a, "editor") == null }
         assertEquals(3, saved().size)
         assertEquals("Pasted", saved().last().getString("name"))
         assertTrue(saved().last().getString("toml").contains("hostname = \"vpn.example.com\""))
@@ -1025,6 +1119,19 @@ class TvDeviceTest {
     private fun confirmMessage(a: MainActivity): String? =
         onMain { root(a).findViewWithTag<TextView?>("confirm:message")?.text?.toString() }
     private fun click(a: MainActivity, key: String) = onMain { assertTrue("$key must be clickable", root(a).findViewWithTag<View>(key).performClick()) }
+    // The control with this key, in whichever overlay or page has it.
+    private fun byKey(a: MainActivity, key: String): View = onMain {
+        root(a).findViewWithTag<View?>(key) ?: throw AssertionError("No control has the key $key")
+    }
+    // A confirmation's red button, and its alternative, take no click for the first 400 ms.
+    private fun answerYes(a: MainActivity) {
+        SystemClock.sleep(500)
+        click(a, "confirm:ok")
+    }
+    private fun toastTexts(a: MainActivity): List<String> = onMain {
+        val layer = field("toastLayer").get(a) as ViewGroup
+        (0 until layer.childCount).map { (layer.getChildAt(it) as TextView).text.toString() }
+    }
 
     // render() rebuilds the page and leaves the overlays alone. Back closes the top overlay, and goes
     // no further: not Home on a TV, and not out of the app.
@@ -1212,5 +1319,242 @@ class TvDeviceTest {
             toast.dispatchTouchEvent(MotionEvent.obtain(now, now + 10, MotionEvent.ACTION_UP, 5f, 5f, 0))
         }
         eventually("A tap dismisses the toast") { toasts().isEmpty() }
+    }
+
+    // A name already in the list, or the same file, is the desktop's name clash: Cancel, Add copy and Replace, in that
+    // order, with Cancel first in the focus. The red button and Add copy take no click for 400 ms. Replace puts the config
+    // where the one it replaces is; Add copy adds another. The page does not change, and the toast says what was added.
+    @Test fun aNameClashOffersAddCopyAndReplaceAndReplaceKeepsThePosition() {
+        val a = open()
+        leaveTouchMode(a)
+        render(a, 3)
+        fun importAs(name: String, hostname: String) {
+            val toml = source.replace("vpn.invalid", hostname)
+            onMain {
+                method("showImportConfirmation", String::class.java, Boolean::class.javaPrimitiveType,
+                    RoutingConfig.Import::class.java, String::class.java, Boolean::class.javaPrimitiveType)
+                    .invoke(a, name, false, RoutingConfig.Import(toml, false), null, true)
+            }
+            instrumentation.waitForIdleSync()
+        }
+        importAs("Profile 1", "other.example.com")
+        assertEquals(context.getString(R.string.import_exists, "Profile 1") + "\n" + context.getString(R.string.import_server, "other.example.com"),
+            confirmMessage(a))
+        eventually("Cancel takes the focus first") { focusedKey(a) == "confirm:cancel" }
+        onMain {
+            assertEquals(context.getString(R.string.import_replace), (root(a).findViewWithTag<View>("confirm:ok") as TextView).text.toString())
+            assertEquals(context.getString(R.string.import_add_copy), (root(a).findViewWithTag<View>("confirm:alt") as TextView).text.toString())
+            val keys = descendants(root(a).findViewWithTag<View>("overlay:confirm")).mapNotNull { it.tag as? String }.filter { it.startsWith("confirm:") && it != "confirm:message" }
+            assertEquals("Cancel, the alternative and the red button, in that order", listOf("confirm:cancel", "confirm:alt", "confirm:ok"), keys)
+            // Asked and clicked in the same moment: inside the 400 ms, however slow the device is.
+            assertTrue(root(a).findViewWithTag<View>("confirm:alt").performClick())
+            assertTrue(root(a).findViewWithTag<View>("confirm:ok").performClick())
+        }
+        assertEquals("Neither answer counts in the first 400 ms", 2, saved().size)
+        assertNotNull(overlayTag(a, "confirm"))
+        answerYes(a)
+        eventually("Replace saves it") { saved().first { it.getString("name") == "Profile 1" }.getString("toml").contains("other.example.com") }
+        assertEquals("Replace adds nothing, and the position is the same", listOf("Profile 0", "Profile 1"), saved().map { it.getString("name") })
+        assertEquals("The page does not change", 3, onMain { field("page").getInt(a) })
+        assertEquals(listOf(context.getString(R.string.config_added, "Profile 1")), toastTexts(a))
+        eventually("The question closes") { overlayTag(a, "confirm") == null }
+        // Add copy.
+        importAs("Profile 0", "copy.example.com")
+        SystemClock.sleep(500)
+        click(a, "confirm:alt")
+        eventually("Add copy adds another") { saved().size == 3 }
+        assertEquals(listOf("Profile 0", "Profile 1", "Profile 0"), saved().map { it.getString("name") })
+        assertTrue(saved().last().getString("toml").contains("copy.example.com"))
+        assertEquals("The first one is as it was", "vpn.invalid", org.tomlj.Toml.parse(saved().first().getString("toml")).getString("endpoint.hostname"))
+        eventually("The question closes") { overlayTag(a, "confirm") == null }
+        // Cancel adds nothing, and a name that is new has two buttons only.
+        importAs("Profile 1", "cancelled.example.com")
+        click(a, "confirm:cancel")
+        eventually("Cancel closes it") { overlayTag(a, "confirm") == null }
+        assertEquals(3, saved().size)
+        importAs("Brand new", "new.example.com")
+        assertEquals(context.getString(R.string.import_question_link) + " \u201CBrand new\u201D\n" + context.getString(R.string.import_server, "new.example.com"),
+            confirmMessage(a))
+        assertNull("A name that is new has no alternative", onMain { root(a).findViewWithTag<View?>("confirm:alt") })
+        assertEquals(context.getString(R.string.import_confirm), onMain { (root(a).findViewWithTag<View>("confirm:ok") as TextView).text.toString() })
+        answerYes(a)
+        eventually("Import adds it") { saved().size == 4 }
+        assertEquals("Brand new", saved().last().getString("name"))
+    }
+
+    // Delete asks with the name cut in the middle to 36, as the desktop's does, in an overlay of its own, and Cancel keeps it.
+    @Test fun theDeleteConfirmationNamesTheConfigCutInTheMiddleAndCancelKeepsIt() {
+        val long = "A".repeat(30) + "—" + "Z".repeat(30)
+        val profiles = org.json.JSONArray()
+            .put(org.json.JSONObject().put("name", long).put("toml", source))
+            .put(org.json.JSONObject().put("name", "Second").put("toml", source))
+        assertTrue(ConfigStore.write(prefs, profiles.toString()))
+        val a = open()
+        render(a, 1)
+        onMain { method("confirmRemove", Int::class.javaPrimitiveType).invoke(a, 0) }
+        instrumentation.waitForIdleSync()
+        assertEquals(context.getString(R.string.delete_config_question, ShownText.elideMiddle(long, 36)), confirmMessage(a))
+        assertEquals(context.getString(R.string.text_delete), onMain { (root(a).findViewWithTag<View>("confirm:ok") as TextView).text.toString() })
+        click(a, "confirm:cancel")
+        eventually("Cancel closes it") { overlayTag(a, "confirm") == null }
+        assertEquals("Cancel keeps it", 2, saved().size)
+        onMain { method("confirmRemove", Int::class.javaPrimitiveType).invoke(a, 0) }
+        instrumentation.waitForIdleSync()
+        answerYes(a)
+        eventually("Delete removes it") { saved().size == 1 }
+        assertEquals("Second", saved()[0].getString("name"))
+    }
+
+    // The editor asks before it drops what was typed, whichever way out is taken, and asks once; Cancel keeps what was typed.
+    // The window is secure while it is up: the TOML holds the password.
+    @Test fun theEditorAsksBeforeItDropsWhatWasTypedAndKeepsTheWindowSecureWhileItIsOpen() {
+        val a = open()
+        render(a, 1)
+        fun secure() = onMain { a.window.attributes.flags and WindowManager.LayoutParams.FLAG_SECURE != 0 }
+        assertFalse(secure())
+        onMain { method("editConfig", Int::class.javaPrimitiveType).invoke(a, -1) }
+        instrumentation.waitForIdleSync()
+        assertTrue("The window is secure while the editor is open", secure())
+        assertTrue(shows(a, context.getString(R.string.text_new_configuration)))
+        // Nothing typed: Back closes it at once.
+        instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
+        eventually("An unchanged editor closes at once") { overlayTag(a, "editor") == null }
+        assertNull("and asks nothing", overlayTag(a, "confirm"))
+        assertFalse("The window is not secure once it is closed", secure())
+        // Something typed.
+        onMain { method("editConfig", Int::class.javaPrimitiveType).invoke(a, 0) }
+        instrumentation.waitForIdleSync()
+        assertTrue(shows(a, context.getString(R.string.text_edit_configuration)))
+        val name = byKey(a, "editor:name") as EditText
+        onMain { name.setText("Typed") }
+        for (way in listOf("the Back key", "editor:cancel", "editor:back")) {
+            if (way == "the Back key") instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK) else click(a, way)
+            eventually("$way must ask first") { confirmMessage(a) == context.getString(R.string.editor_discard_question) }
+            assertNotNull("and the editor is still up", overlayTag(a, "editor"))
+            assertTrue(secure())
+            // Asked again while the question is up or waits, it is not asked twice.
+            click(a, "editor:cancel")
+            click(a, "confirm:cancel")
+            SystemClock.sleep(300)
+            assertNull("one question only, the answer to which was no", overlayTag(a, "confirm"))
+            assertEquals("Cancel keeps what was typed", "Typed", onMain { name.text.toString() })
+        }
+        click(a, "editor:cancel")
+        eventually("The editor asks") { confirmMessage(a) == context.getString(R.string.editor_discard_question) }
+        assertEquals(context.getString(R.string.editor_discard), onMain { (root(a).findViewWithTag<View>("confirm:ok") as TextView).text.toString() })
+        answerYes(a)
+        eventually("Discard closes the editor") { overlayTag(a, "editor") == null }
+        assertFalse(secure())
+        assertEquals("Nothing was saved", 2, saved().size)
+        assertEquals("Profile 0", saved().first().getString("name"))
+    }
+
+    // The app picker is a card: a search box, rows of a name over a package, no checkboxes, no icons. A phone has the search box
+    // first; a TV the first row, once the apps are in. A row adds that one application and closes the picker. While it looks,
+    // it says so; typed into the box, a name or a package narrows the list, and what matches nothing says that.
+    @Test fun theAppPickerAddsOneApplicationAndCloses() {
+        val a = open()
+        if (isTv) leaveTouchMode(a)
+        render(a, 2)
+        // Held back, the scan shows what it is doing.
+        val gate = java.util.concurrent.CountDownLatch(1)
+        (field("scanWorker").get(a) as ExecutorService).execute { gate.await() }
+        onMain { method("appPicker").invoke(a) }
+        instrumentation.waitForIdleSync()
+        try {
+            assertEquals(context.getString(R.string.picker_scanning), onMain { (root(a).findViewWithTag<View>("picker:status") as TextView).text.toString() })
+        } finally {
+            gate.countDown()
+        }
+        eventually("The installed apps must be listed") { onMain { root(a).findViewWithTag<View?>("picker:0") != null } }
+        if (isTv) eventually("A TV's remote starts on the first row") { focusedKey(a) == "picker:0" }
+        else eventually("A phone starts in the search box") { focusedKey(a) == "picker:search" }
+        // A name over a package, and nothing else.
+        val first = onMain {
+            val layer = root(a).findViewWithTag<View>("overlay:picker")
+            assertTrue("No checkboxes", descendants(layer).none { it is android.widget.CompoundButton })
+            assertTrue("No icons", descendants(layer).none { it is ImageView })
+            val texts = descendants(layer.findViewWithTag<View>("picker:0")).filterIsInstance<TextView>().toList()
+            assertEquals("A name and a package", 2, texts.size)
+            assertEquals("The package is cut at its left", TextUtils.TruncateAt.START, texts[1].ellipsize)
+            assertEquals("and the card has no Done and no file to choose", 0, descendants(layer).filterIsInstance<Button>().count())
+            texts[1].text.toString()
+        }
+        val search = byKey(a, "picker:search") as EditText
+        onMain { search.setText("zzzzzz-no-such-app") }
+        instrumentation.waitForIdleSync()
+        assertEquals(context.getString(R.string.picker_nothing), onMain { (root(a).findViewWithTag<View>("picker:status") as TextView).text.toString() })
+        // A package narrows it as a name does.
+        onMain { search.setText(first) }
+        instrumentation.waitForIdleSync()
+        val row = onMain {
+            descendants(root(a).findViewWithTag<View>("overlay:picker")).first { v ->
+                (v.tag as? String)?.matches(Regex("picker:\\d+")) == true && descendants(v).filterIsInstance<TextView>().any { it.text.toString() == first }
+            }.tag as String
+        }
+        click(a, row)
+        eventually("One application adds itself and closes the picker") { overlayTag(a, "picker") == null }
+        assertTrue("It is in the apps the VPN carries or leaves", prefs.getStringSet("apps", emptySet())!!.contains(first))
+        assertEquals("The page does not change", 2, onMain { field("page").getInt(a) })
+    }
+
+    // A theme and a mode are chosen in select popups, under their control: the current one first, and the focus back on the
+    // control after.
+    @Test fun theThemeAndTheModeAreChosenInSelectPopups() {
+        val a = open()
+        leaveTouchMode(a)
+        render(a, 3)
+        click(a, "settings:theme")
+        instrumentation.waitForIdleSync()
+        fun rows() = onMain {
+            descendants(root(a).findViewWithTag<View>("overlay:select")).filterIsInstance<TextView>().map { it.text.toString() }
+        }
+        val names = listOf(R.string.text_theme_system, R.string.text_light_78, R.string.text_dark_79).map { context.getString(it) }
+        assertEquals(listOf(names[0], "\u2713", names[1], names[2]), rows())
+        eventually("The current choice has the focus") { focusedKey(a) == "select:0" }
+        click(a, "select:2")
+        eventually("Dark is the theme") { prefs.getString("theme_mode", null) == "dark" }
+        eventually("The popup closes") { overlayTag(a, "select") == null }
+        eventually("The focus is back on the Theme row") { focusedKey(a) == "settings:theme" }
+        render(a, 2)
+        click(a, "split:mode")
+        instrumentation.waitForIdleSync()
+        assertEquals(listOf(context.getString(R.string.text_bypass_vpn_61), "\u2713", context.getString(R.string.text_through_vpn_62)), rows())
+        click(a, "select:1")
+        eventually("Through VPN is the mode") { prefs.getBoolean("through", false) }
+        eventually("The popup closes") { overlayTag(a, "select") == null }
+    }
+
+    // A storage that fails is the desktop's amber banner at the top of Configs and in Settings' Security, and a toast: not a dialog.
+    @Test fun aStorageFailureIsTheDesktopsAmberBannerAndAToast() {
+        val a = open()
+        onMain { field("storageFailed").setBoolean(a, true); method("rootStorageWarning").invoke(a) }
+        val problem = context.getString(R.string.text_configurations_are_unavailable) + ". " +
+            context.getString(R.string.text_android_could_not_read_storage_saved_data_is_unchang)
+        assertEquals(listOf(problem), toastTexts(a))
+        for (page in listOf(1, 3)) {
+            render(a, page)
+            val banner = onMain { root(a).findViewWithTag<TextView?>("storage:banner") }
+            assertNotNull("The banner is on page $page", banner)
+            assertEquals(problem, onMain { banner!!.text.toString() })
+        }
+        // Adding is refused, and opens nothing.
+        render(a, 1)
+        onMain { method("addMenu").invoke(a) }
+        assertNull(overlayTag(a, "addmenu"))
+        onMain { field("storageFailed").setBoolean(a, false); field("storageProblem").set(a, null) }
+        render(a, 1)
+        assertNull("The banner goes with the failure", onMain { root(a).findViewWithTag<View?>("storage:banner") })
+    }
+
+    // What used to be a one-button dialog is a toast: a refusal, whatever its length, and nothing is asked.
+    @Test fun aRefusalIsAToastNotADialog() {
+        val a = open()
+        render(a, 1)
+        onMain { method("refuseImport", Int::class.javaPrimitiveType).invoke(a, R.string.text_subscription_links_are_not_supported_yet) }
+        assertEquals(listOf(context.getString(R.string.text_subscription_links_are_not_supported_yet)), toastTexts(a))
+        assertNull("and no overlay is up", overlayTag(a, "confirm"))
+        onMain { method("refuseImport", Int::class.javaPrimitiveType).invoke(a, R.string.text_this_server_needs_a_newer_trusttunnel_core) }
+        assertEquals("a new one replaces the old", listOf(context.getString(R.string.text_this_server_needs_a_newer_trusttunnel_core)), toastTexts(a))
     }
 }
