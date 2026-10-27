@@ -433,7 +433,10 @@ final class Ui {
         gapH(group, 4);
         group.addView(follow(label("▾", 16, t.textDim), t.textDim, t.text, t.accentText), lp(-2, -2));
         focus(group, key, Look.PILL).setOnClickListener(open);
-        r.addView(group, lp(-2, -2));
+        // The value and its ▾ end where the page's margin does, as the desktop's do: the pill's own 6 go beyond it.
+        LinearLayout.LayoutParams groupLp = lp(-2, -2);
+        groupLp.rightMargin = -dp(6);
+        r.addView(group, groupLp);
         return r;
     }
 
@@ -690,7 +693,10 @@ final class Ui {
         if (subtitle != null && subtitle.length() > 0) copy.addView(label(subtitle, 12, t.textFaint), lp(-1, -2));
         r.addView(copy, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
         gapH(r, 8);
-        r.addView(toggle, lp(-2, -2));
+        // The track ends where the page's margin does, as the desktop's does: the 4 its focus fills go beyond it.
+        LinearLayout.LayoutParams toggleLp = lp(-2, -2);
+        toggleLp.rightMargin = -dp(ToggleView.PAD_DP);
+        r.addView(toggle, toggleLp);
         return r;
     }
     /** A toggle: 38 by 22 (34 by 20 small), with the focus around it, as a focus stop keyed {@code key}. */

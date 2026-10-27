@@ -2833,6 +2833,26 @@ class TvDeviceTest {
         for (text in listOf("Launch at system startup", "Hotkeys", "Verbose logs", "Let the VPN config open ports")) assertFalse("$text is the desktop's alone", shows(a, text))
     }
 
+    // The toggles' tracks, the dropdowns' values and the links at the end of a row end where the page's margin does, as the desktop's do, with what
+    // their focus fills beyond it.
+    @Test fun whatEndsARowEndsAtThePageMargin() {
+        val a = open()
+        render(a, 3)
+        onMain {
+            val body = (field("pageScroll").get(a) as ScrollView).getChildAt(0) as ViewGroup
+            assertFalse("so that the focus can fill beyond it", body.clipToPadding)
+            fun right(view: View) = IntArray(2).also { view.getLocationInWindow(it) }[0] + view.width
+            val edge = right(body) - body.paddingRight
+            val pad = Math.round(dp(a, ToggleView.PAD_DP.toFloat()))
+            assertEquals("a toggle's track", edge.toFloat(), (right(root(a).findViewWithTag<ToggleView>("switch:killswitch")) - pad).toFloat(), 2f)
+            assertEquals("a dropdown's ▾", edge.toFloat(), (right(root(a).findViewWithTag<View>("settings:theme")) - Math.round(dp(a, 6f))).toFloat(), 2f)
+            val restore = root(a).findViewWithTag<TextView>("routes:restore")
+            val clear = root(a).findViewWithTag<TextView>("routes:clear")
+            assertEquals("the last link of a header", edge.toFloat(), (right(clear) - clear.paddingRight).toFloat(), 2f)
+            assertTrue("and the one before it ends before that", right(restore) < right(clear))
+        }
+    }
+
     // Android's own row: the label is words, and the link, which is as wide as its word, is the control.
     @Test fun onlyTheOpenLinkOfTheAndroidVpnSettingsRowIsFocusable() {
         val screen = context.packageManager.resolveActivity(Intent(Settings.ACTION_VPN_SETTINGS), 0) != null
@@ -2860,6 +2880,7 @@ class TvDeviceTest {
         val a = open()
         leaveTouchMode(a)
         render(a, 3)
+        assertTrue("The arrows reach both dropdowns", reachable(a, "tab:3").containsAll(listOf("settings:language", "settings:theme")))
         val speaking = onMain { AppLocale.current(a) }
         val shown = if (speaking == "ru") "Русский" else "English"
         assertEquals("The row shows the language in use", shown, onMain { ((root(a).findViewWithTag<ViewGroup>("settings:language")).getChildAt(0) as TextView).text.toString() })

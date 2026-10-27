@@ -450,6 +450,8 @@ public final class MainActivity extends Activity {
             // 6 at the top and 12 at the foot.
             LinearLayout body = column();
             body.setPadding(dp(18), dp(6), dp(18), dp(12));
+            // The links and the toggle end at the margin, and what they fill with the focus goes beyond it.
+            body.setClipToPadding(false);
             pageRoot.addView(body, new LinearLayout.LayoutParams(-1, 0, 1));
             logs(body);
         } else {
@@ -459,6 +461,8 @@ public final class MainActivity extends Activity {
             // to edge with its icons at the far right (the TV's own overscan is the host's padding). Settings has 6 above and 14 below.
             int side = dp(18);
             LinearLayout body = column(); body.setPadding(side, dp(page == 3 ? 6 : 8), side, dp(page == 3 ? 14 : 26)); scroll.addView(body);
+            // Links, toggles and dropdown values end at the margin, and what they fill with the focus goes beyond it.
+            body.setClipToPadding(false);
             pageRoot.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
             pageScroll = scroll;
             switch (page) {
@@ -3202,7 +3206,10 @@ public final class MainActivity extends Activity {
         ToggleView auto = ui.toggle(logAutoScroll, true, "logs:autoscroll");
         auto.setContentDescription(getString(R.string.logs_auto_scroll));
         auto.setListener((v, on) -> { logAutoScroll = on; if (on) scrollLogToEnd(); });
-        foot.addView(auto, lp(-2, -2));
+        LinearLayout.LayoutParams autoLp = lp(-2, -2);
+        // The track ends at the margin: the 4 the focus fills go beyond it.
+        autoLp.rightMargin = -dp(ToggleView.PAD_DP);
+        foot.addView(auto, autoLp);
         body.addView(foot, lp(-1, -2));
         refreshLog(true);
     }
