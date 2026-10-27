@@ -12,8 +12,16 @@ plugins {
 def appVersion = '1.0.0'
 def appVersionCode = appVersion.tokenize('.').collect { it as int }.with { it[0] * 10000 + it[1] * 100 + it[2] }
 
+// The TrustTunnel core the app is built on: one AAR, pinned by name here and by checksum in verifyPinnedRuntime. Its version
+// is read from that name (BuildConfig.CORE_VERSION), for the footer of Settings: "TrustTunnel core 1.1.7", as the desktop's
+// says which core it carries.
+def coreAar = 'trusttunnel-client-android-1.1.7.aar'
+def coreVersionMatch = coreAar =~ /^trusttunnel-client-android-(\d+(?:\.\d+)*)\.aar$/
+if (!coreVersionMatch.matches()) throw new GradleException("The core AAR's name must be trusttunnel-client-android-<version>.aar, not ${coreAar}")
+def coreVersion = coreVersionMatch.group(1)
+
 dependencies {
-    implementation files('libs/trusttunnel-client-android-1.1.7.aar')
+    implementation files("libs/${coreAar}")
     implementation 'org.slf4j:slf4j-api:1.7.25'
     implementation 'com.github.tony19:logback-android:2.0.0'
     implementation 'io.reactivex.rxjava3:rxandroid:3.0.0'
@@ -58,6 +66,7 @@ android {
             throw new GradleException('android/release-certificate.sha256 must be one line of 64 lowercase hex characters')
         }
         buildConfigField 'String', 'RELEASE_CERTIFICATE_SHA256', '\"' + pin + '\"'
+        buildConfigField 'String', 'CORE_VERSION', '\"' + coreVersion + '\"'
     }
     buildFeatures { buildConfig true }
     // Release builds are unsigned. scripts/sign-android-release.sh signs them
@@ -151,7 +160,7 @@ androidComponents {
 }
 
 tasks.register('verifyPinnedRuntime') {
-    def artifact = file('libs/trusttunnel-client-android-1.1.7.aar')
+    def artifact = file("libs/${coreAar}")
     inputs.file(artifact)
     doLast {
         if (!artifact.exists()) throw new GradleException('Run ../scripts/prepare-trusttunnel-android.sh first')

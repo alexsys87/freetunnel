@@ -209,6 +209,15 @@ public final class ExcludedRoutesTest {
         assertEquals(Arrays.asList("FD00::/8"), ExcludedRoutes.forPlan(list("FD00::/8"), list("fd00::/8"), true));
     }
 
+    @Test public void aRouteTheSavedListHasTwiceGoesToThePlanOnce() {
+        assertEquals(Arrays.asList("1.2.3.4/32", "10.0.0.0/8"), ExcludedRoutes.forPlan(list(), list("1.2.3.4", "1.2.3.4/32", "10.0.0.0/8", "10.0.0.0/8"), false));
+    }
+
+    @Test public void aSavedRouteGoesToThePlanAsTheCoreIsGivenIt() {
+        // With its prefix, and as the Split page's subnets are written: a bare address is a /32.
+        assertEquals(Arrays.asList("1.2.3.4/32", "fd00::/8"), ExcludedRoutes.forPlan(list(), list("1.2.3.4", "FD00::/8"), true));
+    }
+
     @Test public void aRouteOfEveryAddressAndWhatIsNoSubnetNeverGoesToThePlan() {
         assertEquals(Arrays.asList("10.0.0.0/8"), ExcludedRoutes.forPlan(list(), list("0.0.0.0/0", "::/0", "x", "10.0.0.0/8"), true));
     }

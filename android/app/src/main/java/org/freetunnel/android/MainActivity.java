@@ -58,6 +58,7 @@ import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
+import android.widget.RelativeLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import androidx.core.content.ContextCompat;
@@ -68,6 +69,7 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.ByteArrayOutputStream;
+import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.InetAddress;
@@ -164,7 +166,7 @@ public final class MainActivity extends Activity {
     private boolean storageFailed;
     // What to tell the user while storage is failed: the amber banner on Configs and Settings, and a toast.
     private String storageProblem;
-    private TextView updateStatus;
+    // Settings' update line: see maintenance().
     private TextView updateAction;
     // Receive from phone: the open port and its card, both closed by stopReceiver().
     private LinkReceiver linkReceiver;
@@ -207,8 +209,19 @@ public final class MainActivity extends Activity {
         Config(String name, String toml, String profile) { this.name = name; this.toml = toml; this.profile = profile; }
     }
 
+    // The words are in the language chosen in Settings, which Android 8 to 12 only knows from this (AppLocale).
+    @Override protected void attachBaseContext(Context base) { super.attachBaseContext(AppLocale.wrap(base)); }
+
+    // The page is kept over a recreation, which a change of language (and of the system's own theme) is: the user is
+    // still on Settings afterwards. Nothing else is, not even an open overlay.
+    @Override protected void onSaveInstanceState(Bundle state) {
+        super.onSaveInstanceState(state);
+        state.putInt("page", page);
+    }
+
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
+        if (state != null) page = Math.max(0, Math.min(4, state.getInt("page", 0)));
         tabNames = new String[] {getString(R.string.text_home), getString(R.string.text_configurations), getString(R.string.text_routing), getString(R.string.text_settings), getString(R.string.text_log)};
         prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
         // The old "dark" boolean was written only when the user picked Light or Dark.
@@ -257,11 +270,13 @@ public final class MainActivity extends Activity {
         // Settings is only refreshed, not rebuilt, so it keeps its scroll position.
         if (page <= 1) render();
         else if (page == 3) refreshUpdateControls();
+        else if (page == 4) { refreshLog(false); scheduleLogTick(); }
     }
 
     @Override protected void onPause() {
         resumed = false;
         host.removeCallbacks(homeTicker);
+        host.removeCallbacks(logTicker);
         // Nothing animates while the app is not shown, and the speeds are of the time it is.
         hero.release();
         speedMeter.reset();
@@ -421,6 +436,8 @@ public final class MainActivity extends Activity {
         profileNameInput = null;
         nav();
         pageScroll = null;
+        if (page != 4) { logText = null; logBox = null; logPlaceholder = null; }
+        else if (renderedPage != 4) { logAutoScroll = true; logStamp = -1; }
         if (page != 0) {
             // Nothing of Home is shown: its logo may not go on pulsing at views that are gone.
             hero.release();
@@ -428,20 +445,26 @@ public final class MainActivity extends Activity {
             homeStatus = null; homeDown = null; homeUp = null; homeSelectorRow = null; homeSpeedRow = null;
         }
         if (page == 0) home();
-        else {
+        else if (page == 4) {
+            // The log fills the page, and scrolls in its own box, as the desktop's does: nothing scrolls round it. 18 on each side,
+            // 6 at the top and 12 at the foot.
+            LinearLayout body = column();
+            body.setPadding(dp(18), dp(6), dp(18), dp(12));
+            pageRoot.addView(body, new LinearLayout.LayoutParams(-1, 0, 1));
+            logs(body);
+        } else {
             ScrollView scroll = new ScrollView(this); scroll.setFillViewport(true); scroll.setClipToPadding(false);
             scroll.setVerticalScrollBarEnabled(false);
             // The desktop's pages fill the width with 18 on each side and have no widest: at a TV's width a config's row goes from edge
-            // to edge with its icons at the far right (the TV's own overscan is the host's padding).
+            // to edge with its icons at the far right (the TV's own overscan is the host's padding). Settings has 6 above and 14 below.
             int side = dp(18);
-            LinearLayout body = column(); body.setPadding(side, dp(8), side, dp(26)); scroll.addView(body);
+            LinearLayout body = column(); body.setPadding(side, dp(page == 3 ? 6 : 8), side, dp(page == 3 ? 14 : 26)); scroll.addView(body);
             pageRoot.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
             pageScroll = scroll;
             switch (page) {
                 case 1: configs(body); break;
                 case 2: split(body); break;
-                case 3: settings(body); break;
-                default: logs(body); break;
+                default: settings(body); break;
             }
         }
         renderedPage = page;
@@ -452,6 +475,7 @@ public final class MainActivity extends Activity {
         if (picker != null && (page != 0 || configs.size() != homePickerCount)) closeOverlay(picker);
         reanchorOverlays();
         scheduleHomeTick();
+        scheduleLogTick();
         // Home's toast sits between the selector and the tiles, which are only where they are once laid out.
         host.post(this::placeToast);
     }
@@ -483,10 +507,11 @@ public final class MainActivity extends Activity {
         });
     }
     // In touch mode restoreFocus does nothing, which suits a page that was only drawn again, but not a field that is being typed
-    // in: the one for a new profile's name while it is open, and the domains field after one Enter, for the next.
+    // in: the one for a new profile's name while it is open, and the domains field (or Settings' routes field) after one Enter, for the next.
     private void refocusFields(String key) {
-        if (page != 2 || !getWindow().getDecorView().isInTouchMode()) return;
-        String wanted = profileNameOpen ? "profile:name" : "domains:input".equals(key) ? key : null;
+        if ((page != 2 && page != 3) || !getWindow().getDecorView().isInTouchMode()) return;
+        String wanted = page == 2 ? (profileNameOpen ? "profile:name" : "domains:input".equals(key) ? key : null)
+                : "routes:input".equals(key) ? key : null;
         if (wanted == null) return;
         View field = pageRoot.findViewWithTag(wanted);
         if (!(field instanceof EditText)) return;
@@ -1812,7 +1837,7 @@ public final class MainActivity extends Activity {
     }
     // The phone's page in this device's language.
     private LinkReceiver.Pages receivePages() {
-        return new LinkReceiver.Pages(java.util.Locale.getDefault().toLanguageTag(), getString(R.string.receive_page_title),
+        return new LinkReceiver.Pages(getResources().getConfiguration().getLocales().get(0).toLanguageTag(), getString(R.string.receive_page_title),
                 getString(R.string.receive_page_prompt), getString(R.string.receive_page_file), getString(R.string.receive_page_send),
                 getString(R.string.receive_page_note), getString(R.string.receive_page_sent), getString(R.string.receive_page_retry),
                 getString(R.string.receive_page_too_large), getString(R.string.receive_page_busy),
@@ -2626,9 +2651,25 @@ public final class MainActivity extends Activity {
         if (input != null) input.hideSoftInputFromWindow(getWindow().getDecorView().getWindowToken(), 0);
     }
 
+    // The Settings page, as the desktop's is (qml/pages/SettingsPage.qml), top to bottom: General (Language and Theme as Dropdowns,
+    // a line between the rows, and Connect on startup), Security (the storage banner, Kill switch, and Android's own Always-on
+    // row), Excluded routes (chips, and a field), Logging, Maintenance (the update line) and the footer. Left out are what only
+    // the desktop has: Launch at system startup, Hotkeys and the Windows-only ports row. Keys: settings:language, settings:theme,
+    // switch:auto_connect, switch:killswitch, settings:vpn, routes:restore, routes:clear, route:N, routes:input, switch:logging,
+    // switch:check_updates_on_launch, settings:update (with update:tick, update:arrow, update:dots and update:version beside it), and
+    // in the footer settings:site, settings:core and settings:licenses.
     private void settings(LinearLayout body) {
         Theme t = t();
-        section(body, getString(R.string.text_general));
+        // General.
+        body.addView(ui.sectionLabel(getString(R.string.text_general)), lp(-1, -2));
+        // English or Русский, each in itself; the one the app speaks now is the one shown, whatever was chosen.
+        final String[] languageNames = {getString(R.string.language_english), getString(R.string.language_russian)};
+        final int shownLanguage = AppLocale.RUSSIAN.equals(AppLocale.current(this)) ? 1 : 0;
+        body.addView(ui.dropdown(getString(R.string.settings_language), languageNames[shownLanguage], "settings:language",
+                v -> showSelect("settings:language", languageNames, shownLanguage, which -> {
+                    if (which != shownLanguage) AppLocale.choose(this, prefs, AppLocale.LANGUAGES[which]);
+                })), lp(-1, -2));
+        body.addView(ui.sep(), lp(-1, 1));
         // System (the default), Light or Dark, as on the desktop.
         String[] modes = {Theme.SYSTEM, Theme.LIGHT_MODE, Theme.DARK_MODE};
         String[] names = {getString(R.string.text_theme_system), getString(R.string.text_light_78), getString(R.string.text_dark_79)};
@@ -2640,15 +2681,17 @@ public final class MainActivity extends Activity {
                     themeMode = modes[which]; prefs.edit().putString("theme_mode", themeMode).apply(); render();
                 })), lp(-1, -2));
         body.addView(ui.sep(), lp(-1, 1));
-        addSwitch(body, getString(R.string.text_connect_on_launch), "", "auto_connect", false);
+        addSwitch(body, getString(R.string.settings_connect_on_startup), "", "auto_connect", false);
+
+        // Security.
         section(body, getString(R.string.text_security));
         storageBanner(body);
-        addSwitch(body, "Kill switch", getString(R.string.text_blocks_traffic_while_reconnecting), "killswitch", true);
+        addSwitch(body, getString(R.string.settings_kill_switch), getString(R.string.settings_kill_switch_hint), "killswitch", true);
         // Most TVs have no Always-on VPN, and no screen for it. The manifest's queries
         // keep package visibility from hiding the screen on a phone.
         if (getPackageManager().resolveActivity(new Intent(Settings.ACTION_VPN_SETTINGS), 0) != null) {
             LinearLayout systemVpn = row();
-            systemVpn.setMinimumHeight(dp(48));
+            systemVpn.setMinimumHeight(dp(42));
             systemVpn.addView(label(getString(R.string.text_android_vpn_settings), 14, t.text), weighted());
             // The word is the control, not the row.
             TextView open = ui.link(getString(R.string.text_open), 13, Ui.LinkKind.ACCENT, "settings:vpn");
@@ -2657,7 +2700,10 @@ public final class MainActivity extends Activity {
                 try { startActivity(new Intent(Settings.ACTION_VPN_SETTINGS)); }
                 catch (Exception e) { toast(getString(R.string.text_vpn_settings_are_unavailable)); }
             });
-            systemVpn.addView(open, lp(-2, -2));
+            LinearLayout.LayoutParams openLp = lp(-2, -2);
+            // Its words end where the other rows' controls do, with the link's own padding beyond.
+            openLp.rightMargin = -dp(6);
+            systemVpn.addView(open, openLp);
             body.addView(systemVpn, lp(-1, -2));
             body.addView(ui.paragraph(getString(R.string.text_enable_always_on_vpn_and_block_connections_without_v),
                     12, t.textFaint, 0), lp(-1, -2));
@@ -2665,39 +2711,233 @@ public final class MainActivity extends Activity {
         } else {
             body.addView(ui.paragraph(getString(R.string.text_no_always_on_here), 12, t.textFaint, 0), lp(-1, -2));
         }
-        section(body, getString(R.string.text_log));
+
+        // Excluded routes.
+        excludedRoutes(body);
+
+        // Logging.
+        section(body, getString(R.string.settings_logging));
         addSwitch(body, getString(R.string.text_enable_logging), "", "logging", true);
-        section(body, getString(R.string.update_title));
-        if (!AndroidUpdater.INSTANCE.official(this)) {
-            // Android would refuse an update signed with another key than this build's.
-            updateStatus = null; updateAction = null;
-            body.addView(ui.paragraph(getString(R.string.update_unofficial), 12, t.textFaint, 0), lp(-1, -2));
-        } else {
-            addSwitch(body, getString(R.string.update_on_launch), "", "check_updates_on_launch", false);
-            updateStatus = ui.paragraph("", 12, t.textDim, 0);
-            body.addView(updateStatus, lp(-1, -2));
-            // As wide as its words.
-            updateAction = ui.link("", 14, Ui.LinkKind.ACCENT, "settings:update");
-            updateAction.setOnClickListener(v -> {
-                AndroidUpdater.State update = AndroidUpdater.INSTANCE.getState();
-                if (update == AndroidUpdater.State.AVAILABLE) AndroidUpdater.INSTANCE.download(this);
-                else if (update == AndroidUpdater.State.DOWNLOADING) AndroidUpdater.INSTANCE.cancel();
-                else if (update == AndroidUpdater.State.READY || update == AndroidUpdater.State.INSTALLING) installUpdate();
-                else AndroidUpdater.INSTANCE.check(this);
-            });
-            body.addView(updateAction, lp(-2, -2));
-            refreshUpdateControls();
-        }
-        section(body, getString(R.string.text_about));
-        body.addView(ui.paragraph(getString(R.string.text_freetunnel_for_android), 14, t.text, 42), lp(-1, -2));
-        body.addView(ui.paragraph(getString(R.string.text_version) + BuildConfig.VERSION_NAME, 12, t.textDim, 0), lp(-1, -2));
+
+        // Maintenance.
+        section(body, getString(R.string.settings_maintenance));
+        maintenance(body);
+
+        // The footer, centred: the app, the core it carries, and, Android's own, the licenses of what is in the APK.
+        gap(body, 14);
+        LinearLayout footer = row();
+        footer.setGravity(Gravity.CENTER);
+        TextView site = ui.link("FreeTunnel " + BuildConfig.VERSION_NAME, 12, Ui.LinkKind.FAINT, "settings:site");
+        site.setOnClickListener(v -> openLink("https://github.com/" + UpdatePolicy.REPOSITORY));
+        footer.addView(site, lp(-2, -2));
+        footer.addView(label("  ·  ", 12, t.textFaint), lp(-2, -2));
+        TextView core = ui.link(getString(R.string.settings_core) + BuildConfig.CORE_VERSION, 12, Ui.LinkKind.FAINT, "settings:core");
+        core.setOnClickListener(v -> openLink("https://github.com/TrustTunnel/TrustTunnelClient"));
+        footer.addView(core, lp(-2, -2));
+        body.addView(footer, lp(-1, -2));
         LinearLayout licenses = row();
-        licenses.setMinimumHeight(dp(48));
-        licenses.addView(label(getString(R.string.text_open_source_licenses), 14, t.text), weighted());
-        TextView openLicenses = ui.link(getString(R.string.text_open), 13, Ui.LinkKind.ACCENT, "settings:licenses");
+        licenses.setGravity(Gravity.CENTER);
+        TextView openLicenses = ui.link(getString(R.string.text_open_source_licenses), 12, Ui.LinkKind.FAINT, "settings:licenses");
         openLicenses.setOnClickListener(v -> openSourceLicenses());
         licenses.addView(openLicenses, lp(-2, -2));
         body.addView(licenses, lp(-1, -2));
+    }
+
+    // A link out of the app: the browser's, where there is one. Most TVs have none, and say so.
+    private void openLink(String url) {
+        try { startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url))); }
+        catch (ActivityNotFoundException | SecurityException noBrowser) { toast(getString(R.string.text_no_browser)); }
+    }
+
+    // Excluded routes (Settings, qml/pages/SettingsPage.qml): subnets that bypass the tunnel at the routing level, whatever the split
+    // rules say. The header has the title, which fills, "Restore defaults" (which asks first, as it replaces the list) and, with
+    // routes, the danger "Clear all" (which asks as well); then the routes as chips, a ChipX takes one out at once; then a field, for
+    // one or several, separated by spaces, commas or semicolons. A /0 is refused, and so is what is no subnet, by name. The
+    // list is the saved one, or the defaults where none is saved (ExcludedRoutes), and a change builds the VPN again if it is up.
+    // Keys: routes:restore, routes:clear, route:0, route:1, ... and routes:input.
+    private List<String> excludedRoutes() {
+        return ExcludedRoutes.load(prefs.getString(ExcludedRoutes.KEY, null), ExcludedRoutes.defaults(this));
+    }
+
+    private void saveExcludedRoutes(List<String> routes) {
+        prefs.edit().putString(ExcludedRoutes.KEY, ExcludedRoutes.toJson(routes)).commit();
+        // The plan of a VPN that is up is made again with them; one that is not up is made with them when it starts.
+        applyCurrentRules();
+        render();
+    }
+
+    private void excludedRoutes(LinearLayout body) {
+        final List<String> routes = excludedRoutes();
+        gap(body, 16);
+        LinearLayout header = row();
+        TextView title = ui.sectionLabel(getString(R.string.settings_excluded_routes));
+        title.setSingleLine(true);
+        title.setEllipsize(TextUtils.TruncateAt.END);
+        header.addView(title, weighted());
+        TextView restore = ui.link(getString(R.string.settings_restore_defaults), 12, Ui.LinkKind.ACCENT, "routes:restore");
+        restore.setOnClickListener(v -> showConfirm(getString(R.string.settings_routes_restore_question), getString(R.string.import_replace), () -> {
+            List<String> defaults = ExcludedRoutes.defaults(this);
+            // Already the defaults: nothing to build again.
+            if (!routes.equals(defaults)) saveExcludedRoutes(new ArrayList<>(defaults));
+        }));
+        LinearLayout.LayoutParams restoreLp = lp(-2, -2);
+        header.addView(restore, restoreLp);
+        if (!routes.isEmpty()) {
+            TextView clear = ui.link(getString(R.string.split_clear_all), 12, Ui.LinkKind.DANGER, "routes:clear");
+            clear.setOnClickListener(v -> showConfirm(getString(R.string.settings_routes_clear_question), getString(R.string.text_clear),
+                    () -> saveExcludedRoutes(new ArrayList<>())));
+            LinearLayout.LayoutParams clearLp = lp(-2, -2);
+            clearLp.rightMargin = -dp(6);
+            header.addView(clear, clearLp);
+        } else {
+            // It is the last, so its words end where the page's margin does.
+            restoreLp.rightMargin = -dp(6);
+        }
+        body.addView(header, lp(-1, -2));
+        if (!routes.isEmpty()) {
+            gap(body, 6);
+            FlowLayout chips = new FlowLayout(this, dp(6));
+            for (int i = 0; i < routes.size(); i++) {
+                final int index = i;
+                final String route = routes.get(i);
+                LinearLayout chip = ui.chip(route, false, false, null, false);
+                // A route goes at once, without being asked about, as the desktop's does.
+                ImageView x = ui.chipX("route:" + i, false);
+                x.setContentDescription(getString(R.string.text_delete) + " " + route);
+                x.setOnClickListener(v -> saveExcludedRoutes(ExcludedRoutes.removeAt(routes, index)));
+                chip.addView(x, ui.chipXLp());
+                chips.addView(chip);
+            }
+            body.addView(chips, lp(-1, -2));
+        }
+        EditText input = ui.pageInput(getString(R.string.settings_routes_hint), "routes:input");
+        input.setOnEditorActionListener((field, action, event) -> {
+            if (event != null && event.getAction() != KeyEvent.ACTION_DOWN) return true;
+            if (enterExcludedRoutes(input.getText().toString())) input.setText("");
+            return true;
+        });
+        LinearLayout.LayoutParams inputLp = lp(-1, 36);
+        inputLp.topMargin = dp(6);
+        body.addView(input, inputLp);
+    }
+
+    // What was typed in the routes field: the subnets are added and the words that are none are named, a /0 with the reason. The
+    // field is cleared if something was added, and keeps what was typed if nothing was, for it to be put right.
+    private boolean enterExcludedRoutes(String text) {
+        ExcludedRoutes.Entered entered = ExcludedRoutes.add(excludedRoutes(), text);
+        if (!entered.refused.isEmpty()) {
+            List<String> shown = new ArrayList<>();
+            for (String word : entered.refused) shown.add(ShownText.of(word));
+            toast(getString(entered.refusedEveryAddress() ? R.string.settings_routes_refused_every : R.string.settings_routes_refused,
+                    TextUtils.join(", ", shown)));
+        }
+        if (entered.added.isEmpty()) return false;
+        // The field stays where the cursor is, for the next one.
+        focusAfterRender = "routes:input";
+        saveExcludedRoutes(entered.routes);
+        return true;
+    }
+
+    // Maintenance (qml/pages/SettingsPage.qml): one row. At its left the update line, 14 in the text colour, which wraps (to six lines),
+    // and is a link over its words alone: it is what to do next, as the icon beside it is, and a click does it. At its right the
+    // picture for the state and the version (see UpdateLine, and refreshUpdateControls). Only in an official build, which is the
+    // only one Android would let update itself; another says so. Android's own "Check for updates on launch" is above the row.
+    private TextView updateTick;
+    private FrameLayout updateSlot;
+    private UpdateArrowView updateArrow;
+    private BusyDotsView updateDots;
+    private TextView updateVersion;
+    // The pointer or the remote is on the line: the arrow beside it bends (a download) or leans (a retry), as the desktop's does under the pointer.
+    private boolean updateHot;
+
+    private void maintenance(LinearLayout body) {
+        Theme t = t();
+        updateAction = null; updateTick = null; updateSlot = null; updateArrow = null; updateDots = null; updateVersion = null;
+        updateHot = false;
+        if (!AndroidUpdater.INSTANCE.official(this)) {
+            // Android would refuse an update signed with another key than this build's.
+            body.addView(ui.paragraph(getString(R.string.update_unofficial), 12, t.textFaint, 0), lp(-1, -2));
+            return;
+        }
+        addSwitch(body, getString(R.string.update_on_launch), "", "check_updates_on_launch", false);
+        RelativeLayout line = new RelativeLayout(this);
+        line.setMinimumHeight(dp(42));
+        // The right: ✓ when it is current, the arrow or the dots, and the version.
+        LinearLayout right = row();
+        right.setId(View.generateViewId());
+        updateTick = label("✓", 14, t.success);
+        updateTick.setTag("update:tick");
+        updateTick.setContentDescription(getString(R.string.update_latest));
+        right.addView(updateTick, lp(-2, -2));
+        updateSlot = new FrameLayout(this);
+        // The pictures are the line's, which says what they say; TalkBack has nothing to add.
+        updateArrow = new UpdateArrowView(this, t.text);
+        updateArrow.setTag("update:arrow");
+        updateArrow.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        updateSlot.addView(updateArrow, new FrameLayout.LayoutParams(dp(UpdateArrowView.SIZE_DP), dp(UpdateArrowView.SIZE_DP)));
+        updateDots = new BusyDotsView(this, t.text);
+        updateDots.setTag("update:dots");
+        updateDots.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        updateSlot.addView(updateDots, new FrameLayout.LayoutParams(dp(UpdateArrowView.SIZE_DP), dp(UpdateArrowView.SIZE_DP)));
+        LinearLayout.LayoutParams slotLp = lp(UpdateArrowView.SIZE_DP, UpdateArrowView.SIZE_DP);
+        slotLp.leftMargin = dp(5);
+        right.addView(updateSlot, slotLp);
+        updateVersion = label(BuildConfig.VERSION_NAME, 13, t.textFaint);
+        updateVersion.setTag("update:version");
+        LinearLayout.LayoutParams versionLp = lp(-2, -2);
+        versionLp.leftMargin = dp(5);
+        right.addView(updateVersion, versionLp);
+        RelativeLayout.LayoutParams rightLp = new RelativeLayout.LayoutParams(-2, -2);
+        rightLp.addRule(RelativeLayout.ALIGN_PARENT_RIGHT);
+        rightLp.addRule(RelativeLayout.CENTER_VERTICAL);
+        line.addView(right, rightLp);
+        // The words, over the room the right leaves, and no wider than they are.
+        updateAction = ui.link("", 14, Ui.LinkKind.TEXT, "settings:update");
+        updateAction.setSingleLine(false);
+        updateAction.setMaxLines(6);
+        updateAction.setEllipsize(TextUtils.TruncateAt.END);
+        updateAction.setOnClickListener(v -> doUpdateAction());
+        updateAction.setOnFocusChangeListener((v, focused) -> setUpdateHot(focused || v.isHovered()));
+        updateAction.setOnHoverListener((v, event) -> {
+            int action = event.getActionMasked();
+            if (action == MotionEvent.ACTION_HOVER_ENTER) setUpdateHot(true);
+            else if (action == MotionEvent.ACTION_HOVER_EXIT) setUpdateHot(v.hasFocus());
+            return false;
+        });
+        RelativeLayout.LayoutParams actionLp = new RelativeLayout.LayoutParams(-2, -2);
+        actionLp.addRule(RelativeLayout.ALIGN_PARENT_LEFT);
+        actionLp.addRule(RelativeLayout.LEFT_OF, right.getId());
+        actionLp.addRule(RelativeLayout.CENTER_VERTICAL);
+        // The words start where the other rows' do, with the link's own padding before them.
+        actionLp.leftMargin = -dp(6);
+        actionLp.rightMargin = dp(6);
+        line.addView(updateAction, actionLp);
+        body.addView(line, lp(-1, -2));
+        refreshUpdateControls();
+    }
+
+    private void setUpdateHot(boolean hot) {
+        if (updateHot == hot) return;
+        updateHot = hot;
+        applyUpdateArrow(true);
+    }
+
+    // What a click or OK on the update line does now (UpdateLine): check, download, cancel the download, or install.
+    private UpdateLine updateLine() {
+        AndroidUpdater.State update = AndroidUpdater.INSTANCE.getState();
+        // Once Android has the session, Install update starts over if its dialog was lost.
+        boolean reinstall = update == AndroidUpdater.State.INSTALLING && AndroidUpdater.INSTANCE.getCommitted();
+        return UpdateLine.of(UpdateLine.Phase.valueOf(update.name()), reinstall, AndroidUpdater.INSTANCE.getFailedCheck());
+    }
+
+    private void doUpdateAction() {
+        switch (updateLine().action) {
+            case CHECK: AndroidUpdater.INSTANCE.check(this); break;
+            case DOWNLOAD: AndroidUpdater.INSTANCE.download(this); break;
+            case CANCEL: AndroidUpdater.INSTANCE.cancel(); break;
+            case INSTALL: installUpdate(); break;
+            default: break;
+        }
     }
     // The third-party notices and the license texts, as app/build.gradle copies them
     // from the repository into the APK's assets, in one card: the files as rows, and a file's
@@ -2818,33 +3058,49 @@ public final class MainActivity extends Activity {
         }
     }
     private void refreshUpdateControls() {
-        if (updateStatus == null || updateAction == null) return;
-        AndroidUpdater.State update = AndroidUpdater.INSTANCE.getState();
+        if (updateAction == null) return;
+        UpdateLine line = updateLine();
         UpdatePolicy.Release release = AndroidUpdater.INSTANCE.getRelease();
         String version = release != null ? release.getVersion() : "";
-        // Once Android has the session, Install update starts over if its dialog was lost.
-        boolean reinstall = update == AndroidUpdater.State.INSTALLING && AndroidUpdater.INSTANCE.getCommitted();
         String text;
-        switch (update) {
+        switch (line.words) {
             case CHECKING: text = getString(R.string.update_checking); break;
-            case CURRENT: text = getString(R.string.update_current); break;
             case AVAILABLE: text = getString(R.string.update_available, version); break;
-            case DOWNLOADING: text = getString(R.string.update_downloading, version, AndroidUpdater.INSTANCE.getProgress()); break;
+            case DOWNLOADING: text = getString(R.string.update_downloading, AndroidUpdater.INSTANCE.getProgress()); break;
             case READY: text = getString(R.string.update_ready, version); break;
             case INSTALLING: text = getString(R.string.update_installing); break;
-            case ERROR: text = getString(updateFailureText(AndroidUpdater.INSTANCE.getFailure())); break;
-            default: text = getString(R.string.update_hint);
+            case CHECK_FAILED:
+                text = getString(R.string.update_check_failed, getString(updateFailureText(AndroidUpdater.INSTANCE.getFailure())));
+                break;
+            case FAILED: text = getString(updateFailureText(AndroidUpdater.INSTANCE.getFailure())); break;
+            default: text = getString(R.string.update_check);
         }
-        updateStatus.setText(text);
-        int action = R.string.update_check;
-        if (update == AndroidUpdater.State.AVAILABLE) action = R.string.update_download;
-        else if (update == AndroidUpdater.State.DOWNLOADING) action = R.string.update_cancel;
-        else if (update == AndroidUpdater.State.READY || reinstall) action = R.string.update_install;
-        updateAction.setText(getString(action));
+        updateAction.setText(text);
+        // Said aloud: the words, and then what a click does with them.
+        int does = line.action == UpdateLine.Action.CHECK ? R.string.update_check : line.action == UpdateLine.Action.DOWNLOAD ? R.string.update_download
+                : line.action == UpdateLine.Action.CANCEL ? R.string.update_cancel : line.action == UpdateLine.Action.INSTALL ? R.string.update_install : 0;
+        updateAction.setContentDescription(does == 0 || getString(does).equals(text) ? text : text + ". " + getString(does));
         // Not setEnabled: disabling the view that has a remote's focus moves the focus to
         // the top of the window. Not clickable, it ignores taps and OK just the same.
-        updateAction.setClickable(update != AndroidUpdater.State.CHECKING
-                && (update != AndroidUpdater.State.INSTALLING || reinstall));
+        updateAction.setClickable(line.clickable());
+        updateTick.setVisibility(line.tick ? View.VISIBLE : View.GONE);
+        updateVersion.setVisibility(line.version ? View.VISIBLE : View.GONE);
+        applyUpdateArrow(false);
+    }
+
+    // The picture beside the line: dots while it waits on an answer, ↓ for an offered download (it bends into ↻ under the pointer or a
+    // remote's focus), a turning ↻ while one comes down, and ↻ after a failure (which leans, with the pointer or the focus on it).
+    private void applyUpdateArrow(boolean animate) {
+        if (updateArrow == null || updateDots == null || updateSlot == null) return;
+        UpdateLine.Icon icon = updateLine().icon;
+        boolean arrow = icon == UpdateLine.Icon.DOWNLOAD || icon == UpdateLine.Icon.SPINNER || icon == UpdateLine.Icon.RETRY;
+        boolean dots = icon == UpdateLine.Icon.DOTS;
+        updateArrow.setVisibility(arrow ? View.VISIBLE : View.GONE);
+        updateDots.setVisibility(dots ? View.VISIBLE : View.GONE);
+        updateSlot.setVisibility(arrow || dots ? View.VISIBLE : View.GONE);
+        updateArrow.setSpinning(icon == UpdateLine.Icon.SPINNER);
+        updateArrow.setBend(icon == UpdateLine.Icon.DOWNLOAD && !updateHot ? 0 : 1, animate);
+        updateArrow.setTurn(icon == UpdateLine.Icon.RETRY && updateHot ? 45 : 0, animate);
     }
     private static int updateFailureText(UpdatePolicy.Failure failure) {
         if (failure == UpdatePolicy.Failure.RATE_LIMITED) return R.string.update_error_rate_limited;
@@ -2863,44 +3119,157 @@ public final class MainActivity extends Activity {
         });
         parent.addView(ui.toggleRow(title, subtitle, sw), lp(-1, -2));
     }
+    // The Logs page (qml/pages/LogsPage.qml): at the top Clear (left) and Copy (right), links as wide as their words; with logging off,
+    // "Logging is off." in warn and a "Turn on" link; the log in a box (surface, radius 8, monospace 11 in the text colour) that fills the
+    // rest of the page, or, with logging on and nothing to show, a placeholder in the middle of it; and at the foot Auto-scroll with a small
+    // toggle, which keeps the end of the log in view. The log is the file the VPN service writes (LogFile), each line shown as
+    // "HH:mm:ss LEVEL message" (LogLines). While the page is shown the box follows the file once a second, by changing its text alone and
+    // never by building the page again. On a TV the text is not selectable, so that the arrows scroll the box (a focus stop, which shows the
+    // field's accent border) instead of moving a cursor in the text. There is no log path to open: the file is the app's own.
+    // Keys: log:clear, log:copy, logs:enable, log:box, log:text and logs:autoscroll.
+    private TextView logText;
+    private ScrollView logBox;
+    private TextView logPlaceholder;
+    // On while the page is shown for the first time, as the desktop's is, and then as it is left.
+    private boolean logAutoScroll = true;
+    // The file as the page last showed it, to tell by a glance whether it changed; -1 until it has shown it.
+    private long logStamp = -1;
+
+    private File logFile() { return new File(getFilesDir(), LogFile.NAME); }
+
     private void logs(LinearLayout body) {
         Theme t = t();
-        // Clear and Copy are as wide as their words, with room between them.
         LinearLayout actions = row();
+        actions.setMinimumHeight(dp(24));
         TextView clear = ui.link(getString(R.string.text_clear), 13, Ui.LinkKind.ACCENT, "log:clear");
-        actions.addView(clear, lp(-2, -2));
+        LinearLayout.LayoutParams clearLp = lp(-2, -2);
+        clearLp.leftMargin = -dp(6);
+        actions.addView(clear, clearLp);
         actions.addView(new View(this), new LinearLayout.LayoutParams(0, 1, 1));
-        TextView copy = ui.link(getString(R.string.text_copy), 13, Ui.LinkKind.ACCENT, "log:copy"); actions.addView(copy, lp(-2, -2));
+        TextView copy = ui.link(getString(R.string.text_copy), 13, Ui.LinkKind.ACCENT, "log:copy");
+        LinearLayout.LayoutParams copyLp = lp(-2, -2);
+        copyLp.rightMargin = -dp(6);
+        actions.addView(copy, copyLp);
+        body.addView(actions, lp(-1, -2));
         clear.setOnClickListener(v -> {
-            try { new java.io.File(getFilesDir(), "freetunnel.log").delete(); } catch (Exception ignored) { }
-            render();
+            LogFile.clear(logFile());
+            logStamp = LogFile.stamp(logFile());
+            // At once, and the text alone: nothing else on the page changes.
+            setLogText("");
         });
-        copy.setOnClickListener(v -> {
-            try {
-                java.io.File file = new java.io.File(getFilesDir(), "freetunnel.log");
-                String contents = file.exists() ? new String(java.nio.file.Files.readAllBytes(file.toPath()), StandardCharsets.UTF_8) : "";
-                ClipboardManager manager = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
-                manager.setPrimaryClip(ClipData.newPlainText("FreeTunnel log", contents));
-                toast(contents.isEmpty() ? getString(R.string.text_log_is_empty) : getString(R.string.text_log_copied));
-            } catch (Exception e) { toast(getString(R.string.text_could_not_read_log)); }
-        });
-        body.addView(actions, lp(-1, 34)); gap(body, 8);
-        FrameLayout panel = new FrameLayout(this); panel.setBackground(ui.shape(t.surface, 8));
-        String logText = getString(R.string.text_connect_vpn_to_see_the_log);
-        java.io.File logFile = new java.io.File(getFilesDir(), "freetunnel.log");
-        if (logFile.exists()) {
-            try { logText = new String(java.nio.file.Files.readAllBytes(logFile.toPath()), StandardCharsets.UTF_8).trim(); }
-            catch (Exception ignored) { logText = getString(R.string.text_could_not_read_log); }
+        copy.setOnClickListener(v -> copyLog());
+        // Logging off: nothing new will be written, so the page says so instead of showing old lines as if they were current.
+        if (!prefs.getBoolean("logging", true)) {
+            gap(body, 8);
+            LinearLayout off = row();
+            TextView message = label(getString(R.string.logs_off), 12, t.warn);
+            message.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
+            off.addView(message, weighted());
+            TextView turnOn = ui.link(getString(R.string.logs_turn_on), 12, Ui.LinkKind.ACCENT, "logs:enable");
+            turnOn.setOnClickListener(v -> { prefs.edit().putBoolean("logging", true).apply(); render(); });
+            LinearLayout.LayoutParams turnOnLp = lp(-2, -2);
+            turnOnLp.rightMargin = -dp(6);
+            off.addView(turnOn, turnOnLp);
+            body.addView(off, lp(-1, -2));
         }
-        // The log is monospace, 11 in the text colour; the placeholder is 13 in textFaint.
-        TextView placeholder = logFile.exists() ? ui.mono(logText, 11, t.text) : label(logText, 13, t.textFaint);
-        placeholder.setGravity(Gravity.TOP | Gravity.START);
-        placeholder.setPadding(dp(12), dp(12), dp(12), dp(12));
-        // On a TV, selectable text would take the remote's arrows as cursor moves. Without
-        // it, Down from Clear or Copy scrolls through the log.
-        placeholder.setTextIsSelectable(!isTv());
-        panel.addView(placeholder, new FrameLayout.LayoutParams(-1, -1));
-        body.addView(panel, new LinearLayout.LayoutParams(-1, 0, 1));
+        gap(body, 8);
+        // The box is the scroll view: surface, radius 8, and the field's accent border with the focus. Its text is clipped
+        // to 12 inside it.
+        FrameLayout frame = new FrameLayout(this);
+        logBox = new ScrollView(this);
+        logBox.setVerticalScrollBarEnabled(false);
+        logBox.setPadding(dp(12), dp(12), dp(12), dp(12));
+        ui.focus(logBox, "log:box", Ui.Look.BOX);
+        logText = ui.mono("", 11, t.text);
+        logText.setTag("log:text");
+        logText.setGravity(Gravity.TOP | Gravity.START);
+        // On a TV, selectable text would take the remote's arrows as cursor moves: without it Down from Clear or Copy lands on the box,
+        // and the arrows scroll it. Selected, the text is in the accent (see the desktop's selectionColor), light enough to read through.
+        logText.setTextIsSelectable(!isTv());
+        logText.setHighlightColor((t.accent & 0x00FFFFFF) | 0x66000000);
+        logBox.addView(logText);
+        frame.addView(logBox, new FrameLayout.LayoutParams(-1, -1));
+        logPlaceholder = label(getString(R.string.logs_placeholder), 13, t.textFaint);
+        logPlaceholder.setGravity(Gravity.CENTER);
+        frame.addView(logPlaceholder, new FrameLayout.LayoutParams(-2, -2, Gravity.CENTER));
+        body.addView(frame, new LinearLayout.LayoutParams(-1, 0, 1));
+        gap(body, 8);
+        // The foot: Auto-scroll, at the right.
+        LinearLayout foot = row();
+        foot.addView(new View(this), new LinearLayout.LayoutParams(0, 1, 1));
+        foot.addView(label(getString(R.string.logs_auto_scroll), 12, t.textDim), lp(-2, -2));
+        ui.gapH(foot, 8);
+        ToggleView auto = ui.toggle(logAutoScroll, true, "logs:autoscroll");
+        auto.setContentDescription(getString(R.string.logs_auto_scroll));
+        auto.setListener((v, on) -> { logAutoScroll = on; if (on) scrollLogToEnd(); });
+        foot.addView(auto, lp(-2, -2));
+        body.addView(foot, lp(-1, -2));
+        refreshLog(true);
+    }
+
+    // The log as the page shows it, or null if it cannot be read.
+    private String shownLog() {
+        try { return LogLines.shownText(LogFile.read(logFile()), LogLines.SHOWN_LINES); }
+        catch (IOException | RuntimeException unreadable) { return null; }
+    }
+
+    // Shows the file again if it changed since the page last showed it (or whether it did, with force). Not while the user holds
+    // a selection in it: the new text would wipe it.
+    private void refreshLog(boolean force) {
+        if (logText == null) return;
+        long stamp = LogFile.stamp(logFile());
+        if (!force && stamp == logStamp) return;
+        if (!force && logText.hasSelection()) return;
+        String shown = shownLog();
+        logStamp = stamp;
+        setLogText(shown == null ? getString(R.string.text_could_not_read_log) : shown);
+    }
+
+    private void setLogText(String text) {
+        if (logText == null) return;
+        if (!text.contentEquals(logText.getText())) logText.setText(text);
+        logPlaceholder.setVisibility(text.isEmpty() && prefs.getBoolean("logging", true) ? View.VISIBLE : View.GONE);
+        if (logAutoScroll) scrollLogToEnd();
+    }
+
+    // The end of the log, once the text is laid out. Not ScrollView.fullScroll, which moves the focus too.
+    private void scrollLogToEnd() {
+        final ScrollView box = logBox;
+        if (box == null) return;
+        box.post(() -> {
+            View child = box.getChildAt(0);
+            if (child == null) return;
+            int room = box.getHeight() - box.getPaddingTop() - box.getPaddingBottom();
+            box.scrollTo(0, Math.max(0, child.getHeight() - room));
+        });
+    }
+
+    private void copyLog() {
+        String shown = shownLog();
+        if (shown == null) { toast(getString(R.string.text_could_not_read_log)); return; }
+        if (shown.isEmpty()) { toast(getString(R.string.text_log_is_empty)); return; }
+        ClipData clip = ClipData.newPlainText("FreeTunnel log", shown);
+        // It lists where the connections went: a keyboard's clipboard history and the preview Android shows are asked to leave it out.
+        if (Build.VERSION.SDK_INT >= 33) {
+            android.os.PersistableBundle extras = new android.os.PersistableBundle();
+            extras.putBoolean(android.content.ClipDescription.EXTRA_IS_SENSITIVE, true);
+            clip.getDescription().setExtras(extras);
+        }
+        ((ClipboardManager) getSystemService(CLIPBOARD_SERVICE)).setPrimaryClip(clip);
+        toast(getString(R.string.text_log_copied));
+    }
+
+    // Once a second while the page is shown: the box follows the file. The text alone changes, never the page.
+    private final Runnable logTicker = new Runnable() {
+        @Override public void run() {
+            if (page != 4 || !resumed) return;
+            refreshLog(false);
+            host.postDelayed(this, 1000);
+        }
+    };
+    private void scheduleLogTick() {
+        host.removeCallbacks(logTicker);
+        if (page == 4 && resumed) host.postDelayed(logTicker, 1000);
     }
     @Override protected void onDestroy() {
         toastHandler.removeCallbacksAndMessages(null);

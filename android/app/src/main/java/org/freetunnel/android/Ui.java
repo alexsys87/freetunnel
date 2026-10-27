@@ -38,8 +38,8 @@ final class Ui {
     enum Look { TILE, HERO, ROW, MENU_ROW, PILL, LINK, ICON, CHIP, BUTTON, PRIMARY, DANGER, FIELD, SELECT, BOX, TOGGLE }
     /** The four buttons the desktop has. */
     enum Kind { PRIMARY, SECONDARY, NEUTRAL, DESTRUCTIVE }
-    /** The three colours of link: accent, text colour and danger. */
-    enum LinkKind { ACCENT, TEXT, DANGER }
+    /** The colours of link: accent, text colour, danger, and textFaint (the footer's). */
+    enum LinkKind { ACCENT, TEXT, DANGER, FAINT }
 
     /** The tab or chip that is the current one, which rests in its selected look. */
     static final int F_CURRENT = 1;
@@ -371,7 +371,7 @@ final class Ui {
     /**
      * A link: words, wrap_content, so that it acts over them and a little around them.
      * Accent, which goes to the text colour and underlined under the pointer; a text link
-     * the other way about; a danger link to its lighter. With the focus: the accent
+     * the other way about, and a faint one (the footer's) too; a danger link to its lighter. With the focus: the accent
      * (danger) around them, and the words in accentText (white).
      */
     TextView link(CharSequence value, float sp, LinkKind kind, String key) {
@@ -390,6 +390,9 @@ final class Ui {
                 break;
             case TEXT:
                 v.setTextColor(colors(t.text, t.accent, t.accentText));
+                break;
+            case FAINT:
+                v.setTextColor(colors(t.textFaint, t.accent, t.accentText));
                 break;
             default:
                 v.setTextColor(colors(t.accent, t.text, t.accentText));
