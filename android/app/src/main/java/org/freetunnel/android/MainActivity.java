@@ -83,6 +83,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -138,6 +139,21 @@ public final class MainActivity extends Activity {
     private TextView updateAction;
     // Receive from phone: the open port and its card, both closed by stopReceiver().
     private LinkReceiver linkReceiver;
+    // The texts it took that the TV has not answered yet: the one being checked or asked about and those
+    // waiting for their turn, one at a time, since a check bumps validationRequest, which would cancel one
+    // already running. The receiver counts them too, in the queue's count, and turns a send away with the
+    // busy page at LinkReceiver.MAX_WAITING. They outlive the port: what was taken is the TV's to answer.
+    private final ReceivedQueue receivedTexts = new ReceivedQueue(new AtomicInteger());
+    // The notice that said why the last was refused is up, and the next waits until it is gone or until receivedHoldUntil.
+    private boolean receivedHold;
+    private long receivedHoldUntil;
+    private boolean receivedPollPending;
+    // Texts taken by the open receiver, for its card's line, and that line while the card is up.
+    private int receivedCount;
+    private TextView receivedLine;
+    // Bumped when the app is left: texts the receiver's thread handed over before that, which only
+    // reach the main thread after it, are dropped.
+    private int receiveGeneration;
     private long validationRequest;
     private final ExecutorService validationWorker = Executors.newSingleThreadExecutor();
     // The installed applications are listed here, so that the app picker never waits on a scan.
@@ -211,9 +227,11 @@ public final class MainActivity extends Activity {
     }
 
     // Home, a screensaver or a recreation closes the port: it is open only while its
-    // card is on the screen.
+    // card is on the screen. What it took and the TV has not got to is dropped with it,
+    // except the one being asked about, whose question is still there to answer.
     @Override protected void onStop() {
         stopReceiver();
+        dropReceived();
         super.onStop();
     }
 
@@ -1168,44 +1186,63 @@ public final class MainActivity extends Activity {
     // A link, or else a TOML file named fallbackName unless it names its server.
     // origin is the address it was sent from, null when it came from this device.
     private void importText(String fallbackName, String text, String origin) {
-        if (DeepLinkImport.looksLikeLink(text)) importDeepLink(text, origin);
-        else importToml(fallbackName, text, origin);
+        importText(fallbackName, text, origin, null);
     }
-    private void importDeepLink(String link, String origin) {
+    // Whoever asks for an import is told when it is answered, once: it was added, replaced, or cancelled,
+    // or it was refused, which is true then, and a notice says why. Receive from phone takes its next text then.
+    private interface Answered { void answered(boolean refused); }
+    private static void answered(Answered done, boolean refused) { if (done != null) done.answered(refused); }
+
+    private void importText(String fallbackName, String text, String origin, Answered done) {
+        if (DeepLinkImport.looksLikeLink(text)) importDeepLink(text, origin, done);
+        else importToml(fallbackName, text, origin, done);
+    }
+    private void importDeepLink(String link, String origin) { importDeepLink(link, origin, null); }
+    private void importDeepLink(String link, String origin, Answered done) {
         final DeepLinkImport.Imported imported;
         try { imported = DeepLinkImport.parse(link); }
-        catch (DeepLinkImport.ParseException e) { refuseImport(e.messageResource); return; }
+        catch (DeepLinkImport.ParseException e) { refuseImport(e.messageResource); answered(done, true); return; }
 
         // The text is the app's own, and the subscription and whatever in the
         // certificate is not a certificate were left out as the link was read.
         validateAsync(imported.toml, false, checked -> showImportConfirmation(imported.name, false,
-                new RoutingConfig.Import(checked.getToml(), imported.subscriptionNotKept, imported.certificateIgnored), origin, true), () -> {});
+                new RoutingConfig.Import(checked.getToml(), imported.subscriptionNotKept, imported.certificateIgnored), origin, true, done),
+                () -> answered(done, true));
     }
     // Named after its file or where the text came from, unless it is an endpoint's
     // export that names its server.
-    private void importToml(String name, String toml, String origin) {
+    private void importToml(String name, String toml, String origin) { importToml(name, toml, origin, null); }
+    private void importToml(String name, String toml, String origin, Answered done) {
         validateAsync(stripBom(toml), true, checked -> showImportConfirmation(
-                checked.getName() != null ? checked.getName() : name, checked.getName() == null, checked, origin, false), () -> {});
+                checked.getName() != null ? checked.getName() : name, checked.getName() == null, checked, origin, false, done),
+                () -> answered(done, true));
     }
 
     // Receive from phone: a phone on the same network opens the page the QR code or
-    // the address leads to, and sends a link or a TOML file from there, pasted or as
-    // a file (LinkReceiver). What arrives goes through the same checks and
-    // confirmation as any import.
+    // the address leads to, and sends links or TOML files from there, pasted or as
+    // files, as many as it likes (LinkReceiver). Each one goes through the same checks and
+    // confirmation as any import, one after another in the order they came, and nothing is
+    // added without the TV's yes (see processReceived).
     //
     // A card like the app picker's: ←, the title, the QR code on its own white tile (black on
     // white in both themes, so that a phone can read it), the address in monospace 16 to type on a
-    // laptop, the hint, and Close, which has the focus first. The screen stays on while it is open:
-    // a screensaver would stop the activity, and the receiver with it. Close, Back, ←, leaving the
-    // app and what arrives all stop the port. Keys: receive:back and receive:close.
+    // laptop, the hint, and a row with Close, which has the focus first, and, once something has
+    // come, "Received: N" in textFaint at its left. The screen stays on while it is open: a
+    // screensaver would stop the activity, and the receiver with it. The card and the port stay
+    // open while the TV asks about what came, so that the phone can send the next, until Close,
+    // Back, ←, the time, three wrong codes or leaving the app. What came and was not answered yet
+    // is still asked about when the port closes, except when the app is left. Keys: receive:back
+    // and receive:close.
     private void receiveFromPhone() {
         stopReceiver();
         InetAddress address = lanAddress();
         if (address == null) { toast(getString(R.string.text_receive_no_network)); return; }
         final LinkReceiver r;
-        try { r = new LinkReceiver(address, LinkReceiver.newCode(new SecureRandom()), receivePages()); }
+        try { r = new LinkReceiver(address, LinkReceiver.newCode(new SecureRandom()), receivePages(), receivedTexts.waiting()); }
         catch (IOException e) { toast(getString(R.string.text_receive_failed)); return; }
         linkReceiver = r;
+        receivedCount = 0;
+        final int generation = receiveGeneration;
         Theme t = t();
         final Overlay[] shown = new Overlay[1];
         LinearLayout card = column();
@@ -1215,7 +1252,7 @@ public final class MainActivity extends Activity {
         // Drawn at its own size, a whole number of pixels a module, so it is never blurred. The most
         // that fits: a TV only 540 dp high has the card's other lines to make room for.
         float density = getResources().getDisplayMetrics().density;
-        int room = host.getHeight() > 0 ? Math.round((host.getHeight() - host.getPaddingTop() - host.getPaddingBottom()) / density) - 52 - 280 : 220;
+        int room = host.getHeight() > 0 ? Math.round((host.getHeight() - host.getPaddingTop() - host.getPaddingBottom()) / density) - 52 - 292 : 220;
         LinkReceiver.Qr qr = LinkReceiver.qr(r.url(), dp(Math.max(130, Math.min(220, room))));
         ImageView code = new ImageView(this);
         code.setImageBitmap(Bitmap.createBitmap(qr.pixels, qr.side, qr.side, Bitmap.Config.ARGB_8888));
@@ -1242,45 +1279,92 @@ public final class MainActivity extends Activity {
         close.setOnClickListener(v -> closeOverlay(shown[0]));
         LinearLayout buttons = row(); buttons.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
         buttons.setPadding(dp(18), dp(6), dp(18), dp(12));
+        // How many have come, once one has: in the row of the button, where it takes no more of the card's height.
+        TextView counted = label("", 12, t.textFaint);
+        counted.setTag("receive:count");
+        counted.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
+        counted.setGravity(Gravity.CENTER_VERTICAL | Gravity.START);
+        buttons.addView(counted, new LinearLayout.LayoutParams(0, dp(32), 1));
+        receivedLine = counted;
         buttons.addView(close, lp(-2, 32));
         card.addView(buttons, lp(-1, -2));
         // No screensaver while the phone is used instead of the remote.
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         Overlay overlay = showOverlay("receive", OverlayLayer.Kind.CARD, card, null, () -> {
             getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+            if (receivedLine == counted) receivedLine = null;
             if (linkReceiver == r) stopReceiver();
         });
         shown[0] = overlay;
         overlay.width(dp(460));
         // A remote starts on Close, not on the back arrow above the code.
         overlay.defaultKey = "receive:close";
-        // These arrive on the receiver's thread, and count only for the receiver still open.
+        // These arrive on the receiver's thread. A text it took is the TV's to answer, whether or not its card is
+        // still up, unless the app was left in between.
         r.start(new LinkReceiver.Listener() {
             @Override public void received(String text, String fileName, String sender) {
                 runOnUiThread(() -> {
-                    if (isDestroyed() || linkReceiver != r) return;
-                    stopReceiver();
-                    // A TOML file is named after its file, as one picked here is; a link names itself.
-                    importText(fileName != null ? fileName : getString(R.string.text_from_another_device), text, sender);
+                    if (isDestroyed() || generation != receiveGeneration) { receivedTexts.giveBack(); return; }
+                    receivedTexts.add(text, fileName, sender);
+                    if (linkReceiver == r) {
+                        receivedCount++;
+                        if (receivedLine != null) receivedLine.setText(getString(R.string.text_receive_received, receivedCount));
+                    }
+                    processReceived();
                 });
             }
             @Override public void stopped(LinkReceiver.Stop reason) {
                 runOnUiThread(() -> {
                     if (isDestroyed() || linkReceiver != r) return;
+                    boolean somethingCame = receivedCount > 0;
                     stopReceiver();
                     toast(getString(reason == LinkReceiver.Stop.LOCKED_OUT ? R.string.text_receive_locked_out
-                            : reason == LinkReceiver.Stop.TIMEOUT ? R.string.text_receive_timed_out : R.string.text_receive_failed));
+                            : reason == LinkReceiver.Stop.TIMEOUT ? (somethingCame ? R.string.text_receive_timed_out_after_texts : R.string.text_receive_timed_out)
+                            : R.string.text_receive_failed));
                 });
             }
         });
     }
-    // Closes the port and its card: its card's closing finds the port gone and leaves it be.
+    // Closes the port and its card: its card's closing finds the port gone and leaves it be. What it took
+    // stays in the queue.
     private void stopReceiver() {
         LinkReceiver r = linkReceiver;
         linkReceiver = null;
         if (r != null) r.stop();
         Overlay open = overlay("receive");
         if (open != null) closeOverlay(open);
+    }
+
+    // The next text it took, checked and asked about, when none is: importText, then validateAsync, then the
+    // confirmation, then the next. Nothing is added without a yes. A text holds its place in the receiver's
+    // count until it is answered, whatever the answer, which is what lets the phone send another when ten
+    // waited. When one is refused, its notice stays up before the next one's "Validating…" takes its place.
+    private void processReceived() {
+        if (isDestroyed() || receivedTexts.busy() || receivedTexts.queued() == 0) return;
+        if (receivedHold) {
+            if (toastView != null && SystemClock.uptimeMillis() < receivedHoldUntil) {
+                if (!receivedPollPending) {
+                    receivedPollPending = true;
+                    toastHandler.postDelayed(() -> { receivedPollPending = false; processReceived(); }, 250);
+                }
+                return;
+            }
+            receivedHold = false;
+        }
+        final ReceivedQueue.Item item = receivedTexts.next();
+        // A TOML file is named after its file, as one picked here is; a link names itself.
+        importText(item.fileName != null ? item.fileName : getString(R.string.text_from_another_device), item.text, item.sender, refused -> {
+            if (!receivedTexts.answered(item)) return;
+            if (refused) { receivedHold = true; receivedHoldUntil = SystemClock.uptimeMillis() + 10_000; }
+            // After what answered it is done, not inside it.
+            host.post(this::processReceived);
+        });
+    }
+    // The app is left: what is waiting for its turn is dropped, and so is what the receiver handed over
+    // that this thread has not seen. The one being asked about is not: its question is still up.
+    private void dropReceived() {
+        receiveGeneration++;
+        receivedTexts.drop();
     }
     // The address a phone on the same Wi-Fi or Ethernet reaches this device at: the
     // active network's first, and never a VPN's. FreeTunnel is left out of its own VPN,
@@ -1308,8 +1392,8 @@ public final class MainActivity extends Activity {
         return new LinkReceiver.Pages(java.util.Locale.getDefault().toLanguageTag(), getString(R.string.receive_page_title),
                 getString(R.string.receive_page_prompt), getString(R.string.receive_page_file), getString(R.string.receive_page_send),
                 getString(R.string.receive_page_note), getString(R.string.receive_page_sent), getString(R.string.receive_page_retry),
-                getString(R.string.receive_page_too_large), getString(R.string.receive_page_wrong_code),
-                getString(R.string.receive_page_locked_out));
+                getString(R.string.receive_page_too_large), getString(R.string.receive_page_busy),
+                getString(R.string.receive_page_wrong_code), getString(R.string.receive_page_locked_out));
     }
     // A refusal is the desktop's kind of notice, a toast, however long: up to 6 lines, 10 seconds.
     private void refuseImport(int messageResource) {
@@ -1337,6 +1421,10 @@ public final class MainActivity extends Activity {
     // already in the list, or the same file, is the desktop's collision: Replace puts it where that one
     // is, Add copy adds it as another.
     private void showImportConfirmation(String name, boolean namedAfterFile, RoutingConfig.Import checked, String origin, boolean link) {
+        showImportConfirmation(name, namedAfterFile, checked, origin, link, null);
+    }
+    private void showImportConfirmation(String name, boolean namedAfterFile, RoutingConfig.Import checked, String origin, boolean link,
+                                        Answered done) {
         String source = checked.getToml();
         org.tomlj.TomlTable parsed = RoutingConfig.validate(source);
         Config clash = null;
@@ -1362,11 +1450,15 @@ public final class MainActivity extends Activity {
         String notes = importNotes(checked);
         if (!notes.isEmpty()) message.append('\n').append(notes);
         final Config existing = clash;
+        // Whichever way it is answered, Cancel, Back or a tap outside included, the asker is told.
+        final Runnable declined = () -> answered(done, false);
         if (existing == null) {
-            showConfirm(message, getString(R.string.import_confirm), () -> addImported(name, source));
+            showConfirm(message, getString(R.string.import_confirm), null,
+                    () -> { addImported(name, source); answered(done, false); }, null, declined);
         } else {
             showConfirm(message, getString(R.string.import_replace), getString(R.string.import_add_copy),
-                    () -> replaceImported(existing, name, source), () -> addImported(name, source), null);
+                    () -> { replaceImported(existing, name, source); answered(done, false); },
+                    () -> { addImported(name, source); answered(done, false); }, declined);
         }
     }
     // After an import the page stays as it is, and the toast says what was added, as the desktop's does.
@@ -2101,6 +2193,7 @@ public final class MainActivity extends Activity {
     @Override protected void onDestroy() {
         toastHandler.removeCallbacksAndMessages(null);
         stopReceiver();
+        dropReceived();
         validationRequest++;
         validationWorker.shutdown();
         scanWorker.shutdown();
