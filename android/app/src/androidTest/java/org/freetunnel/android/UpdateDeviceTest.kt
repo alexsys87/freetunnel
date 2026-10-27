@@ -48,7 +48,7 @@ class UpdateDeviceTest {
         field("verifiedFile", null); field("expectedDigest", null); field("state", AndroidUpdater.State.IDLE)
         field("sessionId", -1); field("committed", false); field("failure", null); field("verifiedVersionCode", 0L)
         field("officialBuild", null); field("certificatePin", BuildConfig.RELEASE_CERTIFICATE_SHA256)
-        field("release", null); field("cancelled", false)
+        field("release", null); field("cancelled", false); field("failedCheck", false); field("progress", 0)
         vpnState(0)
         prefs.edit().remove(FreeTunnelVpnService.RESUME_AFTER_UPDATE).commit()
         activity?.let { instrumentation.runOnMainSync { it.finish() } }
@@ -217,6 +217,29 @@ class UpdateDeviceTest {
         assertEquals(context.getString(R.string.update_check), action!!.text.toString())
         assertTrue(shows(context.getString(R.string.update_on_launch)))
         assertFalse(shows(context.getString(R.string.update_unofficial)))
+        // One row under Maintenance, the desktop's section; no section of Updates or hint of Android's own any more.
+        assertTrue(shows(context.getString(R.string.settings_maintenance)))
+        assertFalse("the update line is one control, over its words", action.width > 0 && action.width >= activity!!.window.decorView.width * 3 / 4)
+    }
+
+    // The update line, clicked when the update is downloaded, installs it: with the VPN on after the app's own question (see the next
+    // test), and with it off straight to Android's installer, whose window is cancelled here, leaving the update ready.
+    @Test fun clickingTheUpdateLineWhenItIsDownloadedGoesToAndroidsInstaller() {
+        assertTrue("Grant REQUEST_INSTALL_PACKAGES appop before device tests", context.packageManager.canRequestPackageInstalls())
+        field("officialBuild", null); field("certificatePin", debugCertificate())
+        readyToInstall()
+        field("verifiedVersionCode", 4242L)
+        openApp()
+        val action = settingsUpdateAction()
+        assertNotNull(action)
+        instrumentation.runOnMainSync { MainActivity::class.java.getDeclaredMethod("refreshUpdateControls").apply { isAccessible = true }.invoke(activity) }
+        // No release is known here, so its version is empty in the line.
+        assertEquals("a downloaded update says so", context.getString(R.string.update_ready, ""), action!!.text.toString())
+        instrumentation.runOnMainSync { assertTrue("it is clickable", action.isClickable); action.performClick() }
+        eventually { androidsDialogShown() }
+        cancelAndroidsDialog()
+        eventually { AndroidUpdater.state == AndroidUpdater.State.READY }
+        assertTrue(copy!!.isFile)
     }
 
     // The overlay of the app's own window with this tag, or null.

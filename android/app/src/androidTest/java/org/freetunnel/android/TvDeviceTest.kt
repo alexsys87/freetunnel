@@ -41,6 +41,7 @@ import io.nayuki.qrcodegen.QrCode
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Assume.assumeFalse
+import org.junit.Assume.assumeTrue
 import org.junit.Before
 import org.junit.Test
 import java.net.ConnectException
@@ -107,6 +108,8 @@ class TvDeviceTest {
         serviceState(0)
         updater("officialBuild", null); updater("certificatePin", BuildConfig.RELEASE_CERTIFICATE_SHA256)
         updater("state", AndroidUpdater.State.IDLE)
+        updater("release", null); updater("failure", null); updater("failedCheck", false); updater("committed", false)
+        updater("progress", 0); updater("cancelled", false)
         val editor = prefs.edit().clear()
         oldPreferences.forEach { (key, value) -> when (value) {
             is Boolean -> editor.putBoolean(key, value)
@@ -250,14 +253,14 @@ class TvDeviceTest {
                 assertEquals("$name: the border of a focused field", theme.accent, look.focusedEdge)
                 assertEquals("$name: the border of a field at rest", theme.inputBorder, look.restEdge)
             }
-            // A box of text a remote scrolls, such as a license: the surface, with the field's accent border.
-            key == "licenses:text" -> {
+            // A box of text a remote scrolls, such as a license or the log: the surface, with the field's accent border.
+            key == "licenses:text" || key == "log:box" -> {
                 assertEquals("$name: the border of a focused box of text", theme.accent, look.focusedEdge)
                 assertEquals("$name: a box of text at rest", theme.surface, look.restEdge)
             }
-            Regex("(domain|app):\\d+|profile:\\d+:remove").matches(key) -> assertEquals("$name: a ChipX focuses in danger", theme.danger, look.focusedFill)
+            Regex("(domain|app|route):\\d+|profile:\\d+:remove").matches(key) -> assertEquals("$name: a ChipX focuses in danger", theme.danger, look.focusedFill)
             // Clear all is the danger link, as the desktop's is.
-            key == "domains:clear" || key == "apps:clear" -> assertEquals("$name: a danger link focuses in danger", theme.danger, look.focusedFill)
+            key == "domains:clear" || key == "apps:clear" || key == "routes:clear" -> assertEquals("$name: a danger link focuses in danger", theme.danger, look.focusedFill)
             // The close icon of a config row, as the desktop's turns danger under the pointer.
             Regex("config:\\d+:remove").matches(key) -> assertEquals("$name: the close icon focuses in danger", theme.danger, look.focusedFill)
             // The red button, whichever confirmation it answers.
@@ -981,7 +984,7 @@ class TvDeviceTest {
         render(a, 4)
         val padding = if (isTv) onMain { Math.round(48 * a.resources.displayMetrics.density) } else 0
         eventually("Overscan padding on a TV, none on a phone") { onMain { root(a).paddingLeft } == padding }
-        val log = onMain { descendants(pageRoot(a)).filterIsInstance<TextView>().last() }
+        val log = onMain { root(a).findViewWithTag<TextView>("log:text") }
         assertEquals("On a TV, selectable text would take the arrows", !isTv, onMain { log.isTextSelectable })
     }
 
@@ -2243,8 +2246,10 @@ class TvDeviceTest {
     private fun splitStore() = SplitPrefs(prefs)
     private fun profiles(): SplitProfiles = SplitStore.load(splitStore(), null)
     private fun editProfiles(change: (SplitProfiles) -> Unit) { SplitStore.edit(splitStore(), null) { p -> change(p) } }
+    // The label of a chip, by the key of the chip itself (a profile's) or of the X in it (a rule's, an application's, a route's).
     private fun chipLabel(a: MainActivity, key: String): String = onMain {
-        (root(a).findViewWithTag<ViewGroup>(key).getChildAt(0) as TextView).text.toString()
+        val view = root(a).findViewWithTag<View>(key)
+        ((if (view is ImageView) view.parent else view) as ViewGroup).getChildAt(0).let { (it as TextView).text.toString() }
     }
     private fun pageKeys(a: MainActivity): Set<String> = onMain {
         descendants(pageRoot(a)).filter { it.isShown }.mapNotNull { it.tag as? String }.toSet()
@@ -2769,5 +2774,593 @@ class TvDeviceTest {
             onMain { (root(a).findViewWithTag<ViewGroup>("editor:profile").getChildAt(0) as TextView).text.toString() })
         click(a, "editor:cancel")
         eventually("and nothing was changed, so Cancel closes it at once") { overlayTag(a, "editor") == null }
+    }
+
+    // ---- Settings (qml/pages/SettingsPage.qml) ----
+
+    private fun defaultRoutes(): List<String> = ExcludedRoutes.defaults(context)
+    private fun savedRoutes(): List<String> = ExcludedRoutes.load(prefs.getString(ExcludedRoutes.KEY, null), defaultRoutes())
+    private fun routeLabels(a: MainActivity): List<String> {
+        val labels = ArrayList<String>()
+        while (onMain { root(a).findViewWithTag<View?>("route:${labels.size}") } != null) labels.add(chipLabel(a, "route:${labels.size}"))
+        return labels
+    }
+    private fun textOf(a: MainActivity, key: String): String = onMain { root(a).findViewWithTag<TextView>(key).text.toString() }
+    private fun visible(a: MainActivity, key: String): Boolean = onMain { root(a).findViewWithTag<View?>(key)?.visibility == View.VISIBLE }
+    // The rows of the select popup that is open, as the texts it shows.
+    private fun selectRows(a: MainActivity): List<String> = onMain {
+        descendants(root(a).findViewWithTag<View>("overlay:select")).filterIsInstance<TextView>().map { it.text.toString() }
+    }
+
+    // The page as the desktop has it, top to bottom, with its margins (18 on the sides, 6 above, 14 below), its section labels as
+    // they are typed (no capitals, no bold), and a line between the rows of General and nowhere else.
+    @Test fun theSettingsPageIsTheDesktopsInItsOrderWithItsMargins() {
+        officialBuild()
+        val a = open()
+        render(a, 3)
+        val keys = listOf("settings:language", "settings:theme", "switch:auto_connect", "switch:killswitch", "routes:restore", "route:0",
+            "routes:input", "switch:logging", "switch:check_updates_on_launch", "settings:update", "settings:site", "settings:core", "settings:licenses")
+        onMain {
+            val tops = keys.map { topOf(root(a).findViewWithTag<View>(it)) }
+            assertEquals("top to bottom, one under the other: $tops", tops.sorted().distinct(), tops)
+            val labelIds = listOf(R.string.text_general, R.string.text_security, R.string.settings_excluded_routes, R.string.settings_logging,
+                R.string.settings_maintenance)
+            val labels = labelIds.map { id ->
+                descendants(pageRoot(a)).filterIsInstance<TextView>().first { it.text.toString() == context.getString(id) }
+            }
+            assertEquals("the section labels are in order", labels.map { topOf(it) }.sorted(), labels.map { topOf(it) })
+            for (label in labels) {
+                assertFalse("${label.text}: never bold", label.typeface?.isBold == true)
+                assertEquals("${label.text}: 12 sp", 12f, label.textSize / a.resources.displayMetrics.scaledDensity, 0.5f)
+            }
+            val body = (field("pageScroll").get(a) as ScrollView).getChildAt(0)
+            assertEquals(Math.round(dp(a, 18f)), body.paddingLeft)
+            assertEquals(Math.round(dp(a, 18f)), body.paddingRight)
+            assertEquals("6 above", Math.round(dp(a, 6f)), body.paddingTop)
+            assertEquals("14 below", Math.round(dp(a, 14f)), body.paddingBottom)
+            // Lines: one between Language and Theme and one between Theme and Connect on startup, and none anywhere else.
+            val inner = body.width - body.paddingLeft - body.paddingRight
+            val lines = descendants(body).filter { it !is ViewGroup && it.isShown && it.width >= inner - 2 && it.height in 1..Math.round(dp(a, 2f)) }.toList()
+            assertEquals("two lines in General and no other", 2, lines.size)
+            val language = topOf(root(a).findViewWithTag<View>("settings:language"))
+            val connect = topOf(root(a).findViewWithTag<View>("switch:auto_connect"))
+            assertTrue("both are between the rows of General", lines.all { topOf(it) in language..connect })
+            // The desktop's own texts: no About section.
+            assertFalse(descendants(body).filterIsInstance<TextView>().any { it.text.toString() == "About" })
+        }
+        assertTrue("Kill switch has its subtitle", shows(a, context.getString(R.string.settings_kill_switch_hint)))
+        // What only the desktop has is not here.
+        for (text in listOf("Launch at system startup", "Hotkeys", "Verbose logs", "Let the VPN config open ports")) assertFalse("$text is the desktop's alone", shows(a, text))
+    }
+
+    // Android's own row: the label is words, and the link, which is as wide as its word, is the control.
+    @Test fun onlyTheOpenLinkOfTheAndroidVpnSettingsRowIsFocusable() {
+        val screen = context.packageManager.resolveActivity(Intent(Settings.ACTION_VPN_SETTINGS), 0) != null
+        assumeTrue("This device has no Android VPN settings screen", screen)
+        val a = open()
+        leaveTouchMode(a)
+        render(a, 3)
+        onMain {
+            val open = root(a).findViewWithTag<TextView>("settings:vpn")
+            assertEquals(context.getString(R.string.text_open), open.text.toString())
+            assertTrue(open.isFocusable)
+            val words = Math.ceil(open.paint.measureText(open.text.toString()).toDouble()).toInt()
+            assertTrue("as wide as its word: ${open.width}", open.width <= words + open.paddingLeft + open.paddingRight + 1)
+            val row = open.parent as ViewGroup
+            for (i in 0 until row.childCount) if (row.getChildAt(i) !== open) assertFalse("nothing else in the row is a focus stop", row.getChildAt(i).isFocusable)
+            val label = descendants(row).filterIsInstance<TextView>().first { it !== open }
+            assertEquals(context.getString(R.string.text_android_vpn_settings), label.text.toString())
+        }
+        focusOn(a, "settings:vpn")
+        assertEquals("settings:vpn", focusedKey(a))
+    }
+
+    // Language is English or Русский, each in itself whatever the app speaks, and the one the app speaks is marked.
+    @Test fun theLanguageRowOffersEnglishAndRussianInThemselvesAndMarksTheOneInUse() {
+        val a = open()
+        leaveTouchMode(a)
+        render(a, 3)
+        val speaking = onMain { AppLocale.current(a) }
+        val shown = if (speaking == "ru") "Русский" else "English"
+        assertEquals("The row shows the language in use", shown, onMain { ((root(a).findViewWithTag<ViewGroup>("settings:language")).getChildAt(0) as TextView).text.toString() })
+        click(a, "settings:language")
+        eventually("The choices open") { overlayTag(a, "select") != null }
+        assertEquals(if (speaking == "ru") listOf("English", "Русский", "✓") else listOf("English", "✓", "Русский"), selectRows(a))
+        eventually("The one in use has the focus") { focusedKey(a) == "select:${if (speaking == "ru") 1 else 0}" }
+        // The one in use is no change: nothing is saved, and nothing is recreated.
+        click(a, "select:${if (speaking == "ru") 1 else 0}")
+        eventually("The popup closes") { overlayTag(a, "select") == null }
+        assertFalse("nothing is saved", prefs.contains("language"))
+        assertFalse(onMain { a.isDestroyed || a.isFinishing })
+        eventually("The focus is back on the row") { focusedKey(a) == "settings:language" }
+    }
+
+    // Choosing the other language recreates the activity in it, back on Settings; and where the app has no language of its own to
+    // speak in (before Android 13) it is the saved one that every context wraps. The language is put back, which Android keeps for the app.
+    @Test fun choosingRussianSwitchesTheWholeAppAndSettingsComesBack() {
+        val a = open()
+        render(a, 3)
+        var second: MainActivity? = null
+        fun resumed(): MainActivity? = androidx.test.runner.lifecycle.ActivityLifecycleMonitorRegistry.getInstance()
+            .getActivitiesInStage(androidx.test.runner.lifecycle.Stage.RESUMED).firstOrNull { it is MainActivity && it !== a } as MainActivity?
+        try {
+            onMain { AppLocale.choose(a, prefs, "ru") }
+            eventually("The activity is made again", 20_000) { if (second == null) second = resumed(); second != null }
+            val b = second!!
+            activity = b
+            instrumentation.waitForIdleSync()
+            assertEquals("ru", onMain { AppLocale.current(b) })
+            assertEquals("and it is on Settings still", 3, onMain { field("page").getInt(b) })
+            assertTrue("in Russian", shows(b, "Язык"))
+            assertTrue(shows(b, "Основное"))
+            assertEquals("Русский", onMain { ((root(b).findViewWithTag<ViewGroup>("settings:language")).getChildAt(0) as TextView).text.toString() })
+        } finally {
+            // Back to the default language, where Android keeps the choice for the app, and then to a clean activity.
+            prefs.edit().remove("language").commit()
+            if (android.os.Build.VERSION.SDK_INT >= 33)
+                context.getSystemService(android.app.LocaleManager::class.java).setApplicationLocales(android.os.LocaleList.getEmptyLocaleList())
+            val live = second ?: a
+            instrumentation.runOnMainSync { if (!live.isDestroyed) live.recreate() }
+            eventually("English again", 20_000) {
+                androidx.test.runner.lifecycle.ActivityLifecycleMonitorRegistry.getInstance().getActivitiesInStage(androidx.test.runner.lifecycle.Stage.RESUMED)
+                    .filterIsInstance<MainActivity>().any { AppLocale.current(it) == "en" }
+            }
+            activity = androidx.test.runner.lifecycle.ActivityLifecycleMonitorRegistry.getInstance()
+                .getActivitiesInStage(androidx.test.runner.lifecycle.Stage.RESUMED).filterIsInstance<MainActivity>().firstOrNull() ?: activity
+        }
+    }
+
+    // Without a saved list the routes are the shared defaults; the first change saves the whole list.
+    @Test fun theExcludedRoutesAreTheDefaultsUntilOneIsChangedAndThenTheListIsSaved() {
+        val a = open()
+        render(a, 3)
+        assertFalse(prefs.contains(ExcludedRoutes.KEY))
+        assertEquals(defaultRoutes(), routeLabels(a))
+        assertEquals(7, defaultRoutes().size)
+        click(a, "route:0")
+        eventually("The first route is gone, at once and with nothing asked") { savedRoutes() == defaultRoutes().drop(1) }
+        assertNull(overlayTag(a, "confirm"))
+        assertEquals(defaultRoutes().drop(1), routeLabels(a))
+        assertEquals("saved as the JSON list", defaultRoutes().drop(1), ExcludedRoutes.load(prefs.getString(ExcludedRoutes.KEY, null), emptyList()))
+    }
+
+    // Several at once, separated by spaces, commas or semicolons; the ones that are no subnet are named, and a /0 says why.
+    @Test fun routesAreAddedAndTheWordsThatAreNoSubnetAreNamed() {
+        val a = open()
+        render(a, 3)
+        enter(a, "routes:input", "10.1.0.0/16, 8.8.8.8;fd00::/8 junk 0.0.0.0/0")
+        eventually("The subnets are added after those there were") { savedRoutes() == defaultRoutes() + listOf("10.1.0.0/16", "8.8.8.8/32", "fd00::/8") }
+        assertTrue("the words that are none are named, with the reason a /0 has",
+            context.getString(R.string.settings_routes_refused_every, "junk, 0.0.0.0/0") in toastTexts(a))
+        assertEquals("The field is empty again", "", fieldText(a, "routes:input"))
+        assertEquals("a bare address is a /32", "8.8.8.8/32", routeLabels(a)[defaultRoutes().size + 1])
+        // A typo alone is named without the reason, and nothing changes.
+        enter(a, "routes:input", "10.0.0/8")
+        eventually("A typo is named") { context.getString(R.string.settings_routes_refused, "10.0.0/8") in toastTexts(a) }
+        assertEquals("and the text stays to be put right", "10.0.0/8", fieldText(a, "routes:input"))
+        // A /0 alone, which is no change.
+        enter(a, "routes:input", "0.0.0.0/0")
+        eventually("A /0 says why") { context.getString(R.string.settings_routes_refused_every, "0.0.0.0/0") in toastTexts(a) }
+        assertEquals("0.0.0.0/0", fieldText(a, "routes:input"))
+        assertEquals(defaultRoutes() + listOf("10.1.0.0/16", "8.8.8.8/32", "fd00::/8"), savedRoutes())
+        // What is there already is neither added nor refused: no new toast.
+        val before = toastTexts(a)
+        enter(a, "routes:input", "8.8.8.8")
+        SystemClock.sleep(300)
+        assertEquals(defaultRoutes().size + 3, savedRoutes().size)
+        assertTrue("a route that is there is no refusal", toastTexts(a).all { it in before })
+    }
+
+    // Restore defaults and Clear all each ask first, with the desktop's questions and buttons.
+    @Test fun restoreDefaultsAndClearAllAskFirst() {
+        prefs.edit().putString(ExcludedRoutes.KEY, ExcludedRoutes.toJson(listOf("1.2.3.0/24", "10.0.0.0/8"))).commit()
+        val a = open()
+        leaveTouchMode(a)
+        render(a, 3)
+        click(a, "routes:restore")
+        eventually("Restore asks") { confirmMessage(a) == context.getString(R.string.settings_routes_restore_question) }
+        assertEquals(context.getString(R.string.import_replace), textOf(a, "confirm:ok"))
+        instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
+        eventually("Back says no") { overlayTag(a, "confirm") == null }
+        assertEquals(listOf("1.2.3.0/24", "10.0.0.0/8"), savedRoutes())
+        click(a, "routes:restore")
+        eventually("It asks again") { confirmMessage(a) != null }
+        answerYes(a)
+        eventually("The defaults replace the list") { savedRoutes() == defaultRoutes() }
+        // Clear all.
+        click(a, "routes:clear")
+        eventually("Clear all asks") { confirmMessage(a) == context.getString(R.string.settings_routes_clear_question) }
+        assertEquals(context.getString(R.string.text_clear), textOf(a, "confirm:ok"))
+        instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
+        eventually("Back says no") { overlayTag(a, "confirm") == null }
+        assertEquals(defaultRoutes(), savedRoutes())
+        click(a, "routes:clear")
+        eventually("It asks again") { confirmMessage(a) != null }
+        answerYes(a)
+        eventually("The list is saved empty") { prefs.getString(ExcludedRoutes.KEY, null) == "[]" }
+        assertEquals("and stays empty: cleared is not absent", emptyList<String>(), savedRoutes())
+        eventually("The link goes with the routes") { !pageKeys(a).contains("routes:clear") && !pageKeys(a).contains("route:0") }
+    }
+
+    // A change builds a VPN that is up again, with the routes in its plan; one that is down is built from them when it starts.
+    @Test fun aRouteChangeBuildsARunningVpnAgainAndANoOpDoesNot() {
+        val a = open()
+        render(a, 3)
+        val gate = java.util.concurrent.CountDownLatch(1)
+        (field("validationWorker").get(a) as ExecutorService).execute { gate.await() }
+        onMain { field("vpnState").setInt(a, 2) }
+        serviceState(2)
+        try {
+            fun requests() = onMain { field("validationRequest").getLong(a) }
+            val before = requests()
+            enter(a, "routes:input", "10.9.0.0/16")
+            eventually("The route is added") { savedRoutes().contains("10.9.0.0/16") }
+            assertEquals("a VPN that is up is built again", before + 1, requests())
+            enter(a, "routes:input", "10.9.0.0/16")
+            SystemClock.sleep(300)
+            assertEquals("a route that is there changes nothing", before + 1, requests())
+            click(a, "route:0")
+            eventually("A route is removed") { !savedRoutes().contains(defaultRoutes()[0]) }
+            assertEquals("and that builds it again", before + 2, requests())
+        } finally {
+            serviceState(0)
+            onMain { field("vpnState").setInt(a, 0) }
+            gate.countDown()
+        }
+    }
+
+    // The plan the service builds from the saved routes: they are the config's own, then these.
+    @Test fun theSavedRoutesAreInThePlanAndSoAreTheDefaultsWhereNoneAreSaved() {
+        fun excluded(plan: RoutingConfig.Plan) =
+            org.tomlj.Toml.parse(plan.toml).getTable("listener.tun")!!.getArray("excluded_routes")!!.toList().map { it.toString() }
+        assertEquals("the defaults where nothing is saved", defaultRoutes(), excluded(RoutingConfig.prepare(context, source, "Default")))
+        prefs.edit().putString(ExcludedRoutes.KEY, ExcludedRoutes.toJson(listOf("172.20.0.0/14", "0.0.0.0/0"))).commit()
+        assertEquals("only what is saved, and never a /0", listOf("172.20.0.0/14"), excluded(RoutingConfig.prepare(context, source, "Default")))
+        prefs.edit().putString(ExcludedRoutes.KEY, "[]").commit()
+        assertEquals("none, once cleared", emptyList<String>(), excluded(RoutingConfig.prepare(context, source, "Default")))
+    }
+
+    // Maintenance: the one row, and for each state what it says, which picture is beside it and what a click does.
+    private fun release() = UpdatePolicy.Release("99.0.0", "https://example.invalid/update.apk",
+        "https://example.invalid/SHA256SUMS-android.txt", "https://example.invalid/SHA256SUMS-android.txt.sig")
+    private fun updateShows(a: MainActivity, state: AndroidUpdater.State, committed: Boolean = false) {
+        updater("committed", committed)
+        updater("state", state)
+        onMain { method("refreshUpdateControls").invoke(a) }
+        instrumentation.waitForIdleSync()
+    }
+    // Plain, so that it can be used in an onMain block: onMain does not nest.
+    private fun arrowOf(a: MainActivity): UpdateArrowView = root(a).findViewWithTag("update:arrow")
+
+    @Test fun theMaintenanceRowSaysAndShowsWhatTheDesktopsDoesForEachState() {
+        officialBuild()
+        updater("release", release())
+        val a = open()
+        render(a, 3)
+        // Idle, and up to date: "Check for updates", and the version at the right, with a tick once it is known to be current.
+        updateShows(a, AndroidUpdater.State.IDLE)
+        assertEquals(context.getString(R.string.update_check), textOf(a, "settings:update"))
+        assertTrue(onMain { root(a).findViewWithTag<View>("settings:update").isClickable })
+        assertTrue(visible(a, "update:version"))
+        assertEquals(BuildConfig.VERSION_NAME, textOf(a, "update:version"))
+        for (key in listOf("update:tick", "update:arrow", "update:dots")) assertFalse("$key is not shown", onMain { root(a).findViewWithTag<View>(key).isShown })
+        updateShows(a, AndroidUpdater.State.CURRENT)
+        assertEquals("the same words", context.getString(R.string.update_check), textOf(a, "settings:update"))
+        assertTrue(visible(a, "update:tick"))
+        assertEquals("✓", textOf(a, "update:tick"))
+        assertTrue(visible(a, "update:version"))
+        // Checking: dots, and nothing to click.
+        updateShows(a, AndroidUpdater.State.CHECKING)
+        assertEquals(context.getString(R.string.update_checking), textOf(a, "settings:update"))
+        assertFalse(onMain { root(a).findViewWithTag<View>("settings:update").isClickable })
+        assertTrue(onMain { root(a).findViewWithTag<View>("update:dots").isShown })
+        assertFalse(onMain { root(a).findViewWithTag<View>("update:arrow").isShown })
+        assertFalse(visible(a, "update:version"))
+        assertFalse(visible(a, "update:tick"))
+        // An offer: Version X is available, with an arrow down.
+        updateShows(a, AndroidUpdater.State.AVAILABLE)
+        assertEquals(context.getString(R.string.update_available, "99.0.0"), textOf(a, "settings:update"))
+        assertTrue(onMain { root(a).findViewWithTag<View>("settings:update").isClickable })
+        assertTrue(onMain { arrowOf(a).isShown })
+        assertEquals("a straight arrow down", 0f, onMain { arrowOf(a).bend() }, 0f)
+        assertFalse(onMain { arrowOf(a).spinning() })
+        assertFalse(onMain { root(a).findViewWithTag<View>("update:dots").isShown })
+        // A download: the arrow bent round and turning, and a click on the line cancels it.
+        updater("progress", 42)
+        updateShows(a, AndroidUpdater.State.DOWNLOADING)
+        assertEquals(context.getString(R.string.update_downloading, 42), textOf(a, "settings:update"))
+        assertEquals(1f, onMain { arrowOf(a).bend() }, 0f)
+        eventually("it turns") { onMain { arrowOf(a).spinning() && arrowOf(a).spinAngle() > 0f } }
+        click(a, "settings:update")
+        assertEquals("a click cancels the download", true, AndroidUpdater::class.java.getDeclaredField("cancelled").apply { isAccessible = true }.get(null))
+        // Downloaded: Android's own words, no picture, a click installs.
+        updateShows(a, AndroidUpdater.State.READY)
+        assertEquals(context.getString(R.string.update_ready, "99.0.0"), textOf(a, "settings:update"))
+        assertFalse(onMain { arrowOf(a).isShown })
+        assertTrue(onMain { root(a).findViewWithTag<View>("settings:update").isClickable })
+        eventually("the arrow stops turning") { onMain { !arrowOf(a).spinning() } }
+        eventually("and has come round to where it started") { onMain { arrowOf(a).spinAngle() == 0f } }
+        // Installing: nothing to click, unless Android has the session and its window was lost.
+        updateShows(a, AndroidUpdater.State.INSTALLING, committed = false)
+        assertEquals(context.getString(R.string.update_installing), textOf(a, "settings:update"))
+        assertFalse(onMain { root(a).findViewWithTag<View>("settings:update").isClickable })
+        updateShows(a, AndroidUpdater.State.INSTALLING, committed = true)
+        assertTrue(onMain { root(a).findViewWithTag<View>("settings:update").isClickable })
+        // A failed check is worded as the desktop words it; a failed download or install says why as it is. Both offer to try again.
+        updater("failure", UpdatePolicy.Failure.NETWORK)
+        updater("failedCheck", true)
+        updateShows(a, AndroidUpdater.State.ERROR)
+        assertEquals(context.getString(R.string.update_check_failed, context.getString(R.string.update_error_network)), textOf(a, "settings:update"))
+        assertTrue(onMain { arrowOf(a).isShown })
+        assertEquals("a retry is the arrow round", 1f, onMain { arrowOf(a).bend() }, 0f)
+        assertFalse("and does not turn", onMain { arrowOf(a).spinning() })
+        assertTrue(onMain { root(a).findViewWithTag<View>("settings:update").isClickable })
+        updater("failure", UpdatePolicy.Failure.VERIFICATION)
+        updater("failedCheck", false)
+        updateShows(a, AndroidUpdater.State.ERROR)
+        assertEquals(context.getString(R.string.update_error_verification), textOf(a, "settings:update"))
+    }
+
+    // Under a remote's focus the arrow of an offer bends round, as the desktop's does under the pointer, and a retry arrow leans.
+    @Test fun aFocusOnTheUpdateLineBendsAnOfferedArrowAndLeansARetryArrow() {
+        officialBuild()
+        updater("release", release())
+        val a = open()
+        leaveTouchMode(a)
+        render(a, 3)
+        updateShows(a, AndroidUpdater.State.AVAILABLE)
+        assertEquals(0f, onMain { arrowOf(a).bend() }, 0f)
+        focusOn(a, "settings:update")
+        eventually("the arrow bends into ↻") { onMain { arrowOf(a).bend() } == 1f }
+        focusOn(a, "tab:3")
+        eventually("and straightens when the focus goes") { onMain { arrowOf(a).bend() } == 0f }
+        updater("failure", UpdatePolicy.Failure.NETWORK)
+        updateShows(a, AndroidUpdater.State.ERROR)
+        assertEquals(0f, onMain { arrowOf(a).turn() }, 0f)
+        focusOn(a, "settings:update")
+        eventually("a retry leans 45 degrees") { onMain { arrowOf(a).turn() } == 45f }
+        focusOn(a, "tab:3")
+        eventually("and comes upright") { onMain { arrowOf(a).turn() } == 0f }
+    }
+
+    // The footer is centred, its two names are links to their pages, and where no browser exists there is a toast, not a crash.
+    @Test fun theFooterNamesTheAppAndTheCoreAndOpensTheirPages() {
+        val a = open()
+        render(a, 3)
+        assertEquals("FreeTunnel ${BuildConfig.VERSION_NAME}", textOf(a, "settings:site"))
+        assertEquals(context.getString(R.string.settings_core) + BuildConfig.CORE_VERSION, textOf(a, "settings:core"))
+        assertTrue("the core's version is the AAR's", BuildConfig.CORE_VERSION.matches(Regex("\\d+(\\.\\d+)*")))
+        assertEquals(context.getString(R.string.text_open_source_licenses), textOf(a, "settings:licenses"))
+        onMain {
+            val site = root(a).findViewWithTag<View>("settings:site")
+            val core = root(a).findViewWithTag<View>("settings:core")
+            val page = pageRoot(a)
+            fun left(view: View) = IntArray(2).also { view.getLocationInWindow(it) }[0]
+            val middle = (left(site) + left(core) + core.width) / 2f
+            // Together they are in the middle of the page, with the licenses link under them.
+            assertEquals("centred", left(page) + page.width / 2f, middle, page.width * 0.03f)
+            assertTrue(topOf(root(a).findViewWithTag<View>("settings:licenses")) > topOf(site))
+        }
+        fun viewer(host: String, path: String) = instrumentation.addMonitor(
+            IntentFilter(Intent.ACTION_VIEW).apply { addDataScheme("https"); addDataAuthority(host, null)
+                addDataPath(path, android.os.PatternMatcher.PATTERN_LITERAL) },
+            Instrumentation.ActivityResult(Activity.RESULT_CANCELED, null), true)
+        val site = viewer("github.com", "/${UpdatePolicy.REPOSITORY}")
+        val core = viewer("github.com", "/TrustTunnel/TrustTunnelClient")
+        try {
+            click(a, "settings:site")
+            assertEquals("FreeTunnel opens its own page", 1, site.hits)
+            assertEquals(0, core.hits)
+            click(a, "settings:core")
+            assertEquals("the core opens the TrustTunnel client's", 1, core.hits)
+            assertEquals(1, site.hits)
+        } finally {
+            instrumentation.removeMonitor(site)
+            instrumentation.removeMonitor(core)
+        }
+        // Nothing handles this: a TV with no browser. The toast says so.
+        onMain { method("openLink", String::class.java).invoke(a, "freetunnel-test-nothing-opens-this://x") }
+        assertTrue(context.getString(R.string.text_no_browser) in toastTexts(a))
+        assertFalse(onMain { a.isFinishing || a.isDestroyed })
+    }
+
+    // ---- Logs (qml/pages/LogsPage.qml) ----
+
+    private val logFile get() = java.io.File(context.filesDir, LogFile.NAME)
+    private fun writeLog(vararg lines: String) { logFile.delete(); lines.forEach { LogFile.append(logFile, it) } }
+    private fun shownLogOf(a: MainActivity): String = textOf(a, "log:text")
+    private fun renderGeneration(a: MainActivity): Int = onMain { field("renderGeneration").getInt(a) }
+    // Plain, so that it can be used in an onMain block: onMain does not nest.
+    private fun logBox(a: MainActivity): ScrollView = root(a).findViewWithTag("log:box")
+    private fun scrollEnd(a: MainActivity): Int = onMain {
+        val box = logBox(a)
+        Math.max(0, box.getChildAt(0).height - (box.height - box.paddingTop - box.paddingBottom))
+    }
+    private val entryLine = LogLines.entry(1_793_104_496_000L, java.time.ZoneId.of("UTC"), LogLines.INFO, "Tunnel up")
+
+    // New lines are shown as the desktop shows them ("HH:mm:ss LEVEL message"), old ones as they are.
+    @Test fun theLogIsShownAsTheDesktopShowsItAndAnOldLineAsItWas() {
+        prefs.edit().putBoolean("logging", true).commit()
+        writeLog("1790000000000 an old line", entryLine, LogLines.entry(1_793_104_500_000L, java.time.ZoneId.of("UTC"), LogLines.WARN, "Kill switch\non"))
+        val a = open()
+        render(a, 4)
+        assertEquals("1790000000000 an old line\n12:34:56 INFO Tunnel up\n12:35:00 WARN Kill switch on", shownLogOf(a))
+        val text = onMain { root(a).findViewWithTag<TextView>("log:text") }
+        onMain {
+            assertEquals("Monospace", android.graphics.Typeface.MONOSPACE, text.typeface)
+            assertEquals("11 sp", 11f, text.textSize / a.resources.displayMetrics.scaledDensity, 0.5f)
+            assertEquals("in the text colour", theme(a).text, text.currentTextColor)
+        }
+        assertTrue("There is no placeholder over a log", onMain {
+            descendants(root(a)).filterIsInstance<TextView>().none { it.text.toString() == context.getString(R.string.logs_placeholder) && it.isShown }
+        })
+    }
+
+    // Clear and Copy are as wide as their words, with room between them; the box is the surface, radius 8, and fills the page.
+    @Test fun clearAndCopyAreLinksAsWideAsTheirWordsAndTheBoxFillsThePage() {
+        prefs.edit().putBoolean("logging", true).commit()
+        writeLog(entryLine)
+        val a = open()
+        leaveTouchMode(a)
+        render(a, 4)
+        onMain {
+            val clear = root(a).findViewWithTag<TextView>("log:clear")
+            val copy = root(a).findViewWithTag<TextView>("log:copy")
+            assertEquals(context.getString(R.string.text_clear), clear.text.toString())
+            assertEquals(context.getString(R.string.text_copy), copy.text.toString())
+            for (link in listOf(clear, copy)) {
+                val words = Math.ceil(link.paint.measureText(link.text.toString()).toDouble()).toInt()
+                assertTrue("${link.text} hugs its word: ${link.width}", link.width <= words + link.paddingLeft + link.paddingRight + 1)
+            }
+            assertTrue("Clear is at the left", clear.left < copy.left)
+            assertTrue("and Copy at the right, with room between", copy.left > clear.right + 20)
+            assertTrue(Math.abs(topOf(clear) - topOf(copy)) <= 1)
+            val box = logBox(a)
+            val page = pageRoot(a)
+            assertTrue("the box is wide: ${box.width} of ${page.width}", box.width > page.width * 0.85f)
+            assertTrue("and tall: from ${topOf(box)}, ${box.height} of ${page.height}", box.height > page.height * 0.5f)
+            assertEquals("12 inside it", Math.round(dp(a, 12f)), box.paddingLeft)
+            // The page does not scroll: the box does.
+            assertNull("no scroll view round the page", field("pageScroll").get(a))
+        }
+        val look = onMain { focusLook(logBox(a)) }
+        assertEquals("the box rests on the surface", theme(a).surface, look.restFill)
+    }
+
+    // Logging on and nothing to show: the placeholder in the middle; with logging off, the notice and its link instead of it.
+    @Test fun anEmptyLogHasItsPlaceholderAndLoggingOffHasItsNoticeAndLink() {
+        prefs.edit().putBoolean("logging", true).commit()
+        logFile.delete()
+        val a = open()
+        leaveTouchMode(a)
+        render(a, 4)
+        assertEquals("", shownLogOf(a))
+        val placeholder = onMain { descendants(root(a)).filterIsInstance<TextView>().first { it.text.toString() == context.getString(R.string.logs_placeholder) } }
+        onMain {
+            assertTrue(placeholder.isShown)
+            assertEquals("13 sp", 13f, placeholder.textSize / a.resources.displayMetrics.scaledDensity, 0.5f)
+            assertEquals(theme(a).textFaint, placeholder.currentTextColor)
+            val box = logBox(a)
+            fun middle(view: View) = IntArray(2).also { view.getLocationInWindow(it) }.let { it[0] + view.width / 2f to it[1] + view.height / 2f }
+            assertEquals("in the middle of the box", middle(box).first, middle(placeholder).first, 3f)
+            assertEquals(middle(box).second, middle(placeholder).second, 3f)
+        }
+        assertFalse("with logging on there is no notice", shows(a, context.getString(R.string.logs_off)))
+        assertNull(onMain { root(a).findViewWithTag<View?>("logs:enable") })
+        prefs.edit().putBoolean("logging", false).commit()
+        render(a, 4)
+        assertTrue(shows(a, context.getString(R.string.logs_off)))
+        onMain {
+            val notice = descendants(root(a)).filterIsInstance<TextView>().first { it.text.toString() == context.getString(R.string.logs_off) }
+            assertEquals("in warn", theme(a).warn, notice.currentTextColor)
+            assertFalse("and no placeholder while it is off", descendants(root(a)).filterIsInstance<TextView>()
+                .any { it.text.toString() == context.getString(R.string.logs_placeholder) && it.isShown })
+        }
+        assertEquals(context.getString(R.string.logs_turn_on), textOf(a, "logs:enable"))
+        click(a, "logs:enable")
+        eventually("Turn on turns logging on") { prefs.getBoolean("logging", false) }
+        eventually("and the notice goes") { !shows(a, context.getString(R.string.logs_off)) }
+    }
+
+    // Clear empties the log at once, and the text alone changes; Copy puts what is shown on the clipboard and says so.
+    @Test fun clearEmptiesTheBoxAtOnceAndCopyCopiesWhatIsShown() {
+        prefs.edit().putBoolean("logging", true).commit()
+        writeLog(entryLine, LogLines.entry(1_793_104_500_000L, java.time.ZoneId.of("UTC"), LogLines.ERROR, "It failed"))
+        val a = open()
+        render(a, 4)
+        val clipboard = context.getSystemService(android.content.ClipboardManager::class.java)
+        click(a, "log:copy")
+        eventually("Copy says so") { context.getString(R.string.text_log_copied) in toastTexts(a) }
+        val copied = onMain { clipboard.primaryClip?.getItemAt(0)?.coerceToText(context)?.toString() }
+        assertEquals("what is shown, line by line", "12:34:56 INFO Tunnel up\n12:35:00 ERROR It failed", copied)
+        val generation = renderGeneration(a)
+        click(a, "log:clear")
+        eventually("The file is gone") { !logFile.exists() }
+        assertEquals("and the box is empty at once", "", shownLogOf(a))
+        assertEquals("by changing the text alone, never by building the page again", generation, renderGeneration(a))
+        assertTrue("with its placeholder", onMain { descendants(root(a)).filterIsInstance<TextView>().first { it.text.toString() == context.getString(R.string.logs_placeholder) }.isShown })
+        // Nothing to copy says so, and the clipboard keeps what it had.
+        click(a, "log:copy")
+        eventually("An empty log says so") { context.getString(R.string.text_log_is_empty) in toastTexts(a) }
+        assertEquals(copied, onMain { clipboard.primaryClip?.getItemAt(0)?.coerceToText(context)?.toString() })
+    }
+
+    // The box follows the file while the page is shown, by changing its text alone, and stops when the page is left.
+    @Test fun theBoxFollowsTheFileWithoutBuildingThePageAgain() {
+        prefs.edit().putBoolean("logging", true).commit()
+        writeLog(entryLine)
+        val a = open()
+        render(a, 4)
+        val generation = renderGeneration(a)
+        assertEquals("12:34:56 INFO Tunnel up", shownLogOf(a))
+        LogFile.append(logFile, LogLines.entry(1_793_104_503_000L, java.time.ZoneId.of("UTC"), LogLines.INFO, "A line that came while the page was up"))
+        eventually("A new line shows within a few seconds", 6_000) { shownLogOf(a).endsWith("12:34:59 INFO A line that came while the page was up") }
+        assertEquals("12:34:56 INFO Tunnel up\n12:34:59 INFO A line that came while the page was up", shownLogOf(a))
+        assertEquals("the page was not built again", generation, renderGeneration(a))
+        // Left, it stops looking: nothing keeps ticking against views that are gone.
+        render(a, 3)
+        assertNull(onMain { root(a).findViewWithTag<View?>("log:text") })
+        LogFile.append(logFile, LogLines.entry(1_793_104_504_000L, java.time.ZoneId.of("UTC"), LogLines.INFO, "while on Settings"))
+        SystemClock.sleep(1_500)
+        render(a, 4)
+        assertTrue("and the page shows it when it comes back", shownLogOf(a).endsWith("while on Settings"))
+    }
+
+    // Auto-scroll keeps the end in view; off, the box stays where it is as lines arrive; on again, it goes to the end.
+    @Test fun autoScrollKeepsTheEndInViewAndStaysOffWhenTurnedOff() {
+        prefs.edit().putBoolean("logging", true).commit()
+        writeLog(*Array(400) { LogLines.entry(1_793_104_496_000L + it * 1000L, java.time.ZoneId.of("UTC"), LogLines.INFO, "line number $it of the log") })
+        val a = open()
+        render(a, 4)
+        assertTrue("on by default", onMain { root(a).findViewWithTag<ToggleView>("logs:autoscroll").isChecked })
+        assertEquals(context.getString(R.string.logs_auto_scroll), onMain { root(a).findViewWithTag<ToggleView>("logs:autoscroll").contentDescription.toString() })
+        eventually("The end is in view") { scrollEnd(a) > 0 && onMain { logBox(a).scrollY } == scrollEnd(a) }
+        LogFile.append(logFile, LogLines.entry(1_793_105_000_000L, java.time.ZoneId.of("UTC"), LogLines.INFO, "the newest line"))
+        eventually("A new line keeps the end in view", 6_000) { shownLogOf(a).endsWith("the newest line") && onMain { logBox(a).scrollY } == scrollEnd(a) }
+        click(a, "logs:autoscroll")
+        eventually("off") { !onMain { root(a).findViewWithTag<ToggleView>("logs:autoscroll").isChecked } }
+        onMain { logBox(a).scrollTo(0, 0) }
+        LogFile.append(logFile, LogLines.entry(1_793_105_001_000L, java.time.ZoneId.of("UTC"), LogLines.INFO, "one more"))
+        eventually("The new line is in the text", 6_000) { shownLogOf(a).endsWith("one more") }
+        instrumentation.waitForIdleSync()
+        assertEquals("but the box has not moved", 0, onMain { logBox(a).scrollY })
+        click(a, "logs:autoscroll")
+        eventually("On again, it goes to the end") { onMain { logBox(a).scrollY } == scrollEnd(a) && scrollEnd(a) > 0 }
+    }
+
+    // On a TV the text is not selectable, so Down from Copy reaches the box, whose focus is the field's accent border, and Down scrolls it.
+    @Test fun aRemoteReachesTheLogBoxAndScrollsIt() {
+        assumeTrue("A remote drives a TV", isTv)
+        prefs.edit().putBoolean("logging", true).commit()
+        writeLog(*Array(300) { LogLines.entry(1_793_104_496_000L + it * 1000L, java.time.ZoneId.of("UTC"), LogLines.INFO, "line number $it of the log") })
+        val a = open()
+        leaveTouchMode(a)
+        render(a, 4)
+        assertFalse(onMain { root(a).findViewWithTag<TextView>("log:text").isTextSelectable })
+        focusOn(a, "log:copy")
+        instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_DOWN)
+        eventually("Down from Copy lands on the box") { focusedKey(a) == "log:box" }
+        onMain { logBox(a).scrollTo(0, 0) }
+        instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_DOWN)
+        eventually("and the next Down scrolls it") { onMain { logBox(a).scrollY } > 0 }
+        val look = onMain { focusLook(logBox(a)) }
+        assertEquals("the focus is the field's accent border", theme(a).accent, look.focusedEdge)
+        assertEquals(theme(a).surface, look.restEdge)
+        // Up from the top of the box goes back to the links, and Down at its end to the toggle.
+        onMain { logBox(a).scrollTo(0, 0) }
+        instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_UP)
+        eventually("Up from the top leaves the box") { focusedKey(a) != "log:box" }
+        focusOn(a, "log:box")
+        val end = scrollEnd(a)
+        onMain { logBox(a).scrollTo(0, end) }
+        instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_DOWN)
+        eventually("Down at the end reaches Auto-scroll") { focusedKey(a) == "logs:autoscroll" }
+    }
+
+    // The service writes the lines the page shows: date, time, level and message with tabs between, the level one of three.
+    @Test fun aLineTheServiceWritesIsTheDesktopsFormat() {
+        val line = LogLines.entry(System.currentTimeMillis(), java.time.ZoneId.systemDefault(), LogLines.WARN, "VPN settings rejected")
+        assertTrue(line, Regex("\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}\\t(INFO|WARN|ERROR)\\t.+").matches(line))
+        assertEquals("shown without the date", line.substring(11, 19) + " WARN VPN settings rejected", LogLines.shown(line))
     }
 }

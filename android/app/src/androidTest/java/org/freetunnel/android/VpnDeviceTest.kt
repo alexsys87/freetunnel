@@ -432,6 +432,9 @@ class VpnDeviceTest {
                 assertEquals("The first alert of an episode alerts", android.app.Notification.GROUP_ALERT_ALL,
                     blocked.notification.groupAlertBehavior)
                 eventually { logged(lostReason) == 1 }
+                // The line is the desktop's: date and time, a level (a warning here, traffic is blocked) and the message, with tabs between.
+                val warning = log.readLines().first { lostReason in it }
+                assertTrue(warning, Regex("\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}\tWARN\t" + Regex.escape(lostReason) + ".*").matches(warning))
                 // The first delay is about 1 s.
                 val second = nextClient(first)
                 // Neither the attempt nor the core's own Connecting may show.
@@ -455,6 +458,7 @@ class VpnDeviceTest {
                 assertEquals("Attempts must not broadcast: $states", broadcasts, states.size)
                 reportConnected(third)
                 assertEquals(1, logged("Reconnected automatically"))
+                assertTrue("at INFO", "\tINFO\tReconnected automatically" in log.readLines().first { "Reconnected automatically" in it })
             }
             assertEquals("The TUN must stay up through the attempts", 0, gaps)
             assertEquals(name, tunName())
@@ -1003,5 +1007,35 @@ class VpnDeviceTest {
         FreeTunnelVpnService.start(context, source.replace("has_ipv6 = false", "has_ipv6 = false\nclient_random = \"abcd/\""))
         eventually { context.getSystemService(android.app.NotificationManager::class.java).activeNotifications.any { it.id == 48 } }
         eventually { network() == null && FreeTunnelVpnService.state(context) == 0 }
+    }
+
+    // Each connection the core reports is a line of the log at INFO, as the desktop logs its connection info: one line, whatever the core
+    // sends, written in the format the Logs page reads; and with logging off nothing is written.
+    @Test fun theCoresConnectionInfoIsLoggedAtInfoAndOnlyWithLoggingOn() = withSink { config ->
+        prefs.edit().putBoolean("logging", true).commit()
+        log.delete()
+        FreeTunnelVpnService.start(context, config)
+        eventually { network() != null && nativeClient() != null }
+        awaitWorker()
+        val client = nativeClient()!!
+        val info = client.javaClass.getDeclaredMethod("onConnectionInfo", String::class.java).apply { isAccessible = true }
+        try {
+            info.invoke(client, "tunnel example.test")
+            eventually { logged("tunnel example.test") == 1 }
+            val line = log.readLines().first { "tunnel example.test" in it }
+            assertTrue(line, Regex("\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}\tINFO\ttunnel example\\.test").matches(line))
+            // A message of several lines is one line of the log, and cannot pass for a second entry.
+            info.invoke(client, "bypass a.test\nERROR\tforged")
+            eventually { logged("bypass a.test") == 1 }
+            assertEquals(1, logged("bypass a.test ERROR forged"))
+            prefs.edit().putBoolean("logging", false).commit()
+            info.invoke(client, "tunnel off.test")
+            SystemClock.sleep(300)
+            assertEquals("nothing is written with logging off", 0, logged("off.test"))
+        } finally {
+            FreeTunnelVpnService.stop(context)
+            eventually { FreeTunnelVpnService.state(context) == 0 }
+            log.delete()
+        }
     }
 }

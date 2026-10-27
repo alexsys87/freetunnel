@@ -548,4 +548,55 @@ class UiComponentsDeviceTest {
             assertNull("A remote's focus is its background", box.foreground)
         }
     }
+
+    // The Maintenance row's arrow: 20 by 20, a shaft down the middle of its box when it is ↓, and, bent round into ↻, a ring about the
+    // pivot of the shape UpdateMotion gives, hollow in the middle; turned by 45 degrees it is drawn elsewhere.
+    @Test fun theUpdateArrowDrawsDownTheMiddleAndBendsIntoARing() {
+        onMain {
+            val size = dp(UpdateArrowView.SIZE_DP)
+            assertEquals(20, UpdateArrowView.SIZE_DP)
+            val arrow = UpdateArrowView(context, Color.RED)
+            arrow.layout(0, 0, size, size)
+            fun paint(): Bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888).also { arrow.draw(Canvas(it)) }
+            fun painted(bitmap: Bitmap, xDp: Float, yDp: Float) = Color.alpha(bitmap.getPixel(Math.round(xDp * density), Math.round(yDp * density))) > 100
+            val straight = paint()
+            val down = UpdateMotion.arrow(0f, 20f, 20f)
+            assertTrue("the shaft is down the middle", painted(straight, 10f, down.shaft[2 * 14 + 1]))
+            assertFalse("and nothing is at the sides of it", painted(straight, 3f, 10f) || painted(straight, 17f, 10f))
+            val pixel = straight.getPixel(Math.round(10f * density), Math.round(down.shaft[2 * 14 + 1] * density))
+            assertTrue("in the colour it was given", Color.red(pixel) > 200 && Color.green(pixel) < 60 && Color.blue(pixel) < 60)
+            arrow.setBend(1f, false)
+            assertEquals(1f, arrow.bend(), 0f)
+            val ring = UpdateMotion.arrow(1f, 20f, 20f)
+            val bent = paint()
+            assertFalse("a ring is hollow in the middle", painted(bent, ring.pivotX, ring.pivotY))
+            assertTrue("and painted a radius from the pivot, where the shaft begins", painted(bent, ring.pivotX + UpdateMotion.RADIUS, ring.pivotY))
+            assertTrue("and across the circle from it", painted(bent, ring.pivotX - UpdateMotion.RADIUS, ring.pivotY) || painted(bent, ring.pivotX, ring.pivotY - UpdateMotion.RADIUS))
+            // Leaned 45 degrees about the pivot, the arrow is not where it was.
+            arrow.setTurn(45f, false)
+            assertEquals(45f, arrow.turn(), 0f)
+            val leaned = paint()
+            assertFalse("the tail of the ring has moved", painted(leaned, ring.pivotX + UpdateMotion.RADIUS, ring.pivotY))
+            assertEquals("a view that is not on the screen does not spin", false, arrow.spinning())
+            arrow.setSpinning(true)
+            assertTrue(arrow.spinning())
+            assertEquals("and is not turned until it is shown", 0f, arrow.spinAngle(), 0f)
+        }
+    }
+
+    // The three dots: 2.5 across with 2.5 between, in a row 2 below the middle of the box, resting at the start of a round.
+    @Test fun theBusyDotsAreThreeDotsInARowBelowTheMiddle() {
+        onMain {
+            val size = dp(20)
+            val dots = BusyDotsView(context, Color.GREEN)
+            dots.layout(0, 0, size, size)
+            val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888).also { dots.draw(Canvas(it)) }
+            fun painted(xDp: Float, yDp: Float) = Color.alpha(bitmap.getPixel(Math.round(xDp * density), Math.round(yDp * density))) > 100
+            for (x in listOf(5f, 10f, 15f)) assertTrue("a dot at $x", painted(x, 12f))
+            assertFalse("a gap between the first and the second", painted(7.5f, 12f))
+            assertFalse("a gap between the second and the third", painted(12.5f, 12f))
+            assertFalse("nothing above them while they rest", painted(10f, 6f))
+            assertEquals("the round starts at nothing", 0L, dots.millis())
+        }
+    }
 }
