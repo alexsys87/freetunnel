@@ -142,6 +142,9 @@ jobs:
       - name: Every action is pinned to a commit
         run: bash scripts/check-pinned-deps.sh
 
+      - name: The third-party notices name the pinned versions
+        run: bash scripts/check-third-party-notices.sh
+
       # What changed comes from android/CHANGELOG.md, so every release says
       # something about itself. Its sections are '## <version>' under one
       # '# ' title, as in the desktop's CHANGELOG.md. The install notes are the
@@ -229,6 +232,8 @@ jobs:
       - name: Build the release APK
         working-directory: android
         run: ./gradlew --no-daemon :app:assembleRelease
+      - name: The APK carries the third-party notices
+        run: bash scripts/check-apk-notices.sh android/app/build/outputs/apk/release/app-release-unsigned.apk
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: android-release-unsigned
