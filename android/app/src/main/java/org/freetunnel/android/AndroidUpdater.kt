@@ -42,6 +42,8 @@ object AndroidUpdater {
     @Volatile var progress = 0; private set
     /** Why the last attempt failed, for the ERROR text. */
     @Volatile var failure: UpdatePolicy.Failure? = null; private set
+    /** The ERROR is a check's, which Settings words as the desktop does ("Update check failed: ..."); a download's or an install's is said as it is. */
+    @Volatile var failedCheck = false; private set
     /** The session went to Android: INSTALLING then ends with its result, or recoverInstall. */
     @Volatile var committed = false; private set
     private var observer: Runnable? = null
@@ -60,8 +62,9 @@ object AndroidUpdater {
 
     fun observe(callback: Runnable?) { observer = callback }
     private fun publish(value: State) { state = value; main.post { observer?.run() } }
-    private fun failed(error: Throwable, otherwise: UpdatePolicy.Failure) {
+    private fun failed(error: Throwable, otherwise: UpdatePolicy.Failure, duringCheck: Boolean = false) {
         failure = UpdatePolicy.classify(error, otherwise)
+        failedCheck = duringCheck
         publish(State.ERROR)
     }
     private fun busy() = state in listOf(State.CHECKING, State.DOWNLOADING, State.INSTALLING)
@@ -148,7 +151,7 @@ object AndroidUpdater {
                 }
                 release = UpdatePolicy.select(candidates, BuildConfig.VERSION_NAME)
                 publish(if (release == null) State.CURRENT else State.AVAILABLE)
-            }.onFailure { release = null; failed(it, UpdatePolicy.Failure.NETWORK) }
+            }.onFailure { release = null; failed(it, UpdatePolicy.Failure.NETWORK, duringCheck = true) }
         }
     }
 
@@ -351,7 +354,7 @@ object AndroidUpdater {
             PackageInstaller.STATUS_SUCCESS -> { discardDownload(); publish(State.CURRENT) }
             // The user cancelled Android's dialog: the verified APK stays for another try.
             PackageInstaller.STATUS_FAILURE_ABORTED -> publish(State.READY)
-            else -> { discardDownload(); failure = UpdatePolicy.Failure.INSTALLER; publish(State.ERROR) }
+            else -> { discardDownload(); failure = UpdatePolicy.Failure.INSTALLER; failedCheck = false; publish(State.ERROR) }
         }
     }
 
