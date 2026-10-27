@@ -691,9 +691,9 @@ class VpnDeviceTest {
         }
     }
 
-    // The light theme colours only the activity. AlertDialog.Builder(this) keeps
-    // Theme.Material's dark dialog in both themes, so the text, hints and check boxes
-    // MainActivity puts in a dialog have to be light in both.
+    // A system dialog (until the in-app overlays replace them) takes the app's theme, the light
+    // Material dialog in the light theme and the dark one in the dark, and what MainActivity puts
+    // in it is drawn in the theme's own colours: it has to read against the dialog's background in both.
     @androidx.test.filters.SdkSuppress(minSdkVersion = 29)
     @Test fun dialogTextIsReadableInBothThemes() {
         withMainActivity { activity ->
@@ -707,8 +707,8 @@ class VpnDeviceTest {
                 for (start in dialogs) inDialog(start) { window, content ->
                     val attributes = window.context.obtainStyledAttributes(intArrayOf(android.R.attr.colorBackground))
                     val background = try { attributes.getColor(0, android.graphics.Color.TRANSPARENT) } finally { attributes.recycle() }
-                    assertTrue("Dialogs are expected to stay dark in both themes",
-                        androidx.core.graphics.ColorUtils.calculateLuminance(background) < 0.2)
+                    assertEquals("A dialog is dark in the dark theme and light in the light",
+                        dark, androidx.core.graphics.ColorUtils.calculateLuminance(background) < 0.5)
                     val texts = descendants(content).filterIsInstance<android.widget.TextView>().filter { it.isShown }.toList()
                     assertFalse("The dialog shows no text to check", texts.isEmpty())
                     for (text in texts) {

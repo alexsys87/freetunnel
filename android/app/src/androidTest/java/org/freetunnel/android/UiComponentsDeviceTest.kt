@@ -1,0 +1,286 @@
+package org.freetunnel.android
+
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.drawable.Drawable
+import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.StateListDrawable
+import android.view.View
+import android.view.View.MeasureSpec
+import android.widget.EditText
+import android.widget.FrameLayout
+import android.widget.TextView
+import androidx.test.platform.app.InstrumentationRegistry
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+// The desktop's controls as Ui builds them: the measurements of qml/Toggle.qml, qml/Field.qml,
+// qml/components/* and qml/pages/*, in dp, and which look each rests in, with the focus, with and
+// without a remote. Built and measured here, off the screen; TvDeviceTest checks the real pages.
+class UiComponentsDeviceTest {
+    private val instrumentation get() = InstrumentationRegistry.getInstrumentation()
+    private val context get() = instrumentation.targetContext
+    private val density get() = context.resources.displayMetrics.density
+    private fun dp(n: Float) = Math.round(n * density)
+    private fun dp(n: Int) = dp(n.toFloat())
+
+    private fun ui(dark: Boolean = true, remote: Boolean = false) = Ui(context).apply { update(dark, remote) }
+    // The size a view takes in a space this wide and, if it is given, this tall.
+    private fun measured(view: View, width: Int = 0, height: Int = 0): View {
+        val w = if (width > 0) MeasureSpec.makeMeasureSpec(width, MeasureSpec.AT_MOST) else MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED)
+        val h = if (height > 0) MeasureSpec.makeMeasureSpec(height, MeasureSpec.AT_MOST) else MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED)
+        view.measure(w, h)
+        return view
+    }
+    private fun assertNear(message: String, expected: Int, actual: Int, delta: Int) =
+        assertTrue("$message: expected $expected, was $actual", Math.abs(expected - actual) <= delta)
+    private fun onMain(block: () -> Unit) {
+        var failure: Throwable? = null
+        instrumentation.runOnMainSync { try { block() } catch (t: Throwable) { failure = t } }
+        failure?.let { throw it }
+    }
+
+    private fun fill(drawable: Drawable) = (drawable as GradientDrawable).color?.defaultColor ?: Color.TRANSPARENT
+    private fun edge(drawable: Drawable): Int {
+        val bitmap = Bitmap.createBitmap(160, 240, Bitmap.Config.ARGB_8888)
+        drawable.setBounds(0, 0, 160, 240)
+        drawable.draw(Canvas(bitmap))
+        return bitmap.getPixel(0, 120)
+    }
+    private fun looks(view: View): Map<String, Drawable> {
+        val states = view.background as StateListDrawable
+        val out = HashMap<String, Drawable>()
+        for ((name, state) in listOf("rest" to intArrayOf(), "pressed" to intArrayOf(android.R.attr.state_pressed),
+                "focused" to intArrayOf(android.R.attr.state_focused))) {
+            states.setState(state)
+            out[name] = states.current
+        }
+        return out
+    }
+
+    @Test fun theToggleIs38By22WithTheFocusAroundItAndFlipsOnATap() {
+        onMain {
+            val ui = ui()
+            val big = measured(ui.toggle(false, false, "t:big")) as ToggleView
+            // The track is 38 by 22, and the view 4 larger on each side, which the focus fills.
+            assertEquals(dp(46), big.measuredWidth)
+            assertEquals(dp(30), big.measuredHeight)
+            val small = measured(ui.toggle(false, true, "t:small"))
+            assertEquals("Logs' toggle is 34 by 20", dp(42), small.measuredWidth)
+            assertEquals(dp(28), small.measuredHeight)
+            var flips = 0
+            var last = false
+            big.setListener { _, checked -> flips++; last = checked }
+            assertFalse(big.isChecked)
+            big.performClick()
+            assertTrue("A tap flips it", big.isChecked)
+            assertEquals(1, flips)
+            assertTrue(last)
+            big.performClick()
+            assertFalse(big.isChecked)
+            assertEquals(2, flips)
+            big.isEnabled = false
+            assertEquals("Disabled it is dimmed", 0.45f, big.alpha, 0.001f)
+            // TalkBack reads it as a switch, with its state.
+            val info = big.createAccessibilityNodeInfo()
+            assertEquals("android.widget.Switch", info.className.toString())
+            assertTrue(info.isCheckable)
+        }
+    }
+
+    @Test fun buttonsAre32HighWithTheDesktopsMinimumWidthsAndNoPressedAnimation() {
+        onMain {
+            val ui = ui()
+            val cancel = measured(ui.button("Cancel", Ui.Kind.NEUTRAL, 76, "b:cancel"))
+            assertEquals("A dialog's button is 32 high", dp(32), cancel.measuredHeight)
+            assertTrue("and at least 76 wide", cancel.measuredWidth >= dp(76))
+            val save = measured(ui.button("Save", Ui.Kind.PRIMARY, 88, "b:save"))
+            assertTrue("An editor's button is at least 88 wide", save.measuredWidth >= dp(88))
+            val long = measured(ui.button("A label that is wider than the minimum", Ui.Kind.NEUTRAL, 76, "b:long")) as TextView
+            val words = Math.ceil(long.paint.measureText(long.text.toString()).toDouble()).toInt()
+            assertNear("A long label is its width plus 26", words + dp(26), long.measuredWidth, 2)
+            assertNull("No pressed animation: Material's lift is off", long.stateListAnimator)
+            assertEquals("Normal weight", false, long.typeface.isBold)
+        }
+    }
+
+    // The desktop's weights are Normal and Medium (500): nothing is bold.
+    @Test fun mediumIsNeverBold() {
+        onMain {
+            val ui = ui()
+            val name = ui.medium("DE · Frankfurt", 15f, Color.WHITE)
+            assertEquals(Ui.MEDIUM, name.typeface)
+            assertFalse(name.typeface.isBold)
+            val mono = ui.mono("log", 11f, Color.WHITE)
+            assertFalse(mono.typeface.isBold)
+            assertEquals(android.graphics.Typeface.MONOSPACE, mono.typeface)
+            assertEquals("A section label is as it is typed", "Rules — bypass VPN", ui.sectionLabel("Rules — bypass VPN").text.toString())
+        }
+    }
+
+    @Test fun aFlowWrapsItsChildrenAndSpacesRowsAsItDoesColumns() {
+        onMain {
+            val flow = FlowLayout(context, dp(6))
+            repeat(5) { flow.addView(View(context), FrameLayout.LayoutParams(dp(100), dp(28))) }
+            flow.measure(MeasureSpec.makeMeasureSpec(dp(260), MeasureSpec.EXACTLY), MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED))
+            flow.layout(0, 0, flow.measuredWidth, flow.measuredHeight)
+            // 100 + 6 + 100 fits in 260; a third would not.
+            assertEquals("Three rows of two, two and one", 3 * dp(28) + 2 * dp(6), flow.measuredHeight)
+            assertEquals(dp(100) + dp(6), flow.getChildAt(1).left)
+            assertEquals("The third child starts the second row", 0, flow.getChildAt(2).left)
+            assertEquals(dp(28) + dp(6), flow.getChildAt(2).top)
+            assertEquals(2 * (dp(28) + dp(6)), flow.getChildAt(4).top)
+        }
+    }
+
+    @Test fun aChipIs28HighAndItsXIsTwentyTwoWideThreeFromTheLabel() {
+        onMain {
+            val ui = ui()
+            val plain = measured(ui.chip("Default", false, false, null, false))
+            assertEquals("A chip is 28 high", dp(28), plain.measuredHeight)
+            val withX = ui.chip("Work", false, false, null, false)
+            withX.addView(ui.chipX("domain:0", false), ui.chipXLp())
+            measured(withX)
+            val label = Math.ceil((withX.getChildAt(0) as TextView).paint.measureText("Work").toDouble()).toInt()
+            // 11 in, the label, 3, the cell 22 less 8 beyond the padding, 11: the label and 39.
+            assertNear("A chip with its X", label + dp(39), withX.measuredWidth, 3)
+            assertEquals(dp(28), withX.measuredHeight)
+        }
+    }
+
+    @Test fun aDropdownHasTheValueAndItsArrowAsItsOnlyControl() {
+        onMain {
+            val ui = ui()
+            val row = ui.dropdown("Mode", "Bypass VPN", "split:mode") {}
+            val group = row.findViewWithTag<View>("split:mode")
+            assertNotNull(group)
+            var focusStops = 0
+            fun walk(view: View) {
+                if (view.isFocusable) focusStops++
+                if (view is android.view.ViewGroup) for (i in 0 until view.childCount) walk(view.getChildAt(i))
+            }
+            walk(row)
+            assertEquals("Only the value and its ▾ are a stop, not the label", 1, focusStops)
+            measured(row, dp(360))
+            assertTrue("The row is 42 high at least", row.measuredHeight >= dp(42))
+            assertTrue("The control hugs its value and its arrow", group.measuredWidth < dp(150))
+        }
+    }
+
+    // Strong fills rest in neutral ones with a remote, so that the focus is the one strong fill.
+    @Test fun withARemoteOnlyTheFocusIsAStrongFill() {
+        onMain {
+            for (dark in listOf(true, false)) {
+                val theme = Theme.of(dark)
+                val touch = ui(dark, remote = false)
+                val remote = ui(dark, remote = true)
+                val primaryTouch = looks(touch.button("Save", Ui.Kind.PRIMARY, 88, "b:p"))
+                val primaryRemote = looks(remote.button("Save", Ui.Kind.PRIMARY, 88, "b:p"))
+                assertEquals("A primary button rests on the accent", theme.accent, fill(primaryTouch["rest"]!!))
+                assertEquals("and with a remote on surface", theme.surface, fill(primaryRemote["rest"]!!))
+                assertEquals("it goes darker under the pointer", theme.primaryHover, fill(primaryTouch["pressed"]!!))
+                assertEquals("and has the accent with the focus", theme.accent, fill(primaryRemote["focused"]!!))
+                val dangerTouch = looks(touch.button("Delete", Ui.Kind.DESTRUCTIVE, 76, "b:d"))
+                val dangerRemote = looks(remote.button("Delete", Ui.Kind.DESTRUCTIVE, 76, "b:d"))
+                assertEquals("A destructive button rests on danger", theme.danger, fill(dangerTouch["rest"]!!))
+                assertEquals("and with a remote on surface", theme.surface, fill(dangerRemote["rest"]!!))
+                assertEquals(theme.destructiveHover, fill(dangerTouch["pressed"]!!))
+                assertEquals("It focuses in danger either way", theme.danger, fill(dangerRemote["focused"]!!))
+                assertEquals(theme.danger, fill(dangerTouch["focused"]!!))
+                val neutral = looks(touch.button("Cancel", Ui.Kind.NEUTRAL, 76, "b:n"))
+                assertEquals(theme.surface, fill(neutral["rest"]!!))
+                assertEquals(theme.surfaceHover, fill(neutral["pressed"]!!))
+                assertEquals(theme.accent, fill(neutral["focused"]!!))
+                val secondary = looks(touch.button("Cancel", Ui.Kind.SECONDARY, 88, "b:s"))
+                assertEquals("The editor's Cancel rests on the page", theme.bg, fill(secondary["rest"]!!))
+                assertEquals(theme.border, edge(secondary["rest"]!!))
+                assertEquals(theme.surface, fill(secondary["pressed"]!!))
+                val selectedTouch = looks(touch.chip("Work", true, true, "profile:1", false))
+                val selectedRemote = looks(remote.chip("Work", true, true, "profile:1", false))
+                assertEquals("The selected chip rests on the accent", theme.accent, fill(selectedTouch["rest"]!!))
+                assertEquals("and with a remote on infoBg", theme.infoBg, fill(selectedRemote["rest"]!!))
+                val other = looks(touch.chip("Default", false, true, "profile:0", false))
+                assertEquals(theme.surface, fill(other["rest"]!!))
+                assertEquals(theme.surfaceHover, fill(other["pressed"]!!))
+                assertEquals(theme.accent, fill(other["focused"]!!))
+            }
+        }
+    }
+
+    // A text field keeps the desktop's own focus, an accent border, and with a remote also surface.
+    @Test fun aFieldTurnsItsBorderAccentWithTheFocus() {
+        onMain {
+            for (dark in listOf(true, false)) {
+                val theme = Theme.of(dark)
+                val touch = looks(ui(dark, remote = false).pageInput("domains, comma-separated, then Enter", "domains:input"))
+                assertEquals(theme.inputBg, fill(touch["rest"]!!))
+                assertEquals(theme.inputBorder, edge(touch["rest"]!!))
+                assertEquals(theme.accent, edge(touch["focused"]!!))
+                assertEquals("On a phone the fill stays", theme.inputBg, fill(touch["focused"]!!))
+                val remote = looks(ui(dark, remote = true).pageInput("domains", "domains:input"))
+                assertEquals("With a remote it also reads from further away", theme.surface, fill(remote["focused"]!!))
+                assertEquals(theme.accent, edge(remote["focused"]!!))
+            }
+            val ui = ui()
+            val input = EditText(context)
+            val box = ui.field("Name", input, "editor:name")
+            measured(box, dp(300))
+            assertEquals("A field's box is 34 high", dp(34), input.measuredHeight)
+        }
+    }
+
+    // A link is its words, wrap_content, and a link in the danger colour focuses in danger.
+    @Test fun aLinkHugsItsWordsAndADangerLinkFocusesInDanger() {
+        onMain {
+            val theme = Theme.DARK
+            val ui = ui()
+            val link = measured(ui.link("Recommended for Russia", 12f, Ui.LinkKind.ACCENT, "domains:russia"), dp(400)) as TextView
+            val words = Math.ceil(link.paint.measureText(link.text.toString()).toDouble()).toInt()
+            assertNear("A link is its words and a little around them", words + link.paddingLeft + link.paddingRight, link.measuredWidth, 2)
+            assertEquals(theme.accent, link.textColors.defaultColor)
+            val danger = ui.link("Clear all", 12f, Ui.LinkKind.DANGER, "domains:clear")
+            assertEquals(theme.danger, danger.textColors.defaultColor)
+            assertEquals(theme.danger, fill(looks(danger)["focused"]!!))
+            assertEquals("White on it", theme.onDanger, danger.textColors.getColorForState(intArrayOf(android.R.attr.state_focused), 0))
+            val text = ui.link("Add a config", 15f, Ui.LinkKind.TEXT, "configs:hint")
+            assertEquals(theme.text, text.textColors.defaultColor)
+            assertEquals("A text link goes accent under the pointer", theme.accent, text.textColors.getColorForState(intArrayOf(android.R.attr.state_pressed), 0))
+        }
+    }
+
+    // Every icon is made from the desktop's SVG path data: each loads, at the size the desktop draws it.
+    @Test fun everyVectorDrawableLoads() {
+        for ((id, size) in listOf(R.drawable.ic_connection to 24, R.drawable.ic_network to 24, R.drawable.ic_settings to 24,
+                R.drawable.ic_log to 24, R.drawable.ic_ping to 24, R.drawable.ic_export to 24, R.drawable.ic_edit to 24,
+                R.drawable.ic_close to 24, R.drawable.ic_logo to 100, R.drawable.ic_add to 22, R.drawable.ic_add_home to 14)) {
+            val drawable = context.getDrawable(id)
+            assertNotNull(drawable)
+            // Its own size, in dp: a pixel either way is the rounding.
+            assertNear("Drawable $id is $size wide", dp(size), drawable!!.intrinsicWidth, 1)
+            // Drawn: something is painted in it, not just parsed.
+            val bitmap = Bitmap.createBitmap(dp(size), dp(size), Bitmap.Config.ARGB_8888)
+            drawable.setBounds(0, 0, dp(size), dp(size))
+            drawable.draw(Canvas(bitmap))
+            var painted = 0
+            for (x in 0 until bitmap.width) for (y in 0 until bitmap.height) if (Color.alpha(bitmap.getPixel(x, y)) != 0) painted++
+            assertTrue("Drawable $id paints nothing", painted > 0)
+        }
+    }
+
+    @Test fun iconsTakeTheirColourFromAndOnlyFromTheirTint() {
+        onMain {
+            val ui = ui()
+            val x = ui.chipX("domain:0", false)
+            assertEquals("A ChipX is textDim at rest", Theme.DARK.textDim, x.imageTintList!!.defaultColor)
+            assertEquals("and white with the focus, on its danger circle", Theme.DARK.onDanger,
+                x.imageTintList!!.getColorForState(intArrayOf(android.R.attr.state_focused), 0))
+            assertEquals("Danger under the pointer", Theme.DARK.danger,
+                x.imageTintList!!.getColorForState(intArrayOf(android.R.attr.state_pressed), 0))
+        }
+    }
+}

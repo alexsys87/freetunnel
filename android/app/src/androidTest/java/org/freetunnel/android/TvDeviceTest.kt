@@ -8,19 +8,27 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.content.res.Configuration
+import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.drawable.BitmapDrawable
+import android.graphics.drawable.Drawable
+import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.StateListDrawable
 import android.os.ParcelFileDescriptor
 import android.os.SystemClock
 import android.provider.Settings
 import android.view.FocusFinder
+import android.view.Gravity
 import android.view.KeyEvent
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.inspector.WindowInspector
 import android.widget.Button
 import android.widget.CheckBox
 import android.widget.EditText
+import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.ListView
 import android.widget.ScrollView
@@ -40,10 +48,11 @@ import java.net.URLEncoder
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.TimeUnit
 
-// Android TV: the TV launcher entry, a focus stop with a key and a ring on every
-// control, focus and scroll kept when render() rebuilds the views, Back, the
-// screens TVs leave out, and Receive from phone. Both device legs run it: the TV
-// leg for the TV, the phone leg for phones, which must work as before.
+// Android TV: the TV launcher entry, a focus stop with a key and the desktop's focus
+// look on every control, focus and scroll kept when render() rebuilds the views, the
+// overlays that survive it and take the focus, Back, the screens TVs leave out, and
+// Receive from phone. Both device legs run it: the TV leg for the TV, the phone leg
+// for phones, which must work as before.
 class TvDeviceTest {
     private val instrumentation get() = InstrumentationRegistry.getInstrumentation()
     private val context get() = instrumentation.targetContext
@@ -163,7 +172,10 @@ class TvDeviceTest {
         if (inTouchMode(a)) instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_DOWN)
         eventually("The window must leave touch mode") { !inTouchMode(a) }
     }
-    private fun root(a: MainActivity) = field("root").get(a) as ViewGroup
+    // The window's one view: the page, the overlays and the toast. pageRoot is the page alone.
+    private fun root(a: MainActivity) = field("host").get(a) as ViewGroup
+    private fun pageRoot(a: MainActivity) = field("pageRoot").get(a) as ViewGroup
+    private fun theme(a: MainActivity) = Theme.of(field("dark").getBoolean(a))
     // Shows the page as a tab or Back would: render() rebuilds every view.
     private fun render(a: MainActivity, page: Int) {
         onMain { field("page").setInt(a, page); method("render").invoke(a) }
@@ -194,7 +206,53 @@ class TvDeviceTest {
         assertEquals("A TV, and only a TV, reports a TV ui mode", pm.hasSystemFeature(PackageManager.FEATURE_LEANBACK), isTv)
     }
 
-    @Test fun everyControlIsAFocusStopWithAKeyAndARing() {
+    // What a control looks like at rest, pressed and focused, read from its background: the fill
+    // of each state, and the colour of the edge, which a border has no getter for, so it is the
+    // pixel at the middle of the left edge of what the background draws in that state.
+    private class FocusLook(val restFill: Int, val focusedFill: Int, val restEdge: Int, val focusedEdge: Int)
+    private fun fillOf(drawable: Drawable) = (drawable as GradientDrawable).color?.defaultColor ?: Color.TRANSPARENT
+    private fun edgeOf(drawable: Drawable): Int {
+        val bitmap = Bitmap.createBitmap(160, 240, Bitmap.Config.ARGB_8888)
+        drawable.setBounds(0, 0, 160, 240)
+        drawable.draw(Canvas(bitmap))
+        return bitmap.getPixel(0, 120)
+    }
+    private fun focusLook(view: View): FocusLook {
+        assertNull("${view.javaClass.simpleName} \"${view.tag}\" has a foreground: a ring, not the desktop's look", view.foreground)
+        val states = view.background as? StateListDrawable
+        assertTrue("${view.javaClass.simpleName} \"${view.tag}\" has no background that changes with its state", states != null && states.isStateful)
+        states!!
+        val saved = states.state
+        try {
+            states.setState(intArrayOf())
+            val rest = states.current
+            val restFill = fillOf(rest)
+            val restEdge = edgeOf(rest)
+            states.setState(intArrayOf(android.R.attr.state_focused))
+            val focused = states.current
+            return FocusLook(restFill, fillOf(focused), restEdge, edgeOf(focused))
+        } finally {
+            states.setState(saved)
+            view.refreshDrawableState()
+        }
+    }
+    // A control shows its focus as its background and nothing else: no foreground, a background that
+    // changes with the state, and with the focus the accent: as a fill, as danger for a destructive
+    // control (a ChipX), and as the border of a text field.
+    private fun assertFocusLook(view: View, name: String, theme: Theme) {
+        val look = focusLook(view)
+        val key = view.tag as String
+        when {
+            view is EditText || key == "apps:add" -> {
+                assertEquals("$name: the border of a focused field", theme.accent, look.focusedEdge)
+                assertEquals("$name: the border of a field at rest", theme.inputBorder, look.restEdge)
+            }
+            Regex("(domain|app):\\d+").matches(key) -> assertEquals("$name: a ChipX focuses in danger", theme.danger, look.focusedFill)
+            else -> assertEquals("$name: the focus is the accent", theme.accent, look.focusedFill)
+        }
+    }
+
+    @Test fun everyControlIsAFocusStopWithAKeyAndTheDesktopFocusLook() {
         // Reconnect shows only while traffic is blocked, and Settings' update action
         // only in an official build.
         serviceState(6)
@@ -212,9 +270,7 @@ class TvDeviceTest {
                     val name = "${view.javaClass.simpleName} \"${(view as? TextView)?.text ?: view.contentDescription}\" on page $page"
                     assertTrue("$name is no focus stop", view.isFocusable)
                     assertTrue("$name has no key", view.tag is String)
-                    // A text field on a phone shows its cursor instead.
-                    if (isTv || !view.isFocusableInTouchMode)
-                        assertTrue("$name shows no focus ring", view.foreground?.isStateful == true)
+                    assertFocusLook(view, name, theme(a))
                 }
             }
         }
@@ -222,6 +278,53 @@ class TvDeviceTest {
         assertNotNull(onMain { root(a).findViewWithTag<View>("home:reconnect") })
         render(a, 3)
         assertNotNull(onMain { root(a).findViewWithTag<View>("settings:update") })
+    }
+
+    // A tab rests on the page, and the current one on infoBg, over it; with the focus, any of them
+    // is the accent, the current one too, so that where the remote is never looks like where the app is.
+    @Test fun theCurrentTabRestsOnInfoBgAndEveryTabFocusesInTheAccent() {
+        val a = open()
+        leaveTouchMode(a)
+        for (page in 0..4) {
+            render(a, page)
+            onMain {
+                val theme = theme(a)
+                for (tab in 0..4) {
+                    val look = focusLook(root(a).findViewWithTag<View>("tab:$tab"))
+                    assertEquals("Tab $tab on page $page", if (tab == page) theme.infoBg else Color.TRANSPARENT, look.restFill)
+                    assertEquals("Tab $tab on page $page focuses in the accent", theme.accent, look.focusedFill)
+                }
+            }
+        }
+    }
+
+    // The focus is around what a control holds, never across the screen: Home's selector, the links
+    // and the values of the dropdowns hug their words.
+    @Test fun theSelectorAndTheLinksAreNoWiderThanTheirWords() {
+        serviceState(6)
+        officialBuild()
+        val a = open()
+        leaveTouchMode(a)
+        render(a, 0)
+        onMain {
+            val selector = root(a).findViewWithTag<TextView>("home:config")
+            assertTrue("The selector is ${selector.width} wide on a ${root(a).width} wide screen", selector.width < root(a).width / 2)
+        }
+        var links = 0
+        for (page in 0..4) {
+            render(a, page)
+            onMain {
+                for (link in descendants(root(a)).filterIsInstance<Ui.LinkText>().filter { it.isShown }) {
+                    links++
+                    val words = Math.ceil(link.paint.measureText(link.text.toString()).toDouble()).toInt()
+                    assertTrue("\"${link.text}\" is ${link.width} wide: its words are $words, its padding ${link.paddingLeft + link.paddingRight}",
+                        link.width <= words + link.paddingLeft + link.paddingRight + 1)
+                }
+                for (key in listOf("settings:theme", "split:mode"))
+                    root(a).findViewWithTag<View?>(key)?.let { assertTrue("$key spans the screen", it.width < root(a).width / 2) }
+            }
+        }
+        assertTrue("There are links to check", links >= 6)
     }
 
     @Test fun theArrowsReachEveryControl() {
@@ -359,7 +462,7 @@ class TvDeviceTest {
         render(a, 4)
         val padding = if (isTv) onMain { Math.round(48 * a.resources.displayMetrics.density) } else 0
         eventually("Overscan padding on a TV, none on a phone") { onMain { root(a).paddingLeft } == padding }
-        val log = onMain { descendants(root(a)).filterIsInstance<TextView>().last() }
+        val log = onMain { descendants(pageRoot(a)).filterIsInstance<TextView>().last() }
         assertEquals("On a TV, selectable text would take the arrows", !isTv, onMain { log.isTextSelectable })
     }
 
@@ -903,5 +1006,211 @@ class TvDeviceTest {
         assertEquals(3, saved().size)
         assertEquals("Pasted", saved().last().getString("name"))
         assertTrue(saved().last().getString("toml").contains("hostname = \"vpn.example.com\""))
+    }
+
+    // The in-app overlays (showOverlay): a confirmation, a select popup and a menu, the toast. Each
+    // is a view in the window, found by its tag, so none of them is a system dialog.
+
+    private fun overlayTag(a: MainActivity, name: String): View? = onMain { root(a).findViewWithTag<View?>("overlay:$name") }
+    // Asks for a confirmation. On the main thread, which is where the activity asks for one.
+    private fun askConfirm(a: MainActivity, message: String, onConfirm: () -> Unit = {}, onCancel: () -> Unit = {}) {
+        method("showConfirm", CharSequence::class.java, CharSequence::class.java, CharSequence::class.java,
+            Runnable::class.java, Runnable::class.java, Runnable::class.java)
+            .invoke(a, message, "Delete", null, Runnable { onConfirm() }, null, Runnable { onCancel() })
+    }
+    private fun showConfirm(a: MainActivity, message: String, onConfirm: () -> Unit = {}, onCancel: () -> Unit = {}) {
+        onMain { askConfirm(a, message, onConfirm, onCancel) }
+        instrumentation.waitForIdleSync()
+    }
+    private fun confirmMessage(a: MainActivity): String? =
+        onMain { root(a).findViewWithTag<TextView?>("confirm:message")?.text?.toString() }
+    private fun click(a: MainActivity, key: String) = onMain { assertTrue("$key must be clickable", root(a).findViewWithTag<View>(key).performClick()) }
+
+    // render() rebuilds the page and leaves the overlays alone. Back closes the top overlay, and goes
+    // no further: not Home on a TV, and not out of the app.
+    @Test fun anOverlaySurvivesARebuildAndBackClosesItBeforeAnythingElse() {
+        val a = open()
+        render(a, 3)
+        showConfirm(a, "Delete this?")
+        assertNotNull("The confirmation must be in the window", overlayTag(a, "confirm"))
+        render(a, 3)
+        assertNotNull("An overlay must survive render()", overlayTag(a, "confirm"))
+        assertEquals("Delete this?", confirmMessage(a))
+        instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
+        eventually("Back must close the overlay") { overlayTag(a, "confirm") == null }
+        assertFalse("Back must not leave the app while an overlay is up", onMain { a.isFinishing })
+        assertEquals("Back must not change the page while an overlay is up", 3, onMain { field("page").getInt(a) })
+    }
+
+    // While an overlay is up the page behind it takes no focus and no accessibility, the overlay's
+    // default control has the focus and no arrow leaves it, and when it closes the focus is back on
+    // what opened it.
+    @Test fun anOverlayTakesTheFocusAndGivesItBack() {
+        val a = open()
+        leaveTouchMode(a)
+        render(a, 1)
+        focusOn(a, "configs:add")
+        showConfirm(a, "Delete this?")
+        eventually("Cancel takes the focus first") { focusedKey(a) == "confirm:cancel" }
+        onMain {
+            assertEquals("The page behind takes no focus", ViewGroup.FOCUS_BLOCK_DESCENDANTS, pageRoot(a).descendantFocusability)
+            assertEquals("The page behind is hidden from accessibility", View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS, pageRoot(a).importantForAccessibility)
+        }
+        for (key in listOf(KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_DOWN,
+                KeyEvent.KEYCODE_DPAD_RIGHT, KeyEvent.KEYCODE_DPAD_RIGHT, KeyEvent.KEYCODE_TAB)) {
+            instrumentation.sendKeyDownUpSync(key)
+            instrumentation.waitForIdleSync()
+            val focused = focusedKey(a)
+            assertTrue("The focus left the overlay for $focused", focused != null && focused.startsWith("confirm:"))
+        }
+        instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
+        eventually("Back gives the focus back to what opened it") { focusedKey(a) == "configs:add" }
+        onMain {
+            assertEquals(ViewGroup.FOCUS_BEFORE_DESCENDANTS, pageRoot(a).descendantFocusability)
+            assertEquals(View.IMPORTANT_FOR_ACCESSIBILITY_AUTO, pageRoot(a).importantForAccessibility)
+        }
+    }
+
+    // A confirmation asked for while another is up waits its turn and does not replace it. The red
+    // button takes no click for its first 400 ms, so that an OK held or repeated on a remote cannot
+    // answer what a phone or a web page asked. A tap on the backdrop, like Back, is Cancel.
+    @Test fun aConfirmationWaitsForTheOneShownAndIgnoresClicksUntilItIsArmed() {
+        val a = open()
+        val answers = java.util.concurrent.CopyOnWriteArrayList<String>()
+        // Asked and clicked in the same moment, on the main thread: inside the 400 ms, however slow the device is.
+        onMain {
+            askConfirm(a, "Delete?", onConfirm = { answers.add("yes") }, onCancel = { answers.add("no") })
+            assertTrue(root(a).findViewWithTag<View>("confirm:ok").performClick())
+        }
+        assertEquals("A click in the first 400 ms is ignored", emptyList<String>(), answers.toList())
+        assertNotNull(overlayTag(a, "confirm"))
+        SystemClock.sleep(500)
+        click(a, "confirm:ok")
+        assertEquals(listOf("yes"), answers.toList())
+        eventually("Delete closes it") { overlayTag(a, "confirm") == null }
+
+        answers.clear()
+        showConfirm(a, "First?", onConfirm = { answers.add("first yes") }, onCancel = { answers.add("first no") })
+        showConfirm(a, "Second?", onConfirm = { answers.add("second yes") }, onCancel = { answers.add("second no") })
+        assertEquals("The second waits: it does not replace the first", "First?", confirmMessage(a))
+        onMain { root(a).findViewWithTag<OverlayLayer>("overlay:confirm").backdrop().performClick() }
+        eventually("The second shows after the first is answered") { confirmMessage(a) == "Second?" }
+        assertEquals("A tap on the backdrop cancels", listOf("first no"), answers.toList())
+        click(a, "confirm:cancel")
+        eventually("Cancel closes the second") { overlayTag(a, "confirm") == null }
+        assertEquals(listOf("first no", "second no"), answers.toList())
+    }
+
+    // A select popup sits under the right edge of its control, 4 below it, and after a render it is put
+    // back there; with its control gone it closes. The current choice is in the accent with a check mark.
+    @Test fun aPopupGoesBackUnderItsControlAfterARebuildAndClosesWithoutIt() {
+        val a = open()
+        render(a, 3)
+        val pickType = Class.forName("org.freetunnel.android.MainActivity\$Pick")
+        val picks = java.util.concurrent.CopyOnWriteArrayList<Int>()
+        val pick = java.lang.reflect.Proxy.newProxyInstance(pickType.classLoader, arrayOf(pickType)) { _, _, args -> picks.add(args[0] as Int); null }
+        onMain {
+            method("showSelect", String::class.java, Array<String>::class.java, Int::class.javaPrimitiveType, pickType)
+                .invoke(a, "settings:theme", arrayOf("System", "Light", "Dark"), 1, pick)
+        }
+        instrumentation.waitForIdleSync()
+        // Where the popup is against its anchor: how far its right edge is from the anchor's, and its gap below.
+        fun placed(): List<Int> = onMain {
+            val anchor = root(a).findViewWithTag<View>("settings:theme")
+            val panel = (root(a).findViewWithTag<View>("overlay:select") as ViewGroup).getChildAt(1)
+            val at = IntArray(2).also { anchor.getLocationInWindow(it) }
+            val inWindow = IntArray(2).also { panel.getLocationInWindow(it) }
+            listOf(at[0] + anchor.width - (inWindow[0] + panel.width), inWindow[1] - (at[1] + anchor.height))
+        }
+        val first = placed()
+        val four = onMain { Math.round(4 * a.resources.displayMetrics.density) }
+        assertEquals("The popup's right edge is the control's", 0, first[0])
+        assertEquals("The popup is 4 under the control", four, first[1])
+        // The colour at rest: the one with the focus is accentText, whichever row a remote starts on.
+        val texts = onMain { descendants(root(a).findViewWithTag<View>("overlay:select")).filterIsInstance<TextView>().map { it.text.toString() to it.textColors.defaultColor } }
+        assertEquals(listOf("System", "Light", "✓", "Dark"), texts.map { it.first })
+        assertEquals("The current choice is in the accent", theme(a).accent, texts.single { it.first == "Light" }.second)
+        assertEquals("and so is its check mark", theme(a).accent, texts.single { it.first == "✓" }.second)
+        assertEquals("The others are in the text colour", theme(a).text, texts.single { it.first == "Dark" }.second)
+        render(a, 3)
+        instrumentation.waitForIdleSync()
+        assertEquals("After a render the popup is under its control again", first, placed())
+        click(a, "select:2")
+        assertEquals("Picking a row runs its choice", listOf(2), picks.toList())
+        eventually("and closes the popup") { overlayTag(a, "select") == null }
+        // With the control gone, such as after a tab, a popup closes.
+        onMain {
+            method("showSelect", String::class.java, Array<String>::class.java, Int::class.javaPrimitiveType, pickType)
+                .invoke(a, "settings:theme", arrayOf("System", "Light", "Dark"), 0, pick)
+        }
+        assertNotNull(overlayTag(a, "select"))
+        render(a, 0)
+        eventually("A popup closes when its control is gone") { overlayTag(a, "select") == null }
+    }
+
+    // A menu: rows of 40 with a separator slot of 11, under the control and centred in the window;
+    // a row runs its action and closes it. Its first row has the focus.
+    @Test fun aMenuHasRowsOf40AndASeparatorAndRunsWhatARowSays() {
+        val a = open()
+        leaveTouchMode(a)
+        render(a, 1)
+        val entry = Class.forName("org.freetunnel.android.MainActivity\$MenuEntry")
+        val make = entry.getDeclaredConstructor(String::class.java, String::class.java, Runnable::class.java).apply { isAccessible = true }
+        val separator = entry.getDeclaredField("SEPARATOR").apply { isAccessible = true }.get(null)
+        val ran = java.util.concurrent.CopyOnWriteArrayList<String>()
+        val items = java.util.ArrayList<Any?>().apply {
+            add(make.newInstance("Paste from clipboard", "add:paste", Runnable { ran.add("paste") }))
+            add(make.newInstance("From file…", "add:file", Runnable { ran.add("file") }))
+            add(separator)
+            add(make.newInstance("Create new…", "add:create", Runnable { ran.add("create") }))
+        }
+        onMain { method("showMenu", String::class.java, String::class.java, java.util.List::class.java).invoke(a, "addmenu", "configs:add", items) }
+        eventually("The first row has the focus") { focusedKey(a) == "add:paste" }
+        onMain {
+            val dp = a.resources.displayMetrics.density
+            for (key in listOf("add:paste", "add:file", "add:create"))
+                assertEquals("$key is 40 high", Math.round(40 * dp), root(a).findViewWithTag<View>(key).height)
+            val panel = (root(a).findViewWithTag<View>("overlay:addmenu") as ViewGroup).getChildAt(1)
+            val width = panel.width
+            assertTrue("The menu is at least 140 wide", width >= Math.round(140 * dp))
+            assertTrue("The menu is centred in the window", Math.abs((panel.left + panel.right) / 2 - root(a).width / 2) <= 2)
+            val file = root(a).findViewWithTag<View>("add:file")
+            val create = root(a).findViewWithTag<View>("add:create")
+            val gap = create.top - file.bottom
+            assertTrue("The separator's slot (11) and the 1 between rows are between them: $gap", gap >= Math.round(11 * dp))
+        }
+        click(a, "add:file")
+        assertEquals(listOf("file"), ran.toList())
+        eventually("A row closes the menu") { overlayTag(a, "addmenu") == null }
+    }
+
+    // The toast is in the window, one at a time, at the bottom or, while an overlay is open, at the top.
+    // A tap dismisses it.
+    @Test fun theToastIsInTheWindowOneAtATimeAndATapDismissesIt() {
+        val a = open()
+        fun toasts(): List<String> = onMain {
+            val layer = field("toastLayer").get(a) as ViewGroup
+            (0 until layer.childCount).map { (layer.getChildAt(it) as TextView).text.toString() }
+        }
+        fun gravity(): Int = onMain { ((field("toastLayer").get(a) as ViewGroup).getChildAt(0).layoutParams as FrameLayout.LayoutParams).gravity }
+        // Long enough to stay for as long as this takes: 55 ms a character.
+        val second = "Second notice " + "x".repeat(150)
+        onMain { method("showToast", CharSequence::class.java).invoke(a, "First notice") }
+        assertEquals(listOf("First notice"), toasts())
+        onMain { method("showToast", CharSequence::class.java).invoke(a, second) }
+        assertEquals("A new toast replaces the old", listOf(second), toasts())
+        assertEquals(Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL, gravity())
+        showConfirm(a, "Delete?")
+        assertEquals("Behind an overlay it would not be seen: at the top", Gravity.TOP or Gravity.CENTER_HORIZONTAL, gravity())
+        click(a, "confirm:cancel")
+        eventually("and at the bottom again once it is closed") { gravity() == (Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL) }
+        onMain {
+            val toast = (field("toastLayer").get(a) as ViewGroup).getChildAt(0)
+            assertFalse("A toast is no control a remote could focus", toast.isFocusable)
+            val now = SystemClock.uptimeMillis()
+            toast.dispatchTouchEvent(MotionEvent.obtain(now, now, MotionEvent.ACTION_DOWN, 5f, 5f, 0))
+            toast.dispatchTouchEvent(MotionEvent.obtain(now, now + 10, MotionEvent.ACTION_UP, 5f, 5f, 0))
+        }
+        eventually("A tap dismisses the toast") { toasts().isEmpty() }
     }
 }
