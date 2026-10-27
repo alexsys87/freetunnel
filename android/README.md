@@ -81,8 +81,7 @@ the TV launcher with its banner. It works with a remote:
   accent, as the desktop fills a selected chip, around only what it holds: a
   link or a dropdown's value is the width of its words, not of the screen. A
   destructive control focuses in danger, and a text field's border turns
-  accent. The system dialogs, which the app's own overlays are replacing, still
-  show a ring. When a page updates, such as on a ping result or a change of
+  accent. When a page updates, such as on a ping result or a change of
   connection state, the focus and the scroll position stay where they were.
 - Home opens on Connect or Disconnect, or on Reconnect while the kill switch
   blocks traffic. Back goes to Home first, onto that control, and leaves the
@@ -90,6 +89,9 @@ the TV launcher with its banner. It works with a remote:
 - The configuration editor opens on the name. The focus never moves onto Show
   TOML and password by itself, where an OK would show the password to the
   room.
+- Every dialog, menu and picker is the app's own overlay, in the same look and
+  with the same focus (see Dialogs, menus and notices): a remote never meets a
+  system dialog with a ring of its own. Back closes an overlay first.
 - Pages keep clear of the screen's edges, which some TVs crop, and the log is
   not selectable, so the arrows scroll through it.
 - The split-tunnelling app picker also lists apps made only for TVs.
@@ -98,16 +100,63 @@ Most TVs have no Always-on VPN, no Quick Settings tile and no notification
 shade. Where Android has no VPN settings screen, Settings says that the kill
 switch then protects only while FreeTunnel runs. Where a TV has no file picker,
 or no screen for allowing VPN connections, the app says so instead of closing.
-A configuration gets onto a TV with Receive from phone, the first item under
-Add configuration on a TV, through the file picker where there is one, or
-through Create manually, which also takes a `tt://` link, typed or pasted with
-a phone's keyboard, for example the Google TV app's.
+A configuration gets onto a TV with Receive from phone, the first item in the
+menu under the + on Configs on a TV, through From file… where there is a file
+picker, or through Create new…, which also takes a `tt://` link, typed or
+pasted with a phone's keyboard, for example the Google TV app's.
 
 The banner is [art/tv-banner.svg](art/tv-banner.svg), rendered into
 `app/src/main/res/drawable-xhdpi/banner.png` by
 [scripts/render-android-tv-banner.sh](../scripts/render-android-tv-banner.sh).
 Its font comes from fontconfig, so the PNG is committed: after changing the
 SVG, run the script and commit both.
+
+### Dialogs, menus and notices
+
+The app draws every dialog, menu, picker, confirmation and notice itself, in
+its own window and in the desktop's look: the same colours, radii, type, buttons
+and behaviour, in the light and the dark theme. There is no system dialog,
+popup, menu or toast of the app's own anywhere, and
+[tests/test_android_tv_dialogs.sh](../tests/test_android_tv_dialogs.sh) fails
+the build on one, and on an overlay added by any code but the one helper that
+traps the focus and handles Back. Only screens Android owns are Android's: the
+VPN consent, the package installer, the file picker, Android's own settings,
+and the Quick Settings tile's and the consent screen's notices, which have no
+window of ours to appear in.
+
+- **Add menu**, under the + on Configs: Receive from phone (on a TV, first),
+  Paste from clipboard, From file…, and Create new…. Paste reads a whole TOML
+  as well as `tt://` links.
+- **Import confirmation**, for a link, a file, the clipboard and what a phone
+  sent: the desktop's question, "Add a VPN server from this link?" or "…file?",
+  with the name, then "Server: …", then where a phone sent it from, then what
+  is wrong with it. Cancel has the focus first, and the red Import answers
+  only 400 ms after the question appears, so that an OK held on a remote
+  cannot answer what a phone or a web page asked. A name already in the list,
+  or the same file, offers Cancel, Add copy and Replace; Replace puts the new
+  config where the old one was. Questions wait in line, and none takes
+  another's place. Afterwards a toast says "Config added: …" and the page is
+  where it was.
+- **Editor**: a card with ← and the title, the name, the TOML and Show TOML and
+  password as a toggle, and Cancel and Save at the bottom right. Back, ← and
+  Cancel ask "Discard unsaved changes?" when something was typed. The window
+  refuses screenshots while it is open. A keyboard that comes up takes room
+  from the card, which scrolls, and a turn of the screen keeps the card and
+  what was typed in it. What an import left out is a toast.
+- **Delete** and **Install update** ask with the same confirmation; Delete
+  names the config, cut in the middle to 36 characters.
+- **Mode** and **Theme** open a list under their value, with the current choice
+  in the accent and a check mark.
+- **App picker**: a search box and a row for each installed app, its name over
+  its package. A tap adds that one app and closes it. On a phone the search box
+  has the focus and the keyboard; on a TV the first row has the focus.
+- **Open-source licenses**: the files, and a file's text in a box that the
+  arrows scroll; Back and ← go back to the list.
+- **Notices** are the desktop's toast: one at a time, a new one replacing the
+  old, at the bottom or, while an overlay is open, at the top, for 3 to 10
+  seconds according to its length, and a tap dismisses it. A storage that
+  cannot be read or written is an amber banner at the top of Configs and in
+  Settings, and a toast.
 
 ### Receive from phone
 
@@ -124,8 +173,10 @@ apps open pages in, open the address in Chrome or Safari instead.
 
 - It listens only on the TV's own address on the home network (10/8,
   172.16/12 or 192.168/16, over Wi-Fi or Ethernet), never on a public,
-  carrier-grade NAT or IPv6-only address, and only while its dialog is open:
-  5 minutes at most, and not past Home or a screensaver.
+  carrier-grade NAT or IPv6-only address, and only while its card is open:
+  5 minutes at most, and not past Home or a screensaver. The screen stays on
+  while the card is open, and Close, Back, the arrow and leaving the app stop
+  the port.
 - It takes one link or file and stops. The address carries an 8-character
   code (40 bits, Crockford's base32), and 3 sends with a wrong code stop it.
   Every address shows the same page, so only a send tests a code.
