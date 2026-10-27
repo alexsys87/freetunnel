@@ -24,8 +24,13 @@ class RoutingConfigTest {
         mtu_size = 1350
     """.trimIndent()
     private fun plan(enabled: Boolean = true, through: Boolean = true, domains: List<String> = emptyList(),
-                     apps: List<String> = emptyList(), kill: Boolean = true, text: String = source) =
-        RoutingConfig.prepare(text, enabled, through, domains, apps, kill)
+                     apps: List<String> = emptyList(), kill: Boolean = true, text: String = source,
+                     excluded: List<String> = emptyList()) =
+        RoutingConfig.prepare(text, enabled, through, domains, apps, kill, excluded)
+    private fun excludedOf(plan: RoutingConfig.Plan) =
+        Toml.parse(plan.toml).getTable("listener.tun")!!.getArray("excluded_routes")!!.toList()
+    private val defaults = listOf("10.0.0.0/8", "100.64.0.0/10", "169.254.0.0/16", "172.16.0.0/12", "192.0.0.0/24",
+        "192.168.0.0/16", "255.255.255.255/32")
 
     @Test fun appsOnlyUseGeneralAndAndroidAllowlist() {
         val result = plan(apps = listOf("test.browser"))
@@ -534,6 +539,50 @@ class RoutingConfigTest {
                 .replace("\"192.168.0.0/16\"", rules.joinToString(", ") { "\"$it\"" }))
         }
         assertNotNull(plan(enabled = false))
+    }
+
+    // Settings' Excluded routes (ExcludedRoutes) are added to the config's own excluded_routes.
+    @Test fun settingsExcludedRoutesAreAddedAfterTheConfigsOwnAndNeverRepeatedFromThem() {
+        // The config excludes 192.168.0.0/16 itself, which the defaults list as well.
+        assertEquals(listOf("192.168.0.0/16"), excludedOf(plan()))
+        assertEquals(listOf("192.168.0.0/16", "10.0.0.0/8", "100.64.0.0/10", "169.254.0.0/16", "172.16.0.0/12",
+            "192.0.0.0/24", "255.255.255.255/32"), excludedOf(plan(excluded = defaults)))
+        // However the split settings are, and however many times a route is listed.
+        assertEquals(listOf("192.168.0.0/16", "10.0.0.0/8"), excludedOf(plan(enabled = false, excluded = listOf("10.0.0.0/8", "10.0.0.0/8"))))
+    }
+    @Test fun settingsExcludedRoutesGoInWhereTheConfigHasNone() {
+        val none = source.replace("excluded_routes = [\"192.168.0.0/16\"]", "excluded_routes = []")
+        assertEquals(emptyList<String>(), excludedOf(plan(text = none)))
+        assertEquals(defaults, excludedOf(plan(text = none, excluded = defaults)))
+    }
+    @Test fun aRouteOfEveryAddressNeverReachesThePlan() {
+        // Settings refuses to list one, and a saved list that has one anyway is read without it, and so is this.
+        val result = plan(excluded = listOf("0.0.0.0/0", "::/0", "10.0.0.0/8", "1.2.3.4/00"))
+        assertEquals(listOf("192.168.0.0/16", "10.0.0.0/8"), excludedOf(result))
+        assertNotNull(plan(excluded = listOf("::/0")))
+    }
+    @Test fun ipv6RoutesGoInOnlyWhereTheSessionHasIpv6() {
+        val saved = listOf("10.0.0.0/8", "FD00::/8")
+        assertEquals(listOf("192.168.0.0/16", "10.0.0.0/8"), excludedOf(plan(excluded = saved)))
+        val v6 = source.replace("has_ipv6 = false", "has_ipv6 = true")
+        assertEquals(listOf("192.168.0.0/16", "10.0.0.0/8", "fd00::/8"), excludedOf(plan(text = v6, excluded = saved)))
+        // IPv6 is on in the config but there is no IPv6 route to carry it: the same as off.
+        val noV6Route = v6.replace("[\"0.0.0.0/0\", \"::/0\"]", "[\"0.0.0.0/0\"]")
+        assertEquals(listOf("192.168.0.0/16", "10.0.0.0/8"), excludedOf(plan(text = noV6Route, excluded = saved)))
+    }
+    @Test fun savedRoutesThatTogetherCoverAnAddressFamilyAreRefusedLikeTheConfigsOwn() {
+        assertThrows(IllegalArgumentException::class.java) { plan(excluded = listOf("0.0.0.0/1", "128.0.0.0/1")) }
+        // The platform's own exclusions count, as they do for the config.
+        assertThrows(IllegalArgumentException::class.java) { plan(excluded = listOf("0.0.0.0/1", "128.0.0.0/2", "192.0.0.0/3")) }
+        assertNotNull(plan(excluded = listOf("0.0.0.0/2", "128.0.0.0/1")))
+    }
+    @Test fun settingsRoutesKeepTheRestOfTheConfigAsItWas() {
+        val withRoutes = Toml.parse(plan(excluded = defaults).toml)
+        val without = Toml.parse(plan().toml)
+        assertEquals(without.getString("endpoint.password"), withRoutes.getString("endpoint.password"))
+        assertEquals(without.getLong("listener.tun.mtu_size"), withRoutes.getLong("listener.tun.mtu_size"))
+        assertEquals(without.getArray("listener.tun.included_routes")!!.toList(), withRoutes.getArray("listener.tun.included_routes")!!.toList())
+        assertEquals(without.getArray("exclusions")!!.toList(), withRoutes.getArray("exclusions")!!.toList())
     }
 
     // The profiles. A session is built with the rules of the profile its config uses, and nothing of the others.

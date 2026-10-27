@@ -234,11 +234,19 @@ object RoutingConfig {
             catch (_: android.content.pm.PackageManager.NameNotFoundException) { false }
         }
         return prepare(source, prefs.getBoolean("split_enabled", false), prefs.getBoolean("through", false),
-            rules.domains, apps, prefs.getBoolean("killswitch", true))
+            rules.domains, apps, prefs.getBoolean("killswitch", true),
+            ExcludedRoutes.load(prefs.getString(ExcludedRoutes.KEY, null), ExcludedRoutes.defaults(context)))
     }
 
-    @JvmStatic fun prepare(source: String, enabled: Boolean, through: Boolean,
-                           domains: List<String>, apps: List<String>, killSwitch: Boolean): Plan {
+    /**
+     * The plan for these settings. [excludedRoutes] are Settings' Excluded routes (ExcludedRoutes), which are added to the
+     * config's own listener.tun.excluded_routes: those of them that are subnets and not a /0, once each, and the IPv6 ones only
+     * where the session has IPv6. The result is checked as the config itself is, so that routes which together cover every
+     * address of a family are refused, as they would be in the config.
+     */
+    @JvmStatic @JvmOverloads fun prepare(source: String, enabled: Boolean, through: Boolean,
+                           domains: List<String>, apps: List<String>, killSwitch: Boolean,
+                           excludedRoutes: List<String> = emptyList()): Plan {
         val parsed = validate(source)
         val originalMode = parsed.getString("vpn_mode") ?: "general"
         val original = parsed.getArray("exclusions")?.let { a -> (0 until a.size()).map { a.getString(it) } }.orEmpty()
@@ -270,11 +278,17 @@ object RoutingConfig {
         root["vpn_mode"] = mode
         root["exclusions"] = rules
         root["killswitch_enabled"] = killSwitch
+        // The config's own excluded routes, and Settings' after them (validate() has seen that both exist).
+        val tun = parsed.getTable("listener.tun")!!
+        val ownExcluded = tun.getArray("excluded_routes")!!.let { a -> (0 until a.size()).map { a.getString(it) } }
+        val ipv6 = (parsed.getTable("endpoint")!!.getBoolean("has_ipv6") ?: false) &&
+            tun.getArray("included_routes")!!.let { a -> (0 until a.size()).any { ':' in a.getString(it) } }
+        val excluded = ExcludedRoutes.forPlan(ownExcluded, excludedRoutes, ipv6)
         // ktoml 0.7.0 cannot reliably decode escaped strings in inline tables.
         // Keep configuration tables as ordinary headers and scalar assignments.
         // A config saved by an earlier version can still hold a subscription address;
         // the core does nothing with it, so it is not handed the password in it.
-        val result = document(root, subscriptionKeys)
+        val result = document(root, subscriptionKeys, mapOf(listOf("listener", "tun", "excluded_routes") to excluded))
         validate(result)
         return Plan(result, selectedApps, allowApps, warning)
     }

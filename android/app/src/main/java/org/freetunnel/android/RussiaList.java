@@ -2,11 +2,7 @@ package org.freetunnel.android;
 
 import android.content.Context;
 
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.function.Supplier;
@@ -23,27 +19,13 @@ final class RussiaList {
     private RussiaList() { }
 
     /** The rules in a file's text, in its order. The same reading as the desktop's, line by line. */
-    static List<String> parse(String text) {
-        String body = text.startsWith("\uFEFF") ? text.substring(1) : text;
-        List<String> rules = new ArrayList<>();
-        for (String line : body.split("\n")) {
-            String rule = line.trim();
-            if (!rule.isEmpty() && rule.charAt(0) != '#') rules.add(rule);
-        }
-        return Collections.unmodifiableList(rules);
-    }
+    static List<String> parse(String text) { return DataFile.parse(text); }
 
     /** The list from the assets; it is read once. */
     static List<String> read(Context context) throws IOException {
         List<String> list = cached;
         if (list != null) return list;
-        try (InputStream in = context.getAssets().open(ASSET)) {
-            ByteArrayOutputStream bytes = new ByteArrayOutputStream();
-            byte[] chunk = new byte[4096];
-            int n;
-            while ((n = in.read(chunk)) != -1) bytes.write(chunk, 0, n);
-            list = parse(new String(bytes.toByteArray(), StandardCharsets.UTF_8));
-        }
+        list = DataFile.read(context, ASSET);
         cached = list;
         return list;
     }
