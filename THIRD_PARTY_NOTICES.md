@@ -84,7 +84,7 @@ Every download carries this file, `LICENSE` and the `licenses/` folder it needs:
   libraries](#the-vpn-core-and-its-libraries) and [Rust
   crates](#rust-crates-in-the-trusttunnel-native-library).
 - [Java and Kotlin libraries](#java-and-kotlin-libraries).
-- [An icon derived from Feather](#feather-icons-in-the-android-app).
+- [Icons derived from Feather and Lucide](#feather-and-lucide-icons-in-the-android-app).
 
 ## The VPN core and its libraries
 
@@ -406,11 +406,12 @@ Windows only: the frameless window's shadow, corners and snap layouts.
 
 Five of the interface's icons (`assets/icons/settings.svg`, `export.svg`,
 `close.svg` and `connection.svg` from Feather, `edit.svg` from Lucide) are
-derived from these icon sets. The Android app's Configurations icon comes from
-Feather too: see [Feather icons in the Android app](#feather-icons-in-the-android-app).
+derived from these icon sets. The Android app draws the same icons: see
+[Feather and Lucide icons in the Android
+app](#feather-and-lucide-icons-in-the-android-app).
 
 - License: MIT (Feather) AND ISC (Lucide),
-  [licenses/desktop/Feather-Lucide-icons.txt](licenses/desktop/Feather-Lucide-icons.txt)
+  [licenses/common/Feather-Lucide-icons.txt](licenses/common/Feather-Lucide-icons.txt)
 - Copyright: Copyright (c) 2013-2023 Cole Bemis; Copyright (c) Lucide Icons and
   Contributors
 - Source: <https://github.com/feathericons/feather>, <https://github.com/lucide-icons/lucide>
@@ -758,14 +759,23 @@ Dependencies of AndroidX.
 - Copyright: Copyright The Guava Authors; Copyright The JSpecify Authors
 - Source: <https://github.com/google/guava>, <https://github.com/jspecify/jspecify/tree/v1.0.0>
 
-### Feather icons in the Android app
+### Feather and Lucide icons in the Android app
 
-The Configurations tab's icon (`res/drawable/ic_servers.xml`) is derived from
-Feather's `server` icon.
+The Android app draws the desktop's icons from vector drawables
+(`res/drawable/ic_*.xml`), which `scripts/android-icons-from-svg.py` makes from
+the desktop's `assets/icons/*.svg` and `assets/logo.svg`:
 
-- License: MIT, [licenses/android/Feather-icons.txt](licenses/android/Feather-icons.txt)
-- Copyright: Copyright (c) 2013-2023 Cole Bemis
-- Source: <https://github.com/feathericons/feather>
+- `ic_settings`, `ic_export`, `ic_close` and `ic_connection` are derived from
+  Feather's `settings`, `upload`, `x` and `server` icons (MIT).
+- `ic_edit` is derived from Lucide's `pencil` icon (ISC).
+- `ic_network`, `ic_log`, `ic_ping` (the speedometer), `ic_logo` and the plus
+  signs are FreeTunnel's own.
+
+- License: MIT (Feather) AND ISC (Lucide),
+  [licenses/common/Feather-Lucide-icons.txt](licenses/common/Feather-Lucide-icons.txt)
+- Copyright: Copyright (c) 2013-2023 Cole Bemis; Copyright (c) Lucide Icons and
+  Contributors
+- Source: <https://github.com/feathericons/feather>, <https://github.com/lucide-icons/lucide>
 
 ## Source code of the LGPL and GPL components
 
@@ -792,15 +802,15 @@ provided.
 ## License texts
 
 Under [licenses/common/](licenses/common/): brotli, chromium-tldregistry,
-cxxopts, fmt, http-parser, klib, ldns, libevent, libsodium, libuv, llhttp,
-lwip, magic_enum, MPL-2.0, nghttp2, nghttp3, ngtcp2, nlohmann-json,
-pcap_savefile, pcre2-10.37, tomlplusplus, zlib.
+cxxopts, Feather-Lucide-icons, fmt, http-parser, klib, ldns, libevent,
+libsodium, libuv, llhttp, lwip, magic_enum, MPL-2.0, nghttp2, nghttp3, ngtcp2,
+nlohmann-json, pcap_savefile, pcre2-10.37, tomlplusplus, zlib.
 
 Under [licenses/desktop/](licenses/desktop/): AFL-2.1, AppImage-runtime,
-Detours, Feather-Lucide-icons, GCC-exception-3.1, GPL-3.0, ICU-73, LGPL-2.1,
-LGPL-3.0, Mesa-llvmpipe, Microsoft-redistributables, NSIS, QHotkey,
+Detours, GCC-exception-3.1, GPL-3.0, ICU-73, LGPL-2.1, LGPL-3.0,
+Mesa-llvmpipe, Microsoft-redistributables, NSIS, QHotkey,
 Qt-6.8.3-third-party, Wintun.
 
 Under [licenses/android/](licenses/android/): ANTLR-4, BouncyCastle,
-checker-qual, EPL-1.0, Feather-icons, ktoml, NOTICE-files, qrcodegen, slf4j,
+checker-qual, EPL-1.0, ktoml, NOTICE-files, qrcodegen, slf4j,
 ThreeTen-Backport, winnow.

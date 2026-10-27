@@ -80,7 +80,7 @@ public final class MainActivity extends Activity {
     private static final int PREPARE_VPN = 22;
     private static final String PREFS = "freetunnel";
     private String[] tabNames;
-    private final int[] tabIcons = {R.drawable.logo, R.drawable.ic_servers, R.drawable.ic_network,
+    private final int[] tabIcons = {R.drawable.logo, R.drawable.ic_connection, R.drawable.ic_network,
             R.drawable.ic_settings, R.drawable.ic_log};
     private SharedPreferences prefs;
     private final List<Config> configs = new ArrayList<>();
