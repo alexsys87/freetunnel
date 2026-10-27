@@ -25,6 +25,9 @@ Backend::Backend(QObject *parent) : QObject(parent) {
     resolveSquirrelUpdaterRules();
     reloadConfigs();
     freetunnel::sweepStoredSubscriptionAddresses(m_paths);
+    // Its own clean-up, of the links to subscriptions whose config is gone, and
+    // with experimental/subscriptions on, its refreshes (BackendSubscriptions.cpp).
+    startSubscriptions();
     if (!m_settings.last_config_path.isEmpty() && m_paths.contains(m_settings.last_config_path)) {
         m_activePath = m_settings.last_config_path;
     } else if (!m_paths.isEmpty()) {
@@ -145,6 +148,11 @@ void Backend::onVpnClientStateChanged(VpnHelperClient::State st)
     // from inside its own state callback (disconnectVpn can emit this synchronously).
     if (st == VpnHelperClient::State::Disconnected && m_pendingReconnect)
         QTimer::singleShot(0, this, [this]() { firePendingReconnect(); });
+    // A subscription's update to the active config waits while the tunnel is
+    // coming up or going down, and applies once it is not; and a tunnel that came
+    // up from the config before a refresh wrote it is rebuilt with it.
+    if (!m_connecting && !m_disconnecting)
+        flushHeldSubscriptionUpdates();
 }
 
 bool Backend::isInternalVpnError(const QString &m) const
@@ -509,6 +517,9 @@ void Backend::selectConfig(int index) {
     // kept describing the config before this one. removeProfile() emits both for
     // the same reason.
     emit splitChanged();
+    // An update held for the config the tunnel was coming up from need not wait
+    // for the tunnel any more.
+    flushHeldSubscriptionUpdates();
     if (m_connected || m_connecting)
         reconnectActiveConfig();
 }
@@ -525,6 +536,7 @@ void Backend::removeConfig(int index) {
     if (path == m_activePath && (m_connected || m_connecting))
         disconnectVpn();
     freetunnel::CredentialStore::deletePassword(freetunnel::CredentialStore::keyForConfigPath(path));
+    forgetSubscription(path); // and its subscription's address, which also holds the password
     // Remove the TOML itself when we own it (imported/created configs live in
     // the app config dir) — a "deleted" server shouldn't stay recoverable on
     // disk with its hostname/username/cert. Files elsewhere are the user's.

@@ -2,9 +2,8 @@
 #pragma once
 
 // Fetching a TrustTunnel subscription document (endpoint 1.3.0 and later) over
-// HTTPS, and what a failed fetch means for the next one. Nothing in the app
-// starts a fetch yet: the code that asks the user first, stores the address and
-// applies the reply comes later.
+// HTTPS, and what a failed fetch means for the next one. The app's fetches are
+// SubscriptionController's, behind the hidden experimental/subscriptions setting.
 
 #include <QByteArray>
 #include <QList>
@@ -81,7 +80,6 @@ SubscriptionFetchRequest subscriptionRequestFor(const QString &url, const Config
 enum class SubscriptionRefreshPolicy {
     Normal,     // after the refresh interval
     Backoff,    // sooner at first, then after the interval
-    Weekly,     // in a week
     ManualOnly, // not until the user asks for one that then succeeds
 };
 

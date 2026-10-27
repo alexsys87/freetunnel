@@ -16,6 +16,9 @@
 #include <QScopeGuard>
 #include <QStandardPaths>
 #include <QThread>
+#if defined(FT_ENABLE_TEST_HOOKS)
+#include <QMutex>
+#endif
 
 #if defined(Q_OS_MACOS)
 #include <CoreFoundation/CoreFoundation.h>
@@ -341,6 +344,11 @@ QString CredentialStore::keyForConfigPath(const QString &absoluteConfigPath)
     return QFileInfo(absoluteConfigPath).absoluteFilePath();
 }
 
+QString CredentialStore::keyForSubscription(const QString &sourceId)
+{
+    return QStringLiteral("subscription/") + sourceId;
+}
+
 namespace {
 
 // Every call below talks to the OS credential store, and every one of them
@@ -421,7 +429,9 @@ bool secretServiceOnSessionBus()
 #if defined(FT_ENABLE_TEST_HOOKS)
 // Tests only. "absent": no store at all; "locked": a store that is there and
 // refuses, as a keyring does whose unlock prompt was dismissed. Neither can be
-// had from a real store on demand, on any platform.
+// had from a real store on demand, on any platform. "present": a store that is
+// there and takes what it is given, wherever this build keeps it, for a test of
+// what needs one on a machine with no keyring.
 static QByteArray testKeyring()
 {
     return qgetenv("FT_TEST_KEYRING");
@@ -454,7 +464,7 @@ static bool doStorePassword(const QString &key, const QString &password)
     if (key.isEmpty())
         return false;
 #if defined(FT_ENABLE_TEST_HOOKS)
-    if (!testKeyring().isEmpty())
+    if (const QByteArray keyring = testKeyring(); !keyring.isEmpty() && keyring != "present")
         return false;
 #endif
 
@@ -683,6 +693,37 @@ void sweepStoredSubscriptionAddresses(const QStringList &configPaths)
 // Thin wrappers so no caller can accidentally block the GUI thread on the
 // credential store; see withoutFreezingTheUi above.
 
+namespace {
+
+#if defined(FT_ENABLE_TEST_HOOKS)
+QMutex g_callHookMutex;
+CredentialStore::CallHookForTest g_callHookForTest;
+
+// A copy, called outside the lock: the hook may itself use the store.
+void callHookForTest(const char *call, const QString &key)
+{
+    CredentialStore::CallHookForTest hook;
+    {
+        const QMutexLocker lock(&g_callHookMutex);
+        hook = g_callHookForTest;
+    }
+    if (hook)
+        hook(call, key);
+}
+#else
+void callHookForTest(const char *, const QString &) {}
+#endif
+
+} // namespace
+
+#if defined(FT_ENABLE_TEST_HOOKS)
+void CredentialStore::setCallHookForTest(CallHookForTest hook)
+{
+    const QMutexLocker lock(&g_callHookMutex);
+    g_callHookForTest = std::move(hook);
+}
+#endif
+
 bool CredentialStore::secureStorageAvailable()
 {
     return withoutFreezingTheUi([] { return doSecureStorageAvailable(); });
@@ -690,16 +731,19 @@ bool CredentialStore::secureStorageAvailable()
 
 bool CredentialStore::storePassword(const QString &key, const QString &password)
 {
+    callHookForTest("store", key);
     return withoutFreezingTheUi([&] { return doStorePassword(key, password); });
 }
 
 QString CredentialStore::loadPassword(const QString &key)
 {
+    callHookForTest("load", key);
     return withoutFreezingTheUi([&] { return doLoadPassword(key); });
 }
 
 bool CredentialStore::deletePassword(const QString &key)
 {
+    callHookForTest("delete", key);
     return withoutFreezingTheUi([&] { return doDeletePassword(key); });
 }
 
