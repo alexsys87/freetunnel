@@ -165,34 +165,47 @@ The TV shows a QR code and an address such as
 network opens it, with its camera or by typing the address into a browser, and
 pastes a `tt://` link or a TOML file into the page there, or picks the file
 itself: a TOML file, or a text file that holds a link. No app is needed on it.
-The TV then shows what it received, with the address it came from, and adds it
-only once you confirm, as for any other import. A TOML file without a name of
-its own is named after its file, as one picked on the TV is; a link names
-itself. If choosing a file does nothing, as in the browser some QR code scanner
-apps open pages in, open the address in Chrome or Safari instead.
+The page is the app's own look, light or dark as the phone is, and after each
+send it says so and shows the form again, so the phone can send another. The
+TV shows each text it received, one at a time in the order they were sent,
+with the address it came from, and adds it only once you confirm, as for any
+other import; the card stays open under the question, with "Received: N" in
+its corner, until you close it. A TOML file without a name of its own is named
+after its file, as one picked on the TV is; a link names itself. If choosing a
+file does nothing, as in the browser some QR code scanner apps open pages in,
+open the address in Chrome or Safari instead.
 
 - It listens only on the TV's own address on the home network (10/8,
   172.16/12 or 192.168/16, over Wi-Fi or Ethernet), never on a public,
   carrier-grade NAT or IPv6-only address, and only while its card is open:
-  5 minutes at most, and not past Home or a screensaver. The screen stays on
-  while the card is open, and Close, Back, the arrow and leaving the app stop
-  the port.
-- It takes one link or file and stops. The address carries an 8-character
-  code (40 bits, Crockford's base32), and 3 sends with a wrong code stop it.
-  Every address shows the same page, so only a send tests a code.
+  5 minutes at most from when the card opens, which no send extends, and not
+  past Home or a screensaver. The screen stays on while the card is open, and
+  Close, Back, the arrow, the time, three wrong codes and leaving the app stop
+  the port. What it had already received stays queued for your confirmation
+  when the port closes in any of those ways but the last: leaving the app
+  drops what is still waiting for its turn.
+- It takes links and files until you close it, at most 10 waiting at a time.
+  The address carries an 8-character code (40 bits, Crockford's base32), and
+  3 sends with a wrong code, counted over all the sends of the session, stop
+  it. Every address shows the same page, so only a send tests a code.
 - A send is a form post of at most 512 KiB, a file included, that names the
   TV's address as its host. The page loads nothing and runs no script, and
   nothing about a transfer is logged. A send with nothing in it, with both
   pasted text and a file, with a file that is not UTF-8 text, or over 512 KiB,
   such as a photo chosen by mistake, shows the page again with a note; it is
-  not a wrong code, and the TV goes on waiting. Before it closes, the TV reads
+  not a wrong code, and the TV goes on waiting. So does a send to the right
+  code while 10 texts wait for your answer: the page tells the phone to wait
+  and send again, and it is no wrong code either; each answer on the TV makes
+  room for one more. Before it closes, the TV reads
   the rest of a send it refused as too large, for 2 seconds at most, so that
   the browser can show that page instead of a connection error.
 - The link or file crosses the home network unencrypted: a browser has no way
   to encrypt a page on a local `http://` address. Someone already watching that
-  network at that moment could read the VPN password in it, or send their own
-  configuration first. The TV's confirmation shows the server and the sender's
-  address, so check both, and use it only on a network you trust. The name and
+  network while the card is open could read the VPN password in a text, or the
+  code in the address and send their own configuration, between your sends as
+  well as before them. The TV's confirmation of each text shows the server and
+  the sender's address, so check both every time, and use it only on a network
+  you trust. The name and
   the server, a file's name too, are shown there on one line, without
   characters that reverse or hide text, with at most two marks such as accents
   on a letter, and cut to 80 characters, so that nothing in them can cover the

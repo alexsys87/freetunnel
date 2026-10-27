@@ -41,8 +41,8 @@ needs Android 8.0 or later.
 - Installing an update while the VPN is on asks first, because Android turns
   the VPN off while it replaces the app. FreeTunnel reconnects after the
   update, unless you disconnected in the meantime.
-- Receive from phone listens only on the home network, for one link and at
-  most 5 minutes, behind a one-time code, and stops after 3 wrong codes. The
+- Receive from phone listens only on the home network, for at most
+  5 minutes, behind a one-time code, and stops after 3 wrong codes. The
   link crosses the network unencrypted, so use it on a network you trust. The
   TV shows which address sent the link, and adds nothing until you confirm.
 
