@@ -4,6 +4,7 @@ import android.content.Context;
 import android.content.res.ColorStateList;
 import android.graphics.Color;
 import android.graphics.Paint;
+import android.graphics.Rect;
 import android.graphics.Typeface;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
@@ -11,6 +12,7 @@ import android.graphics.drawable.StateListDrawable;
 import android.text.TextUtils;
 import android.util.TypedValue;
 import android.view.Gravity;
+import android.view.TouchDelegate;
 import android.view.View;
 import android.view.animation.DecelerateInterpolator;
 import android.widget.Button;
@@ -25,17 +27,19 @@ import android.widget.TextView;
  * qml/Field.qml, qml/components/*, qml/pages/*), and how a remote's focus shows on them.
  *
  * <p>The desktop has no focus ring: where the pointer is, a control takes its hover
- * look. A remote has no pointer, and from across a room the desktop's hover fills
- * (one step from the page) cannot be seen, so the focus takes the strongest fill the
- * desktop has, the selected chip's: the accent, with its content in accentText. A
- * destructive control focuses as the desktop's confirm button does, in danger with
- * white. A text field keeps its own focus, an accent border. Never a stroke around
- * a control, never a foreground: every control's focus is its background, in its own
- * shape and radius, around what it holds. See {@link #focus}.
+ * look, and a remote's focus is that same look, control by control: a nav tile and a row fill with surface, a link goes to its hover
+ * colour and underlines, a chip to surfaceHover, a button to its hover colour, a dropdown's
+ * value and a back arrow to the text colour, a text field's border to the accent. A control
+ * the desktop gives no hover (a toggle, the logo) takes the nearest thing it has: its row
+ * fills as a config row does, the logo grows to the pulse's peak. What is selected stays as
+ * it is, with a remote or without one: an accent chip, an accent primary button, a red
+ * confirm button with a white label, and an inputBg field. Never a stroke around a control,
+ * never a foreground, never a fill across empty width: a control's focus is its background
+ * (or its colour), in its own shape and radius. See {@link #focus}.
  */
 final class Ui {
     /** What a control's rest, hover and focus look like. */
-    enum Look { TILE, HERO, ROW, MENU_ROW, PILL, LINK, ICON, CHIP, BUTTON, PRIMARY, DANGER, FIELD, SELECT, BOX, TOGGLE }
+    enum Look { TILE, HERO, ROW, MENU_ROW, PILL, LINK, ICON, PLAIN, CHIP, BUTTON, PRIMARY, DANGER, FIELD, SELECT, BOX }
     /** The four buttons the desktop has. */
     enum Kind { PRIMARY, SECONDARY, NEUTRAL, DESTRUCTIVE }
     /** The colours of link: accent, text colour, danger, and textFaint (the footer's). */
@@ -45,17 +49,13 @@ final class Ui {
     static final int F_CURRENT = 1;
     /** A secondary button, which rests on the page with a border, as the editor's Cancel does. */
     static final int F_SECONDARY = 2;
-    /** A control that goes danger: the close icons, and a danger link. */
-    static final int F_DANGER = 4;
-    /** Fully round, such as a ChipX or a toggle's backdrop. */
-    static final int F_ROUND = 8;
     /**
      * A row that holds controls of its own, such as a config row with its icons: while one of them has
      * the focus the row is activated (setActivated), and rests on surface, as the desktop's row does
      * while the pointer is over one of its icons.
      */
     static final int F_HOLDS_FOCUS = 16;
-    /** A 1 px border in the border colour at rest, such as the + chip's. Gone with the focus, which fills it. */
+    /** A 1 px border in the border colour, such as the + chip's, whatever the control's state. */
     static final int F_BORDER = 32;
 
     /** The desktop animates every hover colour for 120 ms. */
@@ -65,7 +65,6 @@ final class Ui {
     private final Context context;
     private final float density;
     private Theme t = Theme.DARK;
-    private boolean remote;
 
     Ui(Context context) {
         this.context = context;
@@ -73,17 +72,13 @@ final class Ui {
     }
 
     /**
-     * The theme the next controls are drawn in, and whether a remote or keyboard drives
-     * the screen. Then, and only then, a control that rests in a strong fill (a primary
-     * or a destructive button, the selected chip) rests in a neutral one, so that the
-     * focus is the one strong fill on the screen.
+     * The theme the next controls are drawn in. A control rests the same with a remote, a finger or a pointer: the desktop's
+     * looks do not change with the way the screen is driven, only what shows the focus does (see {@link #background}).
      */
-    void update(boolean dark, boolean remote) {
+    void update(boolean dark) {
         this.t = Theme.of(dark);
-        this.remote = remote;
     }
     Theme t() { return t; }
-    boolean remote() { return remote; }
 
     // Measures and containers.
 
@@ -160,17 +155,8 @@ final class Ui {
             {android.R.attr.state_focused}, {android.R.attr.state_pressed}, {android.R.attr.state_hovered}, {}},
             new int[]{focused, hot, hot, rest});
     }
-    /**
-     * As above, and a colour for while the view is selected, which a row sets on its icons while the row itself has
-     * the focus: they sit on its accent then, as the row's own words do.
-     */
-    static ColorStateList colors(int rest, int hot, int focused, int selected) {
-        return new ColorStateList(new int[][]{
-            {android.R.attr.state_focused}, {android.R.attr.state_selected}, {android.R.attr.state_pressed}, {android.R.attr.state_hovered}, {}},
-            new int[]{focused, selected, hot, hot, rest});
-    }
-    /** What a control's content turns to while it has the focus: accentText, or white on danger. */
-    int onFocus(Look look, int flags) { return (flags & F_DANGER) != 0 || look == Look.DANGER ? t.onDanger : t.accentText; }
+    /** One colour in every state: the content of a control whose look does not change its colours. */
+    static ColorStateList always(int color) { return ColorStateList.valueOf(color); }
 
     /** A child of a focusable control takes its states, and its text changes colour with them. */
     <T extends TextView> T follow(T child, int rest, int hot, int focused) {
@@ -184,17 +170,24 @@ final class Ui {
         child.setDuplicateParentStateEnabled(true);
         return child;
     }
+    /** An icon in one colour, whatever state the control it is in is in. */
+    <T extends ImageView> T tinted(T child, int color) {
+        child.setImageTintList(always(color));
+        return child;
+    }
 
     // Focus.
 
     /**
      * Makes the view a stop for a remote, with a key that names it across render(), which
      * rebuilds every view, and gives it the desktop's look for this kind of control: its
-     * rest look, its hover look while pressed or hovered, and its focus look. All three
-     * are the view's background, a StateListDrawable that fades in 120 ms as the
-     * desktop's colours do; the view has no foreground, and Android's own highlight is
-     * off. A phone in touch mode never focuses a control, so it shows none of it; text
-     * fields focus on a tap, and show the desktop's field focus then too.
+     * rest look, its hover look while pressed or hovered, and its focus look, which is the hover
+     * look but for a text field's and a box of text's accent border (and the one gap, a selected
+     * chip, which the desktop shows no hover of). All three are the view's background, a
+     * StateListDrawable that fades in 120 ms as the desktop's colours do; the view has no
+     * foreground, and Android's own highlight is off. A phone in touch mode never focuses a
+     * control, so it shows none of it; text fields focus on a tap, and show the desktop's field
+     * focus then too.
      */
     <T extends View> T focus(T view, String key, Look look) { return focus(view, key, look, 0); }
     <T extends View> T focus(T view, String key, Look look, int flags) {
@@ -206,93 +199,99 @@ final class Ui {
         return view;
     }
 
-    /** The background of a control with this look; see {@link #focus}. */
+    /**
+     * The background of a control with this look; see {@link #focus}. What the desktop shows under the pointer is what
+     * is shown with the focus:
+     * <ul>
+     * <li>TILE (a nav tile): surface, grown to 1.08; the current tab keeps infoBg, and only grows;
+     * <li>ROW and MENU_ROW (the rows of a list, a menu, a picker, a select): surface, radius 8 and 6;
+     * <li>PILL (the header's + and ping) and ICON (Home's +): surface, radius 8 and 6, the icon in accent throughout;
+     * <li>LINK and PLAIN: no fill. A link's colour is its hover colour (see {@link #link}) and underlined; a PLAIN control
+     * (a dropdown's value, ←, a ChipX, a config row's icon, a toggle, which draws itself) changes the colour of its content;
+     * <li>HERO (Home's logo): no fill, which would wash out its greys; it grows to 1.05 (see HeroValues);
+     * <li>CHIP: surfaceHover. The selected chip rests on the accent, which the desktop does not change under the pointer;
+     * with the focus alone it goes to primaryHover, as the primary button does;
+     * <li>BUTTON: surfaceHover (a dialog's), surface (the editor's Cancel, which keeps its border); PRIMARY: primaryHover;
+     * DANGER: destructiveHover;
+     * <li>FIELD, SELECT: an accent border on inputBg; BOX (a box of text a remote scrolls): the same on surface.
+     * </ul>
+     */
     StateListDrawable background(Look look, int flags) {
         boolean current = (flags & F_CURRENT) != 0;
-        boolean danger = (flags & F_DANGER) != 0;
         int rest = Color.TRANSPARENT;
         int hot = Color.TRANSPARENT;
-        int focused = danger || look == Look.DANGER ? t.danger : t.accent;
         int stroke = 0;
-        int focusStroke = 0;
         // The border under the pointer, when it is not the one at rest.
         int hotStroke = 0;
         boolean hotStrokeSet = false;
+        // The focus is what is shown under the pointer, unless it is said to be something else.
+        int focused = 0;
+        int focusStroke = 0;
+        boolean focusSet = false;
         float radius = 8;
         switch (look) {
             case TILE:
-                // The current tab is infoBg, and hovering it changes nothing; the others
-                // rest on the page and take surface.
+                // The current tab is infoBg, and hovering it changes nothing; the others rest on the page and take surface.
                 rest = current ? t.infoBg : Color.TRANSPARENT;
                 hot = current ? t.infoBg : t.surface;
-                break;
-            case HERO:
-                // The logo as a control: the nav tile's proportions (8 on 38), at 132. It has no hover look of
-                // its own on the desktop, only its press, which the logo does by scaling.
-                radius = 28;
                 break;
             case ROW: hot = t.surface; break;
             case MENU_ROW: hot = t.surface; radius = 6; break;
             case PILL: hot = t.surface; break;
-            case LINK: radius = 6; break;
             case ICON: hot = t.surface; radius = 6; break;
             case CHIP:
                 radius = 13;
-                // Selected: accent, as on the desktop. With a remote, infoBg: only the
-                // focus is accent then.
-                rest = current ? (remote ? t.infoBg : t.accent) : t.surface;
-                hot = current ? rest : t.surfaceHover;
+                rest = current ? t.accent : t.surface;
+                hot = current ? t.accent : t.surfaceHover;
+                focused = current ? t.primaryHover : t.surfaceHover;
+                focusSet = true;
                 break;
             case BUTTON:
                 if ((flags & F_SECONDARY) != 0) { rest = t.bg; stroke = t.border; hot = t.surface; }
                 else { rest = t.surface; hot = t.surfaceHover; }
                 break;
             case PRIMARY:
-                rest = remote ? t.surface : t.accent;
+                rest = t.accent;
                 hot = t.primaryHover;
                 break;
             case DANGER:
-                rest = remote ? t.surface : t.danger;
+                rest = t.danger;
                 hot = t.destructiveHover;
                 break;
             case FIELD:
-                // The desktop's field: inputBg with an inputBorder outline that turns
-                // accent while it has the focus. With a remote the fill also moves to
-                // surface, which reads from further away.
+                // The desktop's field: inputBg with an inputBorder outline that turns accent while it has the focus.
                 rest = t.inputBg;
                 hot = t.inputBg;
                 stroke = t.inputBorder;
-                focused = remote ? t.surface : t.inputBg;
+                focused = t.inputBg;
                 focusStroke = t.accent;
+                focusSet = true;
                 break;
             case SELECT:
                 // A select box (the editor's): a field that opens a choice. As a field, and its border turns accent under the
-                // pointer, as the desktop's does.
+                // pointer, as the desktop's does, and with the focus.
                 rest = t.inputBg;
                 hot = t.inputBg;
                 stroke = t.inputBorder;
                 hotStroke = t.accent;
                 hotStrokeSet = true;
-                focused = remote ? t.surface : t.inputBg;
-                focusStroke = t.accent;
                 break;
             case BOX:
-                // A box of text that a remote scrolls, such as a license or the log: the
-                // desktop's surface, radius 8; with the focus, the field's accent border.
+                // A box of text that a remote scrolls, such as a license or the log: the desktop's surface, radius 8; with the
+                // focus, the field's accent border.
                 rest = t.surface;
                 hot = t.surface;
                 focused = t.surface;
                 focusStroke = t.accent;
-                break;
-            case TOGGLE:
-                radius = 99;
+                focusSet = true;
                 break;
             default:
+                // HERO, LINK, PLAIN: no fill.
                 break;
         }
-        if ((flags & F_ROUND) != 0) radius = 99;
         if ((flags & F_BORDER) != 0) stroke = t.border;
         if (!hotStrokeSet) hotStroke = stroke;
+        if (!focusSet) { focused = hot; focusStroke = hotStroke; }
         StateListDrawable states = new StateListDrawable();
         // The focus comes first: OK held on a focused control presses it, and it keeps its focus look.
         states.addState(new int[]{android.R.attr.state_focused}, box(focused, radius, focusStroke));
@@ -316,12 +315,37 @@ final class Ui {
             .setDuration(FADE_MS).setInterpolator(new DecelerateInterpolator(1.5f)).start());
     }
 
+    /**
+     * A row round controls that have no look of their own for the focus (a toggle: the desktop gives it no hover): while the
+     * control has the focus the row is activated and rests on surface, as a config row does while one of its icons has it, and the
+     * focus is a fill of the row, not a ring round the control. The row is not a focus stop itself.
+     */
+    void holdFocus(View row, View stop) {
+        row.setBackground(background(Look.ROW, F_HOLDS_FOCUS));
+        stop.setOnFocusChangeListener((v, hasFocus) -> row.setActivated(hasFocus));
+    }
+    /**
+     * Where a row that fills with the focus goes in a page whose content is 18 in from each side: its fill reaches 10 past the
+     * margin on the left and 6 on the right, and the row pads its content by the same (see {@link #FOCUS_ROW_LEFT_DP}), so that the
+     * words and the control stay where the other rows' are.
+     */
+    LinearLayout.LayoutParams focusRowLp() {
+        LinearLayout.LayoutParams p = lp(-1, -2);
+        p.leftMargin = -dp(FOCUS_ROW_LEFT_DP);
+        p.rightMargin = -dp(FOCUS_ROW_RIGHT_DP);
+        return p;
+    }
+    /** How far a row that fills with the focus is padded: the config row's 10 and 6. */
+    static final int FOCUS_ROW_LEFT_DP = 10;
+    static final int FOCUS_ROW_RIGHT_DP = 6;
+
     // Controls.
 
     /**
      * The desktop's buttons: 32 high, radius 8, a label 14 and the label's width plus
      * 26, at least minWidth (88 in the editor, 76 in a dialog). None of them shows a
-     * pressed look beyond its hover.
+     * pressed look beyond its hover. Their words keep their colour in every state: accentText
+     * on the accent, white on danger, the text colour on the others.
      */
     Button button(CharSequence caption, Kind kind, int minWidthDp, String key) {
         Button b = new Button(context);
@@ -344,20 +368,20 @@ final class Ui {
         switch (kind) {
             case PRIMARY:
                 look = Look.PRIMARY;
-                b.setTextColor(colors(remote ? t.text : t.accentText, t.accentText, t.accentText));
+                b.setTextColor(t.accentText);
                 break;
             case DESTRUCTIVE:
                 look = Look.DANGER;
-                b.setTextColor(colors(remote ? t.danger : t.onDanger, t.onDanger, t.onDanger));
+                b.setTextColor(t.onDanger);
                 break;
             case SECONDARY:
                 look = Look.BUTTON;
                 flags = F_SECONDARY;
-                b.setTextColor(colors(t.text, t.text, t.accentText));
+                b.setTextColor(t.text);
                 break;
             default:
                 look = Look.BUTTON;
-                b.setTextColor(colors(t.text, t.text, t.accentText));
+                b.setTextColor(t.text);
                 break;
         }
         return key == null ? styled(b, look, flags) : focus(b, key, look, flags);
@@ -369,10 +393,9 @@ final class Ui {
     }
 
     /**
-     * A link: words, wrap_content, so that it acts over them and a little around them.
-     * Accent, which goes to the text colour and underlined under the pointer; a text link
-     * the other way about, and a faint one (the footer's) too; a danger link to its lighter. With the focus: the accent
-     * (danger) around them, and the words in accentText (white).
+     * A link: words, wrap_content, so that it acts over them and a little around them. Accent, which goes to the text colour
+     * and underlined under the pointer; a text link the other way about, and a faint one (the footer's) too; a danger link to
+     * its lighter. The focus is the same: the colour it has under the pointer, underlined, and no fill.
      */
     TextView link(CharSequence value, float sp, LinkKind kind, String key) {
         LinkText v = new LinkText(context);
@@ -382,39 +405,41 @@ final class Ui {
         v.setSingleLine(true);
         v.setEllipsize(TextUtils.TruncateAt.END);
         v.setPadding(dp(6), dp(4), dp(6), dp(4));
-        int flags = 0;
         switch (kind) {
             case DANGER:
-                flags = F_DANGER;
-                v.setTextColor(colors(t.danger, t.dangerLinkHover, t.onDanger));
+                v.setTextColor(colors(t.danger, t.dangerLinkHover, t.dangerLinkHover));
                 break;
             case TEXT:
-                v.setTextColor(colors(t.text, t.accent, t.accentText));
+                v.setTextColor(colors(t.text, t.accent, t.accent));
                 break;
             case FAINT:
-                v.setTextColor(colors(t.textFaint, t.accent, t.accentText));
+                v.setTextColor(colors(t.textFaint, t.accent, t.accent));
                 break;
             default:
-                v.setTextColor(colors(t.accent, t.text, t.accentText));
+                v.setTextColor(colors(t.accent, t.text, t.text));
                 break;
         }
-        return key == null ? styled(v, Look.LINK, flags) : focus(v, key, Look.LINK, flags);
+        return key == null ? styled(v, Look.LINK, 0) : focus(v, key, Look.LINK, 0);
     }
 
-    /** A link that underlines while it is pressed or hovered: the desktop's. */
+    /** A link that underlines while it is pressed, hovered or focused: the desktop's, which has the pointer for the first two. */
     static final class LinkText extends TextView {
         LinkText(Context c) { super(c); }
         @Override protected void drawableStateChanged() {
             super.drawableStateChanged();
             boolean hot = false;
-            for (int state : getDrawableState()) if (state == android.R.attr.state_pressed || state == android.R.attr.state_hovered) hot = true;
+            for (int state : getDrawableState())
+                if (state == android.R.attr.state_pressed || state == android.R.attr.state_hovered || state == android.R.attr.state_focused) hot = true;
             int flags = getPaintFlags();
             int next = hot ? flags | Paint.UNDERLINE_TEXT_FLAG : flags & ~Paint.UNDERLINE_TEXT_FLAG;
             if (next != flags) setPaintFlags(next);
         }
     }
 
-    /** The desktop's Dropdown: the label does nothing; only the value and its ▾ open the choice. */
+    /**
+     * The desktop's Dropdown: the label does nothing; only the value and its ▾ open the choice, and they are textDim and the
+     * text colour under the pointer or with the focus, with no fill.
+     */
     LinearLayout dropdown(CharSequence name, CharSequence value, String key, View.OnClickListener open) {
         LinearLayout r = row();
         r.setMinimumHeight(dp(42));
@@ -425,15 +450,16 @@ final class Ui {
         gapH(r, 8);
         LinearLayout group = row();
         group.setPadding(dp(6), dp(4), dp(6), dp(4));
-        TextView shown = follow(label(value, 14, t.textDim), t.textDim, t.text, t.accentText);
+        TextView shown = follow(label(value, 14, t.textDim), t.textDim, t.text, t.text);
         shown.setSingleLine(true);
         shown.setEllipsize(TextUtils.TruncateAt.END);
         shown.setMaxWidth(dp(106));
         group.addView(shown, lp(-2, -2));
         gapH(group, 4);
-        group.addView(follow(label("▾", 16, t.textDim), t.textDim, t.text, t.accentText), lp(-2, -2));
-        focus(group, key, Look.PILL).setOnClickListener(open);
-        // The value and its ▾ end where the page's margin does, as the desktop's do: the pill's own 6 go beyond it.
+        group.addView(follow(label("▾", 16, t.textDim), t.textDim, t.text, t.text), lp(-2, -2));
+        focus(group, key, Look.PLAIN).setOnClickListener(open);
+        // The value and its ▾ end where the page's margin does, as the desktop's do: the control's own 6 of padding, which has no
+        // fill to show, go beyond it.
         LinearLayout.LayoutParams groupLp = lp(-2, -2);
         groupLp.rightMargin = -dp(6);
         r.addView(group, groupLp);
@@ -491,7 +517,7 @@ final class Ui {
     /**
      * The editor's select box (qml/Field.qml's look, CreateConfigOverlay's Protocol and Split profile): a label, 13 in textDim, over a
      * box 34 high, radius 8, on inputBg, with the value (14, the text colour) 10 in from the left and ▾ (16, textDim) 10 from the right. The
-     * box is the control; its border turns accent under the pointer, as a field's does with the focus. Where the
+     * box is the control; its border turns accent under the pointer and with the focus, as a field's does. Where the
      * value is shown is put in {@code valueOut}, for the caller to change it when a choice is made.
      */
     LinearLayout selectField(CharSequence name, CharSequence value, String key, TextView[] valueOut, View.OnClickListener open) {
@@ -511,25 +537,30 @@ final class Ui {
         return field;
     }
 
-    /** The editor's toggle row: its label, 13 in textDim, and the toggle, 32 high. */
+    /**
+     * The editor's toggle row: its label, 13 in textDim, and the toggle, 32 high. Like a page's (see {@link #toggleRow}), it
+     * fills with the toggle's focus, and goes in its parent with {@link #focusRowLp}.
+     */
     LinearLayout editorToggleRow(CharSequence title, ToggleView toggle) {
         LinearLayout r = row();
         r.setMinimumHeight(dp(32));
+        r.setPadding(dp(FOCUS_ROW_LEFT_DP), 0, dp(FOCUS_ROW_RIGHT_DP), 0);
         r.addView(label(title, 13, t.textDim), new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
         gapH(r, 8);
         r.addView(toggle, lp(-2, -2));
+        holdToggle(r, toggle);
         return r;
     }
 
-    /** A card's ←, 20 in textDim and the text colour under the pointer, in a cell 6 larger all round. */
+    /** A card's ←, 20 in textDim and the text colour under the pointer and with the focus, in a cell 6 larger all round. */
     TextView backArrow(String key, CharSequence description, View.OnClickListener back) {
         TextView arrow = label("←", 20, t.textDim);
-        arrow.setTextColor(colors(t.textDim, t.text, t.accentText));
+        arrow.setTextColor(colors(t.textDim, t.text, t.text));
         arrow.setGravity(Gravity.CENTER);
         arrow.setPadding(dp(8), dp(1), dp(8), dp(1));
         arrow.setContentDescription(description);
         arrow.setOnClickListener(back);
-        return focus(arrow, key, Look.ICON);
+        return focus(arrow, key, Look.PLAIN);
     }
 
     /**
@@ -550,21 +581,21 @@ final class Ui {
         return bar;
     }
 
-    /** A button of the header, 40 by 32, radius 8, with an icon of this size in accent. */
+    /** A button of the header, 40 by 32, radius 8, with an icon of this size, accent in every state. */
     FrameLayout iconButton(int drawable, int sizeDp, CharSequence description, String key) {
         FrameLayout box = new FrameLayout(context);
         box.setContentDescription(description);
-        ImageView icon = followTint(new ImageView(context), t.accent, t.accent, t.accentText);
+        ImageView icon = tinted(new ImageView(context), t.accent);
         icon.setImageResource(drawable);
         box.addView(icon, new FrameLayout.LayoutParams(dp(sizeDp), dp(sizeDp), Gravity.CENTER));
         return focus(box, key, Look.PILL);
     }
 
-    /** A small icon button, such as Home's + (22 by 22, radius 6), with an icon of this size in accent. */
+    /** A small icon button, such as Home's + (22 by 22, radius 6), with an icon of this size, accent in every state. */
     FrameLayout smallIconButton(int drawable, int iconDp, CharSequence description, String key) {
         FrameLayout box = new FrameLayout(context);
         box.setContentDescription(description);
-        ImageView icon = followTint(new ImageView(context), t.accent, t.accent, t.accentText);
+        ImageView icon = tinted(new ImageView(context), t.accent);
         icon.setImageResource(drawable);
         box.addView(icon, new FrameLayout.LayoutParams(dp(iconDp), dp(iconDp), Gravity.CENTER));
         return focus(box, key, Look.ICON);
@@ -573,25 +604,19 @@ final class Ui {
     /**
      * A chip, 28 high, radius 13, 13, 11 in from the left; selectable ones are focus stops.
      * It is as wide as its label, or fills its row, with the label taking the room and the
-     * ChipX at the end, if {@code fill}.
+     * ChipX at the end, if {@code fill}. The selected one is the accent with accentText and no
+     * mark, whatever drives the screen.
      */
     LinearLayout chip(CharSequence value, boolean selected, boolean selectable, String key, boolean fill) {
         LinearLayout c = new ChipRow(context);
         c.setOrientation(LinearLayout.HORIZONTAL);
         c.setGravity(Gravity.CENTER_VERTICAL);
         c.setPadding(dp(11), 0, dp(11), 0);
-        boolean accentFill = selected && !remote;
-        int rest = selected ? (remote ? t.accent : t.accentText) : t.text;
-        CharSequence shown = selected && remote ? value + " ✓" : value;
-        TextView name = label(shown, 13, rest);
+        TextView name = label(value, 13, selected ? t.accentText : t.text);
         name.setSingleLine(true);
         name.setEllipsize(TextUtils.TruncateAt.END);
-        if (selectable) {
-            follow(name, rest, rest, t.accentText);
-            focus(c, key, Look.CHIP, selected ? F_CURRENT : 0);
-        } else {
-            c.setBackground(shape(accentFill ? t.accent : t.surface, 13));
-        }
+        if (selectable) focus(c, key, Look.CHIP, selected ? F_CURRENT : 0);
+        else c.setBackground(shape(selected ? t.accent : t.surface, 13));
         c.addView(name, fill ? new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1) : lp(-2, -1));
         c.setMinimumHeight(dp(28));
         return c;
@@ -599,10 +624,14 @@ final class Ui {
     /**
      * A chip's row. Its label gives way to the ChipX at its end: a name too long for the row is cut with an ellipsis, as the
      * desktop cuts it (the label is no wider than the chip less 39), and the ChipX is still there to be pressed. A plain
-     * LinearLayout gives the first child all the room it asks for and the last what is left, which may be none.
+     * LinearLayout gives the first child all the room it asks for and the last what is left, which may be none. The ChipX sits 8
+     * into the chip's padding, which a row clips its children to unless told not to.
      */
     static final class ChipRow extends LinearLayout {
-        ChipRow(Context context) { super(context); }
+        ChipRow(Context context) {
+            super(context);
+            setClipToPadding(false);
+        }
 
         @Override protected void measureChildWithMargins(View child, int parentWidthMeasureSpec, int widthUsed,
                                                          int parentHeightMeasureSpec, int heightUsed) {
@@ -624,17 +653,14 @@ final class Ui {
         if (x.getId() == View.NO_ID) x.setId(View.generateViewId());
         chip.setNextFocusRightId(x.getId());
         x.setNextFocusLeftId(chip.getId());
-        // The chip's focus is the accent, and what it holds sits on it.
-        chip.setOnFocusChangeListener((v, hasFocus) -> x.setSelected(hasFocus));
     }
 
     /**
      * The + chip that makes a new one (Split's profiles): 34 by 28, radius 13, on surface with a border, a + of 17 in accent.
-     * With the focus the accent fills it, border and all.
+     * With the focus it is surfaceHover, as a chip is under the pointer, and keeps its border.
      */
     TextView plusChip(CharSequence description, String key) {
         TextView v = label("+", 17, t.accent);
-        v.setTextColor(colors(t.accent, t.accent, t.accentText));
         v.setGravity(Gravity.CENTER);
         v.setIncludeFontPadding(false);
         v.setMinWidth(dp(34));
@@ -646,16 +672,15 @@ final class Ui {
     }
 
     /**
-     * ChipX: the close icon, 14 in a cell 22 wide, danger under the pointer; with a remote
-     * a danger circle with a white cross. A chip is 28 high, and its ChipX sits 3 from the label.
+     * ChipX: the close icon, 14 in a cell 22 wide, textDim (accentText on an accent chip), danger under the pointer and with the
+     * focus. A chip is 28 high, and its ChipX sits 3 from the label.
      */
     ImageView chipX(String key, boolean overAccent) {
         ImageView x = new ImageView(context);
         x.setImageResource(R.drawable.ic_close);
         x.setPadding(dp(4), dp(4), dp(4), dp(4));
-        // Selected, as the chip it is in is while it has the focus (see linkChipX): the chip is then the accent, and the cross on it accentText.
-        x.setImageTintList(colors(overAccent ? t.accentText : t.textDim, t.danger, t.onDanger, t.accentText));
-        return focus(x, key, Look.ICON, F_DANGER | F_ROUND);
+        x.setImageTintList(colors(overAccent ? t.accentText : t.textDim, t.danger, t.danger));
+        return focus(x, key, Look.PLAIN);
     }
     /** Where a ChipX sits in its chip: 3 from the label, and the chip's 11 of padding less 8 beyond it. */
     LinearLayout.LayoutParams chipXLp() {
@@ -684,26 +709,61 @@ final class Ui {
         return v;
     }
 
-    /** The desktop's Toggle with a row's label: 42 high, more if a subtitle wraps. */
+    /**
+     * The desktop's Toggle with a row's label: 42 high, more if a subtitle wraps. The toggle has no look for the focus, as the
+     * desktop's has no hover; the row fills with surface while it has it, as a config row does (the desktop's idiom for a row), its
+     * radius 8. Its content is padded by 10 and 6, and it goes in its parent with {@link #focusRowLp}, so that the label and
+     * the track are where the other rows' are and the fill reaches a little past them.
+     */
     LinearLayout toggleRow(CharSequence title, CharSequence subtitle, ToggleView toggle) {
         LinearLayout r = row();
         r.setMinimumHeight(dp(42));
+        r.setPadding(dp(FOCUS_ROW_LEFT_DP), 0, dp(FOCUS_ROW_RIGHT_DP), 0);
         LinearLayout copy = column();
         copy.addView(label(title, 14, t.text), lp(-1, -2));
         if (subtitle != null && subtitle.length() > 0) copy.addView(label(subtitle, 12, t.textFaint), lp(-1, -2));
         r.addView(copy, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
         gapH(r, 8);
-        // The track ends where the page's margin does, as the desktop's does: the 4 its focus fills go beyond it.
-        LinearLayout.LayoutParams toggleLp = lp(-2, -2);
-        toggleLp.rightMargin = -dp(ToggleView.PAD_DP);
-        r.addView(toggle, toggleLp);
+        r.addView(toggle, lp(-2, -2));
+        holdToggle(r, toggle);
         return r;
     }
-    /** A toggle: 38 by 22 (34 by 20 small), with the focus around it, as a focus stop keyed {@code key}. */
+    /**
+     * A toggle with a label before it, as one small row at the right of a line, such as Logs' Auto-scroll: only as wide as it
+     * is, with the same fill round it, so that the focus is never across empty width. Goes in its line with
+     * {@link #focusRowLp}'s margin on the right alone.
+     */
+    LinearLayout toggleGroup(CharSequence title, float sp, int color, ToggleView toggle) {
+        LinearLayout r = row();
+        r.setMinimumHeight(dp(28));
+        r.setPadding(dp(FOCUS_ROW_LEFT_DP), 0, dp(FOCUS_ROW_RIGHT_DP), 0);
+        r.addView(label(title, sp, color), lp(-2, -2));
+        gapH(r, 8);
+        r.addView(toggle, lp(-2, -2));
+        holdToggle(r, toggle);
+        return r;
+    }
+    /**
+     * The row fills with the toggle's focus. The track is 22 high, which is not a thing to hit with a finger: a touch over the
+     * row's height, and a few dp either side of the track, is the track's, as the invisible margin round the old one made it.
+     */
+    private void holdToggle(LinearLayout row, ToggleView toggle) {
+        holdFocus(row, toggle);
+        row.addOnLayoutChangeListener((v, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> {
+            Rect hit = new Rect();
+            toggle.getHitRect(hit);
+            hit.top = 0;
+            hit.bottom = bottom - top;
+            hit.left -= dp(8);
+            hit.right += dp(FOCUS_ROW_RIGHT_DP);
+            row.setTouchDelegate(new TouchDelegate(hit, toggle));
+        });
+    }
+    /** A toggle: 38 by 22 (34 by 20 small), as a focus stop keyed {@code key}; its row shows the focus (see {@link #toggleRow}). */
     ToggleView toggle(boolean checked, boolean small, String key) {
         ToggleView v = new ToggleView(context, t, small);
         v.setChecked(checked);
-        return focus(v, key, Look.TOGGLE);
+        return focus(v, key, Look.PLAIN);
     }
 
     // Home.
@@ -711,8 +771,8 @@ final class Ui {
     /**
      * Home's config selector: the active config's name, 15 in Medium and elided at the right to the room
      * there is, and 6 later the ▾ (15), as one control that is as wide as they are. Both are the text colour, and
-     * accent under the pointer, with the name underlined; with the focus, the accent around them and accentText
-     * in them. Without configs it is "Add a config" alone, with no ▾.
+     * accent under the pointer and with the focus, with the name underlined. Without configs it is "Add a config"
+     * alone, with no ▾.
      */
     LinearLayout selector(CharSequence name, boolean arrow, int maxNameWidthPx, String key) {
         LinearLayout box = row();
@@ -725,11 +785,11 @@ final class Ui {
         label.setSingleLine(true);
         label.setEllipsize(TextUtils.TruncateAt.END);
         if (maxNameWidthPx > 0) label.setMaxWidth(maxNameWidthPx);
-        label.setTextColor(colors(t.text, t.accent, t.accentText));
+        label.setTextColor(colors(t.text, t.accent, t.accent));
         label.setDuplicateParentStateEnabled(true);
         box.addView(label, lp(-2, -2));
         if (arrow) {
-            TextView triangle = follow(label("▾", 15, t.text), t.text, t.accent, t.accentText);
+            TextView triangle = follow(label("▾", 15, t.text), t.text, t.accent, t.accent);
             LinearLayout.LayoutParams p = lp(-2, -2);
             p.leftMargin = dp(6);
             box.addView(triangle, p);
@@ -755,37 +815,31 @@ final class Ui {
 
     /**
      * A pill of text on infoBg: radius 10, 20 high, 8 in from each side, 11 in Medium. A config row's
-     * badge says connected (in success) or connecting… (in textDim). It follows its row's focus: accentText on
-     * the translucent accentText that infoBg is on an accent row.
+     * badge says connected (in success) or connecting… (in textDim). It is the same on a row that is filled, as the
+     * desktop's is under the pointer.
      */
     TextView badge(CharSequence value, int color) {
         TextView v = medium(value, 11, color);
         v.setGravity(Gravity.CENTER);
         v.setPadding(dp(8), 0, dp(8), 0);
         v.setSingleLine(true);
-        follow(v, color, color, t.accentText);
-        StateListDrawable states = new StateListDrawable();
-        states.addState(new int[]{android.R.attr.state_focused}, shape(Theme.withAlpha(t.accentText, 0x29), 10));
-        states.addState(new int[]{}, shape(t.infoBg, 10));
-        v.setBackground(states);
-        v.setDuplicateParentStateEnabled(true);
+        v.setBackground(shape(t.infoBg, 10));
         return v;
     }
 
     /**
      * A config row's icon: a cell 26 wide and as high as it is given, the icon centred in it, textDim, and the
-     * text colour (danger for the close icon) under the pointer. It is a focus stop of its own: with the
-     * focus, an accent cell with the icon in accentText (danger and white for close). While the row it is in
-     * has the focus, the row sets the cell selected, and the icon is accentText on the row's accent.
+     * text colour (danger for the close icon) under the pointer and with the focus. The cell has no fill: it is the row that
+     * fills, as the desktop's does under the pointer (ConfigRowView activates it while an icon of it has the focus).
      */
     FrameLayout rowIcon(int drawable, int iconDp, CharSequence description, String key, boolean close) {
         FrameLayout cell = new FrameLayout(context);
         cell.setContentDescription(description);
         ImageView icon = new ImageView(context);
         icon.setImageResource(drawable);
-        icon.setImageTintList(colors(t.textDim, close ? t.danger : t.text, close ? t.onDanger : t.accentText, t.accentText));
+        icon.setImageTintList(colors(t.textDim, close ? t.danger : t.text, close ? t.danger : t.text));
         icon.setDuplicateParentStateEnabled(true);
         cell.addView(icon, new FrameLayout.LayoutParams(dp(iconDp), dp(iconDp), Gravity.CENTER));
-        return focus(cell, key, Look.ICON, close ? F_DANGER : 0);
+        return focus(cell, key, Look.PLAIN);
     }
 }

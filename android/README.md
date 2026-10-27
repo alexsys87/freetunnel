@@ -209,12 +209,26 @@ commas or semicolons as separators.
 The same APK installs on Android TV and Google TV, sideloaded, and shows on
 the TV launcher with its banner. It works with a remote:
 
-- The arrows reach every control, and the one with the focus is filled in the
-  accent, as the desktop fills a selected chip, around only what it holds: a
-  link or a dropdown's value is the width of its words, not of the screen. A
-  destructive control focuses in danger, and a text field's border turns
-  accent. When a page updates, such as on a ping result or a change of
-  connection state, the focus and the scroll position stay where they were.
+- The arrows reach every control, and the one with the focus looks as the
+  desktop's control does under the pointer, which the desktop has in place of a
+  focus ring: a tab and a row fill with the surface colour (a tab also grows to
+  1.08, and the current one keeps its infoBg), a link and Home's config selector
+  change colour and underline, a dropdown's value and ← go from textDim to the
+  text colour, a chip goes to surfaceHover, a button to its hover colour (the
+  red one darker red, Save darker accent), a ChipX and a config row's icons
+  turn danger or the text colour while the row fills, and a text field's or a
+  select box's border turns accent. What the desktop gives no hover takes the
+  nearest thing it has: a toggle's row fills as a config row does (the toggle
+  draws nothing for it), and the Home logo is held at 1.05, the pulse's peak,
+  with no tile behind it, which would wash out its greys. What is selected stays
+  as it is: the edited profile chip and the primary button are accent with
+  accentText, the red button is red with a white label, a field is inputBg,
+  with a remote or without one. Nothing is drawn round a control, and no focus
+  is wider than what it holds, except a row of a list. When a page updates,
+  such as on a ping result or a change of connection state, the focus and the
+  scroll position stay where they were; when the control that had the focus is
+  gone (a deletion's last chip, Clear all, the last config) it goes to what is
+  beside it, not to the tab at the top.
 - Home opens on the logo, which is its control, or on Reconnect while the kill
   switch blocks traffic. Back goes to Home first, onto that control, and leaves
   the app from there.
@@ -581,7 +595,9 @@ On every screen the tour also asserts what the parity is about, and collects the
 one does not cost the pictures after it: only the activity's own window is shown (no dialog, no
 popup, nothing of another app), no view has a foreground (a ring), and the control that has the
 focus is no wider than what it holds plus its padding, unless it is a row of a list, a field or a
-box of text, a small cell or the Home logo's tile. The pass fails at its end if there is any.
+box of text, a small cell or the Home logo (132 across, with no tile behind it). The pass fails at its end if there is any,
+and so does a VPN screen (connecting, connected, blocked) it could take and lost: only a VPN consent that was not granted
+leaves those as `UNREACHABLE`.
 
 Device tests exercise the real JNI adapter, TUN replacement/failure cleanup,
 encrypted storage and exported-entry boundaries.

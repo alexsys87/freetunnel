@@ -242,30 +242,58 @@ class TvDeviceTest {
             view.refreshDrawableState()
         }
     }
-    // A control shows its focus as its background and nothing else: no foreground, a background that
-    // changes with the state, and with the focus the accent: as a fill, as danger for a destructive
-    // control (a ChipX), and as the border of a text field.
+    // A control shows its focus as the desktop shows the pointer on it, and no stronger: a background that changes with the state, no
+    // foreground, and never the accent as a fill (the selected things are accent, and a focus is not a selection). By kind:
+    //  - a text field and a box of text a remote scrolls: the border turns accent, on the fill it rests on;
+    //  - a select box (the editor's): the same, its border accent under the pointer;
+    //  - a button or a chip: its hover colour, which is a fill the control rests on already or the next one to it;
+    //  - a link, a dropdown's value, a back arrow, a ChipX, a toggle, a row's icon and the logo: no fill of their own;
+    //  - a nav tile, a row, a menu row, the header's buttons and Home's +: surface (the current tab keeps infoBg).
     private fun assertFocusLook(view: View, name: String, theme: Theme) {
         val look = focusLook(view)
         val key = view.tag as String
+        val surfaces = setOf(Color.TRANSPARENT, theme.surface, theme.surfaceHover, theme.infoBg, theme.bg)
         when {
             view is EditText -> {
                 assertEquals("$name: the border of a focused field", theme.accent, look.focusedEdge)
                 assertEquals("$name: the border of a field at rest", theme.inputBorder, look.restEdge)
+                assertEquals("$name: its fill stays", look.restFill, look.focusedFill)
             }
             // A box of text a remote scrolls, such as a license or the log: the surface, with the field's accent border.
             key == "licenses:text" || key == "log:box" -> {
                 assertEquals("$name: the border of a focused box of text", theme.accent, look.focusedEdge)
                 assertEquals("$name: a box of text at rest", theme.surface, look.restEdge)
             }
-            Regex("(domain|app|route):\\d+|profile:\\d+:remove").matches(key) -> assertEquals("$name: a ChipX focuses in danger", theme.danger, look.focusedFill)
-            // Clear all is the danger link, as the desktop's is.
-            key == "domains:clear" || key == "apps:clear" || key == "routes:clear" -> assertEquals("$name: a danger link focuses in danger", theme.danger, look.focusedFill)
-            // The close icon of a config row, as the desktop's turns danger under the pointer.
-            Regex("config:\\d+:remove").matches(key) -> assertEquals("$name: the close icon focuses in danger", theme.danger, look.focusedFill)
-            // The red button, whichever confirmation it answers.
-            key == "confirm:ok" -> assertEquals("$name: the red button focuses in danger", theme.danger, look.focusedFill)
-            else -> assertEquals("$name: the focus is the accent", theme.accent, look.focusedFill)
+            // The editor's select box is a field that opens a choice.
+            key == "editor:profile" -> {
+                assertEquals("$name: the border of a focused select box", theme.accent, look.focusedEdge)
+                assertEquals("$name: the border of a select box at rest", theme.inputBorder, look.restEdge)
+                assertEquals("$name: its fill stays", look.restFill, look.focusedFill)
+            }
+            // The buttons: the hover colour of the kind.
+            key == "confirm:ok" -> assertEquals("$name: the red button goes to the darker red", theme.destructiveHover, look.focusedFill)
+            key == "editor:save" -> assertEquals("$name: Save goes to the darker accent", theme.primaryHover, look.focusedFill)
+            key == "editor:cancel" -> assertEquals("$name: the editor's Cancel goes to surface", theme.surface, look.focusedFill)
+            view is Button -> assertEquals("$name: a dialog's button goes to surfaceHover", theme.surfaceHover, look.focusedFill)
+            // Chips: surfaceHover, and the selected one, which the desktop leaves as it is, a step darker.
+            Regex("profile:\\d+|profile:add").matches(key) ->
+                assertTrue("$name: a chip takes its hover colour, not a strong fill: ${Integer.toHexString(look.focusedFill)}",
+                    look.focusedFill == theme.surfaceHover || look.focusedFill == theme.primaryHover && look.restFill == theme.accent)
+            // Content that changes colour and no fill: links, values, arrows, ChipXs, row icons, toggles and the logo.
+            key == "home:toggle" || key.startsWith("switch:") || key.startsWith("logs:autoscroll") || key == "split:enabled" || key == "editor:show" ||
+                Regex("(domain|app|route):\\d+|profile:\\d+:remove|config:\\d+:(export|edit|remove)").matches(key) ||
+                view is Ui.LinkText || key.endsWith(":back") || key == "settings:theme" || key == "settings:language" || key == "split:mode" ->
+                assertEquals("$name: no fill of its own", Color.TRANSPARENT, look.focusedFill)
+            // Everything else that is filled is filled with the surface its hover is: a tile, a row, a menu row, the header's buttons.
+            else -> {
+                assertTrue("$name: its focus is a step from the page, as the pointer's hover is, not the accent: ${Integer.toHexString(look.focusedFill)}",
+                    look.focusedFill in surfaces && look.focusedFill != theme.accent)
+            }
+        }
+        // Whatever it is, the focus is never the accent as a fill, nor danger as one on something that is not the red button.
+        if (view !is EditText && key != "confirm:ok") {
+            assertNotEquals("$name: the accent is for what is selected", theme.accent, look.focusedFill)
+            assertNotEquals("$name: danger is for the red button", theme.danger, look.focusedFill)
         }
     }
 
@@ -297,9 +325,10 @@ class TvDeviceTest {
         assertNotNull(onMain { root(a).findViewWithTag<View>("settings:update") })
     }
 
-    // A tab rests on the page, and the current one on infoBg, over it; with the focus, any of them
-    // is the accent, the current one too, so that where the remote is never looks like where the app is.
-    @Test fun theCurrentTabRestsOnInfoBgAndEveryTabFocusesInTheAccent() {
+    // A tab rests on the page, and the current one on infoBg, over it; with the focus a tab is what the desktop's tile is under the pointer:
+    // surface, grown to 1.08. The current tab, which the desktop leaves as it is, keeps its infoBg and only grows. The bar does not cut the
+    // grown tile off at its padding.
+    @Test fun theCurrentTabRestsOnInfoBgAndEveryTabFocusesAsItIsUnderThePointer() {
         val a = open()
         leaveTouchMode(a)
         for (page in 0..4) {
@@ -309,10 +338,18 @@ class TvDeviceTest {
                 for (tab in 0..4) {
                     val look = focusLook(root(a).findViewWithTag<View>("tab:$tab"))
                     assertEquals("Tab $tab on page $page", if (tab == page) theme.infoBg else Color.TRANSPARENT, look.restFill)
-                    assertEquals("Tab $tab on page $page focuses in the accent", theme.accent, look.focusedFill)
+                    assertEquals("Tab $tab on page $page focuses as it is under the pointer", if (tab == page) theme.infoBg else theme.surface, look.focusedFill)
                 }
+                val bar = root(a).findViewWithTag<View>("tab:0").parent as ViewGroup
+                assertFalse("The bar clips what it holds to its padding, and cuts a grown tile off", bar.clipToPadding)
             }
         }
+        render(a, 2)
+        focusOn(a, "tab:2")
+        eventually("The current tab grows to 1.08 with the focus") { near(1.08f, onMain { root(a).findViewWithTag<View>("tab:2").scaleX }, 0.01f) }
+        focusOn(a, "tab:1")
+        eventually("and the one that had it is its size again") { near(1f, onMain { root(a).findViewWithTag<View>("tab:2").scaleX }, 0.01f) }
+        eventually("while the one that has it grows") { near(1.08f, onMain { root(a).findViewWithTag<View>("tab:1").scaleX }, 0.01f) }
     }
 
     // The focus is around what a control holds, never across the screen: Home's selector, the links
@@ -516,26 +553,62 @@ class TvDeviceTest {
         eventually("and the line gives its room back") { onMain { hero(a).roomNow() } == 0 }
     }
 
-    // While connecting or disconnecting it swings between 0.97 and 1.05 and comes back to 1.0 when that ends.
+    // While connecting or disconnecting it swings between 0.97 and 1.05 and comes back to 1.0 when that ends. With a remote's focus, which a
+    // TV's logo has, the whole of it is 1.05 times larger (the focus is its size, and the pulse goes on under it). The swing itself is
+    // sampled only where animators run: Android CI turns them off (animator_duration_scale 0), where a pulse ends in its first frame and the
+    // loop is not repeated; HeroValuesTest holds the swing on the JVM.
     @Test fun theLogoPulsesWhileConnectingAndSettlesWhenItStops() {
         val a = open()
         vpnShows(a, 1)
         eventually("It pulses while connecting") { onMain { hero(a).isPulsing } }
-        val scales = ArrayList<Float>()
-        val deadline = SystemClock.elapsedRealtime() + 3_000
-        while (SystemClock.elapsedRealtime() < deadline) { scales.add(onMain { hero(a).scaleNow() }); SystemClock.sleep(50) }
-        assertTrue("Never beyond its swing: $scales", scales.all { it in 0.965f..1.055f })
-        assertTrue("It goes up to 1.05: $scales", scales.maxOrNull()!! > 1.035f)
-        assertTrue("and down to 0.97: $scales", scales.minOrNull()!! < 0.985f)
+        if (android.animation.ValueAnimator.areAnimatorsEnabled()) {
+            val scales = ArrayList<Float>()
+            val deadline = SystemClock.elapsedRealtime() + 3_000
+            while (SystemClock.elapsedRealtime() < deadline) {
+                // Its own swing, without the 1.05 a remote's focus holds it at.
+                scales.add(onMain { hero(a).scaleNow() / hero(a).heldNow() })
+                SystemClock.sleep(50)
+            }
+            assertTrue("Never beyond its swing: $scales", scales.all { it in 0.965f..1.055f })
+            assertTrue("It goes up to 1.05: $scales", scales.maxOrNull()!! > 1.035f)
+            assertTrue("and down to 0.97: $scales", scales.minOrNull()!! < 0.985f)
+        }
         // A render() of the same state does not start it again from the beginning.
         render(a, 0)
         assertTrue(onMain { hero(a).isPulsing })
         vpnShows(a, 2)
-        eventually("It settles to 1.0 when connected") { onMain { !hero(a).isPulsing && near(1f, hero(a).scaleNow(), 0.005f) } }
+        eventually("It settles to its size when connected") { onMain { !hero(a).isPulsing && near(1f, hero(a).scaleNow() / hero(a).heldNow(), 0.005f) } }
         vpnShows(a, 2, stopping = true)
         eventually("and pulses again while disconnecting") { onMain { hero(a).isPulsing } }
         vpnShows(a, 0)
-        eventually("and settles when it is off") { onMain { !hero(a).isPulsing && near(1f, hero(a).scaleNow(), 0.005f) } }
+        eventually("and settles when it is off") { onMain { !hero(a).isPulsing && near(1f, hero(a).scaleNow() / hero(a).heldNow(), 0.005f) } }
+    }
+
+    // A remote's focus on the logo holds it at 1.05, the pulse's peak, in place of a fill behind it, which would wash its greys out; the
+    // box has no background to fill. Letting go of the focus returns it to its size.
+    @Test fun theLogoIsHeldAtThePulsesPeakWhileItHasTheFocus() {
+        val a = open()
+        leaveTouchMode(a)
+        vpnShows(a, 0)
+        eventually("The logo has the first focus") { focusedKey(a) == "home:toggle" }
+        eventually("and is held at 1.05") { near(1.05f, onMain { hero(a).scaleNow() }, 0.005f) }
+        eventually("on the view itself") { near(1.05f, onMain { root(a).findViewWithTag<View>("home:toggle").scaleX }, 0.005f) }
+        onMain {
+            val box = root(a).findViewWithTag<View>("home:toggle")
+            val look = focusLook(box)
+            assertEquals("Nothing behind it at rest", Color.TRANSPARENT, look.restFill)
+            assertEquals("and nothing behind it with the focus", Color.TRANSPARENT, look.focusedFill)
+        }
+        focusOn(a, "home:config")
+        eventually("Focus gone, it is its size") { near(1f, onMain { hero(a).scaleNow() }, 0.005f) }
+        // A rebuild gives the focus back to the new logo, which is as large as the old one was.
+        focusOn(a, "home:toggle")
+        render(a, 0)
+        eventually("The focus is back on the logo after a rebuild") { focusedKey(a) == "home:toggle" }
+        eventually("and it is held again") { near(1.05f, onMain { root(a).findViewWithTag<View>("home:toggle").scaleX }, 0.005f) }
+        // Leaving Home leaves nothing of it for the next time the logo is shown without the focus.
+        render(a, 2)
+        onMain { assertEquals(1f, hero(a).heldNow(), 0f) }
     }
 
     // OK on a remote shrinks the logo to 0.96 while it is down; the click is Connect, which is held back here, before the VPN consent.
@@ -553,9 +626,10 @@ class TvDeviceTest {
         val before = requests()
         try {
             instrumentation.sendKeySync(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_CENTER))
-            eventually("OK presses the logo to 0.96") { near(0.96f, onMain { hero(a).scaleNow() }, 0.01f) }
+            // The press and the focus the logo has under OK multiply: 0.96 of its focused size.
+            eventually("OK presses the logo to 0.96") { near(0.96f * onMain { hero(a).heldNow() }, onMain { hero(a).scaleNow() }, 0.01f) }
             instrumentation.sendKeySync(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_DPAD_CENTER))
-            eventually("and it comes back when OK is let go") { near(1f, onMain { hero(a).scaleNow() }, 0.01f) }
+            eventually("and it comes back when OK is let go") { near(onMain { hero(a).heldNow() }, onMain { hero(a).scaleNow() }, 0.01f) }
             eventually("The click connects: a check of the config begins") { requests() > before }
             dropWhatWasAsked()
             // A double tap counts once: the second is not a second toggle.
@@ -736,33 +810,42 @@ class TvDeviceTest {
         }
     }
 
-    // A row rests on surface while one of its icons has the focus, and the icon's cell takes the accent (danger for close); with
-    // the row itself focused it is the accent and what it holds sits on it.
-    @Test fun aFocusedIconSitsOnAnActivatedRowAndAFocusedRowIsAccent() {
+    // A row fills with surface while one of its icons has the focus, as the desktop's does under the pointer, and the icon alone changes
+    // its colour (the text colour, danger for close). With the row itself focused it is surface too, and the icons stay as they are.
+    @Test fun aFocusedIconSitsOnAnActivatedRowAndAFocusedRowIsSurface() {
         val a = open()
         leaveTouchMode(a)
         render(a, 1)
         val theme = theme(a)
+        // The colour an icon is drawn in now: its tint for the state of its cell, which it takes (duplicateParentState).
+        fun tintOf(key: String): Int {
+            val cell = root(a).findViewWithTag<ViewGroup>(key)
+            return (cell.getChildAt(0) as ImageView).imageTintList!!.getColorForState(cell.drawableState, 0)
+        }
         focusOn(a, "config:1:edit")
         onMain {
             val row = root(a).findViewWithTag<View>("config:1:select")
             assertTrue("The row is activated while its icon has the focus", row.isActivated)
             assertEquals("and rests on surface", theme.surface, fillOf((row.background as StateListDrawable).current))
-            assertEquals("The icon's cell is the accent", theme.accent, fillOf((root(a).findViewWithTag<View>("config:1:edit").background as StateListDrawable).current))
+            val cell = root(a).findViewWithTag<View>("config:1:edit")
+            assertEquals("The icon's cell has no fill of its own", Color.TRANSPARENT, fillOf((cell.background as StateListDrawable).current))
+            assertEquals("its icon turns to the text colour", theme.text, tintOf("config:1:edit"))
         }
         focusOn(a, "config:1:remove")
         onMain {
-            assertEquals("Close is danger", theme.danger, fillOf((root(a).findViewWithTag<View>("config:1:remove").background as StateListDrawable).current))
+            assertEquals("Close turns danger, on no fill", theme.danger, tintOf("config:1:remove"))
+            assertEquals(Color.TRANSPARENT, fillOf((root(a).findViewWithTag<View>("config:1:remove").background as StateListDrawable).current))
         }
         focusOn(a, "config:1:select")
         onMain {
             val row = root(a).findViewWithTag<View>("config:1:select")
             assertFalse(row.isActivated)
-            assertEquals("A focused row is the accent", theme.accent, fillOf((row.background as StateListDrawable).current))
-            for (kind in listOf("export", "edit", "remove")) assertTrue("$kind sits on the accent", root(a).findViewWithTag<View>("config:1:$kind").isSelected)
+            assertEquals("A focused row is surface, not a strong fill", theme.surface, fillOf((row.background as StateListDrawable).current))
+            for (kind in listOf("export", "edit", "remove"))
+                assertEquals("$kind stays textDim on it, as on the desktop's row under the pointer", theme.textDim, tintOf("config:1:$kind"))
         }
         focusOn(a, "config:0:select")
-        onMain { assertFalse("and not once the focus has moved", root(a).findViewWithTag<View>("config:1:export").isSelected) }
+        onMain { assertFalse("and the other row is not filled", root(a).findViewWithTag<View>("config:1:select").isActivated) }
     }
 
     // The selected config's badge: connected, or connecting… for every state on the way, in the same pill; not while disconnecting.
@@ -1133,8 +1216,9 @@ class TvDeviceTest {
     }
 
     // An overlay of the app's own shows the focus as the desktop's controls do, in the theme's colours: no foreground, a
-    // background that changes with the state, the accent with the focus, danger for the red button, and an accent
-    // border for a field or a box of text; and it is a view of the activity's window, found by its tag.
+    // background that changes with the state, each control's hover look with the focus (the darker red for the red button, the
+    // darker accent for Save), an accent border for a field, a select box or a box of text; and it is a view of the activity's
+    // window, found by its tag.
     private class Shown(val what: String, val tag: String, val start: () -> Any?)
 
     @Test fun overlayButtonsShowTheDesktopFocusLook() {
@@ -1915,7 +1999,7 @@ class TvDeviceTest {
         val four = onMain { Math.round(4 * a.resources.displayMetrics.density) }
         assertEquals("The popup's right edge is the control's", 0, first[0])
         assertEquals("The popup is 4 under the control", four, first[1])
-        // The colour at rest: the one with the focus is accentText, whichever row a remote starts on.
+        // The colour at rest, whichever row a remote starts on: a row's focus is its fill, and its words keep their colour.
         val texts = onMain { descendants(root(a).findViewWithTag<View>("overlay:select")).filterIsInstance<TextView>().map { it.text.toString() to it.textColors.defaultColor } }
         assertEquals(listOf("System", "Light", "✓", "Dark"), texts.map { it.first })
         assertEquals("The current choice is in the accent", theme(a).accent, texts.single { it.first == "Light" }.second)
@@ -2294,8 +2378,7 @@ class TvDeviceTest {
         render(a, 2)
         assertEquals("example.com", chipLabel(a, "domain:0"))
         assertEquals("example.org", chipLabel(a, "domain:1"))
-        assertEquals("Profile, Default, edited", context.getString(R.string.split_profile_default),
-            chipLabel(a, "profile:0").removeSuffix(" ✓"))
+        assertEquals("Profile, Default, edited", context.getString(R.string.split_profile_default), chipLabel(a, "profile:0"))
         assertFalse("Default has no X", pageKeys(a).contains("profile:0:remove"))
         assertFalse("Only its one profile", pageKeys(a).contains("profile:1"))
         // 1.0.0's lists are still there, a copy of the profile the selected config uses.
@@ -2337,13 +2420,21 @@ class TvDeviceTest {
         val positions = expected.map { order.indexOf(it) }
         assertTrue("$expected must come in this order, but are at $positions in $order", positions.none { it < 0 } && positions == positions.sorted())
         assertEquals(listOf(context.getString(R.string.split_profile_default), "Work", "Home"),
-            listOf(chipLabel(a, "profile:0").removeSuffix(" ✓"), chipLabel(a, "profile:1").removeSuffix(" ✓"), chipLabel(a, "profile:2").removeSuffix(" ✓")))
-        assertEquals("The edited one has a check with a remote, and rests on infoBg", "Home ✓", chipLabel(a, "profile:2"))
+            listOf(chipLabel(a, "profile:0"), chipLabel(a, "profile:1"), chipLabel(a, "profile:2")))
+        // The edited one is the accent with accentText whatever drives the screen, and has no mark after its name; a chip is surface and
+        // goes to surfaceHover with the focus, and the edited one, which the desktop leaves as it is, a step darker.
         onMain {
             val theme = theme(a)
-            assertEquals(theme.infoBg, focusLook(root(a).findViewWithTag<View>("profile:2")).restFill)
-            assertEquals(theme.surface, focusLook(root(a).findViewWithTag<View>("profile:1")).restFill)
-            assertEquals("and a chip focuses in the accent", theme.accent, focusLook(root(a).findViewWithTag<View>("profile:1")).focusedFill)
+            val edited = focusLook(root(a).findViewWithTag<View>("profile:2"))
+            assertEquals("The edited chip is the accent", theme.accent, edited.restFill)
+            assertEquals("and a step darker with the focus", theme.primaryHover, edited.focusedFill)
+            assertEquals(theme.accentText, (root(a).findViewWithTag<ViewGroup>("profile:2").getChildAt(0) as TextView).textColors.defaultColor)
+            val other = focusLook(root(a).findViewWithTag<View>("profile:1"))
+            assertEquals(theme.surface, other.restFill)
+            assertEquals("and a chip focuses as it is under the pointer", theme.surfaceHover, other.focusedFill)
+            val x = root(a).findViewWithTag<ImageView>("profile:2:remove")
+            assertEquals("The X of the edited chip is accentText", theme.accentText, x.imageTintList!!.getColorForState(intArrayOf(), 0))
+            assertEquals("and danger with the focus", theme.danger, x.imageTintList!!.getColorForState(intArrayOf(android.R.attr.state_focused), 0))
         }
         assertTrue("Default has no X, the others have one each", pageKeys(a).containsAll(listOf("profile:1:remove", "profile:2:remove")) && !pageKeys(a).contains("profile:0:remove"))
         assertTrue(shows(a, context.getString(R.string.text_rules_bypass_vpn)))
@@ -2471,7 +2562,7 @@ class TvDeviceTest {
         assertEquals("and it is the one being edited", "Work", profiles().edited())
         eventually("The field is gone, and the focus is back on +") { focusedKey(a) == "profile:add" }
         assertEquals(View.GONE, onMain { root(a).findViewWithTag<View>("profile:name").visibility })
-        assertEquals("Work ✓", chipLabel(a, "profile:1"))
+        assertEquals("Work", chipLabel(a, "profile:1"))
         assertEquals("and the rules on the page are Work's: none", emptyList<String>(), pageKeys(a).filter { it.startsWith("domain:") })
         assertEquals("and the configs use what they used", "Default", onMain { method("activeProfileName").invoke(a) as String })
     }
@@ -2833,23 +2924,32 @@ class TvDeviceTest {
         for (text in listOf("Launch at system startup", "Hotkeys", "Verbose logs", "Let the VPN config open ports")) assertFalse("$text is the desktop's alone", shows(a, text))
     }
 
-    // The toggles' tracks, the dropdowns' values and the links at the end of a row end where the page's margin does, as the desktop's do, with what
-    // their focus fills beyond it.
+    // The toggles' tracks, the dropdowns' values and the links at the end of a row end where the page's margin does, as the desktop's do. A
+    // toggle's row fills with the focus 10 beyond the margin on the left and 6 on the right, where its content is padded by the same,
+    // and the body does not clip it there.
     @Test fun whatEndsARowEndsAtThePageMargin() {
         val a = open()
         render(a, 3)
         onMain {
             val body = (field("pageScroll").get(a) as ScrollView).getChildAt(0) as ViewGroup
-            assertFalse("so that the focus can fill beyond it", body.clipToPadding)
+            assertFalse("so that what fills beyond the margin is drawn", body.clipToPadding)
             fun right(view: View) = IntArray(2).also { view.getLocationInWindow(it) }[0] + view.width
+            fun left(view: View) = IntArray(2).also { view.getLocationInWindow(it) }[0]
             val edge = right(body) - body.paddingRight
-            val pad = Math.round(dp(a, ToggleView.PAD_DP.toFloat()))
-            assertEquals("a toggle's track", edge.toFloat(), (right(root(a).findViewWithTag<ToggleView>("switch:killswitch")) - pad).toFloat(), 2f)
+            val toggle = root(a).findViewWithTag<ToggleView>("switch:killswitch")
+            assertEquals("a toggle's track", edge.toFloat(), right(toggle).toFloat(), 2f)
+            val row = toggle.parent as ViewGroup
+            assertEquals("its row reaches 6 beyond the margin", (edge + Math.round(dp(a, 6f))).toFloat(), right(row).toFloat(), 2f)
+            assertEquals("and 10 beyond it on the left", (left(body) + body.paddingLeft - Math.round(dp(a, 10f))).toFloat(), left(row).toFloat(), 2f)
             assertEquals("a dropdown's ▾", edge.toFloat(), (right(root(a).findViewWithTag<View>("settings:theme")) - Math.round(dp(a, 6f))).toFloat(), 2f)
             val restore = root(a).findViewWithTag<TextView>("routes:restore")
             val clear = root(a).findViewWithTag<TextView>("routes:clear")
             assertEquals("the last link of a header", edge.toFloat(), (right(clear) - clear.paddingRight).toFloat(), 2f)
             assertTrue("and the one before it ends before that", right(restore) < right(clear))
+            // The label of a toggle's row is where the others' labels are.
+            val label = descendants(row).filterIsInstance<TextView>().first()
+            val language = descendants(root(a).findViewWithTag<View>("settings:language").parent as ViewGroup).filterIsInstance<TextView>().first()
+            assertEquals("a toggle's label starts at the margin, like Language's", left(language).toFloat(), left(label).toFloat(), 2f)
         }
     }
 
@@ -3241,6 +3341,15 @@ class TvDeviceTest {
             assertTrue("the box is wide: ${box.width} of ${page.width}", box.width > page.width * 0.85f)
             assertTrue("and tall: from ${topOf(box)}, ${box.height} of ${page.height}", box.height > page.height * 0.5f)
             assertEquals("12 inside it", Math.round(dp(a, 12f)), box.paddingLeft)
+            // The foot's Auto-scroll fills a little beyond the margin when it has the focus, which a line of the page cuts off unless the page
+            // says it need not; and the line is as wide as its words, not the page.
+            val body = box.parent.parent as ViewGroup
+            assertFalse("so the page does not clip its lines", body.clipChildren)
+            val auto = root(a).findViewWithTag<View>("logs:autoscroll")
+            val group = auto.parent as ViewGroup
+            assertTrue("and the row round the toggle is no wider than its label and the toggle: ${group.width}", group.width < page.width / 2)
+            assertEquals("It ends 6 beyond the margin", (body.width - body.paddingRight + Math.round(dp(a, 6f))).toFloat(),
+                (group.right + (group.parent as View).left).toFloat(), 2f)
             // The page does not scroll: the box does.
             assertNull("no scroll view round the page", field("pageScroll").get(a))
         }

@@ -120,10 +120,6 @@ public final class MainActivity extends Activity {
     // use: for "system" it follows the device's night mode (see Theme.isDark).
     private String themeMode = Theme.SYSTEM;
     private boolean dark = true;
-    // A remote or a keyboard drives the screen: a TV, or a window that is out of touch
-    // mode. Then the controls that rest in a strong fill rest in a neutral one, so that
-    // the focus is the one strong fill on the screen (Ui.update).
-    private boolean remote;
     private Ui ui;
     // The window's one view, set once. render() rebuilds pageRoot, the nav and the page,
     // and nothing else: the overlays and the toast stay where they are.
@@ -239,10 +235,6 @@ public final class MainActivity extends Activity {
         loadConfigs();
         syncMirror();
         render();
-        // A phone that starts taking keys, or a keyboard put away, changes what rests in a
-        // strong fill (see remote). Not rebuilt in the middle of the touch that caused it.
-        getWindow().getDecorView().getViewTreeObserver().addOnTouchModeChangeListener(inTouchMode ->
-            host.post(() -> { if (remote != isRemote()) render(); }));
         if (state == null && prefs.getBoolean("check_updates_on_launch", false)) AndroidUpdater.INSTANCE.check(this);
         if (state == null) handleIncomingIntent(getIntent());
         if (state == null && prefs.getBoolean("auto_connect", false) && vpnState == 0
@@ -346,13 +338,6 @@ public final class MainActivity extends Activity {
     private boolean isTv() {
         return (getResources().getConfiguration().uiMode & Configuration.UI_MODE_TYPE_MASK) == Configuration.UI_MODE_TYPE_TELEVISION;
     }
-    // A remote, or a keyboard on a phone: the window is out of touch mode. See remote.
-    // Before the window is attached it has no touch mode to ask, and answers as if it were
-    // out of it: a phone is taken to be touched until the window says it is not.
-    private boolean isRemote() {
-        View decor = getWindow().getDecorView();
-        return isTv() || decor.isAttachedToWindow() && !decor.isInTouchMode();
-    }
     // TVs often leave out screens that phones have, such as the file picker or the VPN
     // consent dialog, and starting one that is missing throws. False when it is missing.
     private boolean startForResult(Intent intent, int request) {
@@ -422,8 +407,7 @@ public final class MainActivity extends Activity {
         homeContinues = !homeFresh && renderedPage == 0 && page == 0;
         homeFresh = false;
         dark = Theme.isDark(themeMode, nightMode());
-        remote = isRemote();
-        ui.update(dark, remote);
+        ui.update(dark);
         Theme t = t();
         getWindow().setStatusBarColor(t.bg); getWindow().setNavigationBarColor(t.bg);
         getWindow().getDecorView().setSystemUiVisibility(dark ? 0 : View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR | View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR);
@@ -450,8 +434,10 @@ public final class MainActivity extends Activity {
             // 6 at the top and 12 at the foot.
             LinearLayout body = column();
             body.setPadding(dp(18), dp(6), dp(18), dp(12));
-            // The links and the toggle end at the margin, and what they fill with the focus goes beyond it.
+            // The toggle ends at the margin, and the row round it fills a little beyond it with the focus. That row is a child of a line
+            // of the page, which clips what it holds to its bounds unless its own parent, this, says it need not.
             body.setClipToPadding(false);
+            body.setClipChildren(false);
             pageRoot.addView(body, new LinearLayout.LayoutParams(-1, 0, 1));
             logs(body);
         } else {
@@ -461,7 +447,7 @@ public final class MainActivity extends Activity {
             // to edge with its icons at the far right (the TV's own overscan is the host's padding). Settings has 6 above and 14 below.
             int side = dp(18);
             LinearLayout body = column(); body.setPadding(side, dp(page == 3 ? 6 : 8), side, dp(page == 3 ? 14 : 26)); scroll.addView(body);
-            // Links, toggles and dropdown values end at the margin, and what they fill with the focus goes beyond it.
+            // Links, toggles and dropdown values end at the margin, and a toggle's row fills a little beyond it with the focus.
             body.setClipToPadding(false);
             pageRoot.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
             pageScroll = scroll;
@@ -857,11 +843,11 @@ public final class MainActivity extends Activity {
             int color = i == current ? t.accent : t.text;
             LinearLayout rowView = row();
             rowView.setPadding(dp(12), 0, dp(12), 0);
-            TextView name = ui.follow(ui.label(options[i], 14, color), color, color, t.accentText);
+            TextView name = ui.label(options[i], 14, color);
             name.setSingleLine(true);
             name.setEllipsize(TextUtils.TruncateAt.END);
             rowView.addView(name, new LinearLayout.LayoutParams(0, -1, 1));
-            if (i == current) rowView.addView(ui.follow(ui.label("✓", 14, t.accent), t.accent, t.accent, t.accentText), lp(-2, -1));
+            if (i == current) rowView.addView(ui.label("✓", 14, t.accent), lp(-2, -1));
             ui.focus(rowView, "select:" + i, Ui.Look.MENU_ROW).setOnClickListener(v -> {
                 closeOverlay(shown[0]);
                 pick.picked(index);
@@ -913,7 +899,7 @@ public final class MainActivity extends Activity {
             }
             widest = Math.max(widest, textWidth(item.label, 14));
             if (first == null) first = item.key;
-            TextView text = ui.follow(ui.label(item.label, 14, t.text), t.text, t.text, t.accentText);
+            TextView text = ui.label(item.label, 14, t.text);
             text.setSingleLine(true);
             text.setEllipsize(TextUtils.TruncateAt.END);
             text.setPadding(dp(9), 0, dp(9), 0);
@@ -1028,12 +1014,15 @@ public final class MainActivity extends Activity {
     // page's tile is infoBg; the others rest on the page. The icons are 22: accent in the
     // current tab, textDim in the others, both at full strength, and the logo, which is
     // drawn in its own greys, at 1.0 in the current tab and 0.8 in the others. A remote's
-    // focus is the tile in accent, grown to 1.08, the current one too.
+    // focus is what the pointer's hover is: surface and grown to 1.08, and the current tile, which the
+    // desktop leaves as it is, keeps its infoBg and only grows.
     private void nav() {
         Theme t = t();
         LinearLayout bar = row(); bar.setGravity(Gravity.CENTER);
         // 6 below the tiles, as on the desktop; the room above them is the status bar's and the overscan's.
         bar.setPadding(0, dp(9), 0, dp(6));
+        // A tile that has the focus is 1.08 of its size, and the bar would cut that off at its padding.
+        bar.setClipToPadding(false);
         settingsDot = null;
         for (int i = 0; i < tabNames.length; i++) {
             final int next = i;
@@ -1041,7 +1030,7 @@ public final class MainActivity extends Activity {
             FrameLayout item = new FrameLayout(this);
             ImageView icon = new ImageView(this); icon.setImageResource(tabIcons[i]);
             if (i == 0) icon.setAlpha(current ? 1f : 0.8f);
-            else ui.followTint(icon, current ? t.accent : t.textDim, current ? t.accent : t.textDim, t.accentText);
+            else ui.tinted(icon, current ? t.accent : t.textDim);
             FrameLayout.LayoutParams iconLp = new FrameLayout.LayoutParams(dp(22), dp(22), Gravity.CENTER);
             item.addView(icon, iconLp);
             if (i == 3) {
@@ -1166,7 +1155,11 @@ public final class MainActivity extends Activity {
             }
             return false;
         });
-        box.setOnFocusChangeListener((v, hasFocus) -> { if (!hasFocus) hero.press(false); });
+        // With a remote's focus it is held at 1.05, the pulse's peak: a fill behind it would wash out its greys.
+        box.setOnFocusChangeListener((v, hasFocus) -> {
+            hero.focus(hasFocus);
+            if (!hasFocus) hero.press(false);
+        });
         LinearLayout.LayoutParams boxLp = lp(132, 132);
         boxLp.gravity = Gravity.CENTER_HORIZONTAL;
         column.addView(box, boxLp);
@@ -1317,7 +1310,7 @@ public final class MainActivity extends Activity {
             String name = configs.get(i).name;
             widest = Math.max(widest, textWidth(name, 14));
             int color = i == selected ? t.accent : t.text;
-            TextView label = ui.follow(ui.label(name, 14, color), color, color, t.accentText);
+            TextView label = ui.label(name, 14, color);
             label.setSingleLine(true);
             label.setEllipsize(TextUtils.TruncateAt.END);
             label.setPadding(dp(10), 0, dp(10), 0);
@@ -1990,6 +1983,8 @@ public final class MainActivity extends Activity {
                 "editor:back", getString(R.string.text_back), v -> tryClose.run()), lp(-1, -2));
         LinearLayout form = column();
         form.setPadding(dp(18), 0, dp(18), 0);
+        // The toggle's row fills a little beyond the fields' edges when it has the focus.
+        form.setClipToPadding(false);
         form.addView(ui.field(getString(R.string.editor_name), name, "editor:name"), lp(-1, -2));
         gap(form, 10);
         TextView[] profileValue = new TextView[1];
@@ -2007,7 +2002,7 @@ public final class MainActivity extends Activity {
         gap(form, 10);
         form.addView(ui.fieldArea(getString(R.string.editor_toml), raw, "editor:toml", 150), lp(-1, -2));
         gap(form, 10);
-        form.addView(ui.editorToggleRow(getString(R.string.text_show_toml_and_password), show), lp(-1, -2));
+        form.addView(ui.editorToggleRow(getString(R.string.text_show_toml_and_password), show), ui.focusRowLp());
         ScrollView scroll = new ScrollView(this);
         scroll.setVerticalScrollBarEnabled(false);
         // The fields are its stops, not it.
@@ -2144,7 +2139,7 @@ public final class MainActivity extends Activity {
             // The notice depends on it.
             render();
         });
-        body.addView(ui.toggleRow(getString(R.string.text_split_tunnelling), null, splitSwitch), lp(-1, -2));
+        body.addView(ui.toggleRow(getString(R.string.text_split_tunnelling), null, splitSwitch), ui.focusRowLp());
         // Only the value and its ▾ are the control: the label is plain text.
         body.addView(ui.dropdown(getString(R.string.text_mode), through ? getString(R.string.text_through_vpn_62) : getString(R.string.text_bypass_vpn_61),
                 "split:mode", v -> showSelect("split:mode",
@@ -2166,7 +2161,7 @@ public final class MainActivity extends Activity {
             chip.setOnClickListener(v -> selectProfile(name));
             // Default is the one that cannot be deleted.
             if (!SplitProfiles.DEFAULT.equals(name)) {
-                ImageView x = ui.chipX("profile:" + i + ":remove", current && !ui.remote());
+                ImageView x = ui.chipX("profile:" + i + ":remove", current);
                 x.setContentDescription(getString(R.string.text_delete) + " " + name);
                 x.setOnClickListener(v -> confirmRemoveProfile(name));
                 chip.addView(x, ui.chipXLp());
@@ -2596,11 +2591,11 @@ public final class MainActivity extends Activity {
                 LinearLayout row = column();
                 row.setGravity(Gravity.CENTER_VERTICAL);
                 row.setPadding(dp(10), 0, dp(10), 0);
-                TextView name = ui.follow(label(app.label, 13, t.text), t.text, t.text, t.accentText);
+                TextView name = label(app.label, 13, t.text);
                 name.setSingleLine(true);
                 name.setEllipsize(TextUtils.TruncateAt.END);
                 // The package, which tells two apps of one name apart, is cut at its left, where the end is what matters.
-                TextView pkg = ui.follow(label(app.pkg, 11, t.textFaint), t.textFaint, t.textFaint, t.accentText);
+                TextView pkg = label(app.pkg, 11, t.textFaint);
                 pkg.setSingleLine(true);
                 pkg.setEllipsize(TextUtils.TruncateAt.START);
                 row.addView(name, lp(-1, -2));
@@ -3004,7 +2999,6 @@ public final class MainActivity extends Activity {
                 row.setPadding(dp(10), 0, dp(10), 0);
                 row.setSingleLine(true);
                 row.setEllipsize(TextUtils.TruncateAt.MIDDLE);
-                row.setTextColor(Ui.colors(t.text, t.text, t.accentText));
                 ui.focus(row, "licenses:" + i, Ui.Look.ROW).setOnClickListener(v -> text(index));
                 LinearLayout.LayoutParams rowLp = lp(-1, 42);
                 rowLp.bottomMargin = dp(2);
@@ -3121,7 +3115,7 @@ public final class MainActivity extends Activity {
             prefs.edit().putBoolean(key, enabled).apply();
             if (key.equals("killswitch")) applyCurrentRules();
         });
-        parent.addView(ui.toggleRow(title, subtitle, sw), lp(-1, -2));
+        parent.addView(ui.toggleRow(title, subtitle, sw), ui.focusRowLp());
     }
     // The Logs page (qml/pages/LogsPage.qml): at the top Clear (left) and Copy (right), links as wide as their words; with logging off,
     // "Logging is off." in warn and a "Turn on" link; the log in a box (surface, radius 8, monospace 11 in the text colour) that fills the
@@ -3198,18 +3192,17 @@ public final class MainActivity extends Activity {
         frame.addView(logPlaceholder, new FrameLayout.LayoutParams(-2, -2, Gravity.CENTER));
         body.addView(frame, new LinearLayout.LayoutParams(-1, 0, 1));
         gap(body, 8);
-        // The foot: Auto-scroll, at the right.
+        // The foot: Auto-scroll, at the right. The label and the toggle are one small row, which fills round them with the focus and
+        // is no wider than they are.
         LinearLayout foot = row();
         foot.addView(new View(this), new LinearLayout.LayoutParams(0, 1, 1));
-        foot.addView(label(getString(R.string.logs_auto_scroll), 12, t.textDim), lp(-2, -2));
-        ui.gapH(foot, 8);
         ToggleView auto = ui.toggle(logAutoScroll, true, "logs:autoscroll");
         auto.setContentDescription(getString(R.string.logs_auto_scroll));
         auto.setListener((v, on) -> { logAutoScroll = on; if (on) scrollLogToEnd(); });
         LinearLayout.LayoutParams autoLp = lp(-2, -2);
-        // The track ends at the margin: the 4 the focus fills go beyond it.
-        autoLp.rightMargin = -dp(ToggleView.PAD_DP);
-        foot.addView(auto, autoLp);
+        // The track ends at the margin: the row's 6 of padding on its right, which the fill shows, go beyond it.
+        autoLp.rightMargin = -dp(Ui.FOCUS_ROW_RIGHT_DP);
+        foot.addView(ui.toggleGroup(getString(R.string.logs_auto_scroll), 12, t.textDim, auto), autoLp);
         body.addView(foot, lp(-1, -2));
         refreshLog(true);
     }

@@ -21,8 +21,9 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 // The desktop's controls as Ui builds them: the measurements of qml/Toggle.qml, qml/Field.qml,
-// qml/components/* and qml/pages/*, in dp, and which look each rests in, with the focus, with and
-// without a remote. Built and measured here, off the screen; TvDeviceTest checks the real pages.
+// qml/components/* and qml/pages/*, in dp, which look each rests in, and that a remote's focus is the look the control has under the
+// pointer (the desktop has no ring), never a strong fill the desktop does not have. Built and measured here, off the screen;
+// TvDeviceTest checks the real pages.
 class UiComponentsDeviceTest {
     private val instrumentation get() = InstrumentationRegistry.getInstrumentation()
     private val context get() = instrumentation.targetContext
@@ -30,7 +31,7 @@ class UiComponentsDeviceTest {
     private fun dp(n: Float) = Math.round(n * density)
     private fun dp(n: Int) = dp(n.toFloat())
 
-    private fun ui(dark: Boolean = true, remote: Boolean = false) = Ui(context).apply { update(dark, remote) }
+    private fun ui(dark: Boolean = true) = Ui(context).apply { update(dark) }
     // The size a view takes in a space this wide and, if it is given, this tall.
     private fun measured(view: View, width: Int = 0, height: Int = 0): View {
         val w = if (width > 0) MeasureSpec.makeMeasureSpec(width, MeasureSpec.AT_MOST) else MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED)
@@ -57,23 +58,23 @@ class UiComponentsDeviceTest {
         val states = view.background as StateListDrawable
         val out = HashMap<String, Drawable>()
         for ((name, state) in listOf("rest" to intArrayOf(), "pressed" to intArrayOf(android.R.attr.state_pressed),
-                "focused" to intArrayOf(android.R.attr.state_focused))) {
+                "focused" to intArrayOf(android.R.attr.state_focused), "activated" to intArrayOf(android.R.attr.state_activated))) {
             states.setState(state)
             out[name] = states.current
         }
         return out
     }
 
-    @Test fun theToggleIs38By22WithTheFocusAroundItAndFlipsOnATap() {
+    @Test fun theToggleIs38By22AndFlipsOnATap() {
         onMain {
             val ui = ui()
             val big = measured(ui.toggle(false, false, "t:big")) as ToggleView
-            // The track is 38 by 22, and the view 4 larger on each side, which the focus fills.
-            assertEquals(dp(46), big.measuredWidth)
-            assertEquals(dp(30), big.measuredHeight)
+            // The track is 38 by 22, and the view is the track and nothing round it: a fill round it would be the ring.
+            assertEquals(dp(38), big.measuredWidth)
+            assertEquals(dp(22), big.measuredHeight)
             val small = measured(ui.toggle(false, true, "t:small"))
-            assertEquals("Logs' toggle is 34 by 20", dp(42), small.measuredWidth)
-            assertEquals(dp(28), small.measuredHeight)
+            assertEquals("Logs' toggle is 34 by 20", dp(34), small.measuredWidth)
+            assertEquals(dp(20), small.measuredHeight)
             var flips = 0
             var last = false
             big.setListener { _, checked -> flips++; last = checked }
@@ -91,6 +92,46 @@ class UiComponentsDeviceTest {
             val info = big.createAccessibilityNodeInfo()
             assertEquals("android.widget.Switch", info.className.toString())
             assertTrue(info.isCheckable)
+        }
+    }
+
+    // The desktop gives a toggle no hover, so a remote's focus on it is the nearest thing the desktop has: the row fills with surface, as
+    // a config row does while one of its icons has the focus. The toggle itself draws nothing for it, in any state.
+    @Test fun aToggleHasNoLookOfItsOwnAndItsRowFillsWithItsFocus() {
+        onMain {
+            for (dark in listOf(true, false)) {
+                val theme = Theme.of(dark)
+                val ui = ui(dark)
+                val toggle = ui.toggle(true, false, "switch:killswitch")
+                val own = looks(toggle)
+                for ((state, look) in own) assertEquals("The toggle's own $state is no fill", Color.TRANSPARENT, fill(look))
+                val row = ui.toggleRow("Kill switch", "block traffic if the VPN drops", toggle)
+                // Its content is 10 and 6 in, and the row goes in its place 10 and 6 beyond the margins, so that nothing moves.
+                assertEquals(dp(Ui.FOCUS_ROW_LEFT_DP), row.paddingLeft)
+                assertEquals(dp(Ui.FOCUS_ROW_RIGHT_DP), row.paddingRight)
+                val place = ui.focusRowLp()
+                assertEquals(-dp(10), place.leftMargin)
+                assertEquals(-dp(6), place.rightMargin)
+                assertFalse("The row is no stop of its own: the toggle is", row.isFocusable)
+                assertEquals("switch:killswitch", toggle.tag)
+                val rows = looks(row)
+                assertEquals("It rests on the page", Color.TRANSPARENT, fill(rows["rest"]!!))
+                assertEquals("and fills with surface while the toggle has the focus", theme.surface, fill(rows["activated"]!!))
+                assertEquals(dp(8).toFloat(), (rows["activated"] as GradientDrawable).cornerRadius, 0.5f)
+                assertFalse(row.isActivated)
+                toggle.onFocusChangeListener.onFocusChange(toggle, true)
+                assertTrue("The toggle's focus activates its row", row.isActivated)
+                toggle.onFocusChangeListener.onFocusChange(toggle, false)
+                assertFalse(row.isActivated)
+                assertNull("A ring is a foreground", row.foreground)
+                // The editor's row and Logs' small one are the same.
+                val editor = ui.editorToggleRow("Show TOML and password", ui.toggle(false, false, "editor:show"))
+                assertEquals(theme.surface, fill(looks(editor)["activated"]!!))
+                val group = ui.toggleGroup("Auto-scroll", 12f, theme.textDim, ui.toggle(true, true, "logs:autoscroll"))
+                assertEquals(theme.surface, fill(looks(group)["activated"]!!))
+                measured(group)
+                assertTrue("It is as wide as its words, never the page: ${group.measuredWidth}", group.measuredWidth < dp(200))
+            }
         }
     }
 
@@ -169,6 +210,8 @@ class UiComponentsDeviceTest {
             assertEquals("The label ends 3 before the X", label.right + dp(3), x.left)
             assertTrue("and the X is inside the chip: it ends at ${x.right} of ${chip.width}", x.right <= chip.width)
             assertEquals("The label is cut with an ellipsis", android.text.TextUtils.TruncateAt.END, label.ellipsize)
+            // The X sits 8 into the chip's padding, which a row would cut it off at: about a dp of its stroke at rest.
+            assertFalse("A chip does not clip its X to its padding", chip.clipToPadding)
             // A short one is as wide as the desktop's: its label and 39.
             val short = ui.chip("vk.com", false, false, null, false)
             short.addView(ui.chipX("domain:1", false), ui.chipXLp())
@@ -178,12 +221,12 @@ class UiComponentsDeviceTest {
         }
     }
 
-    // A chip's X is its own stop, and a remote reaches it with Right from the chip and the chip with Left; with the focus on the chip, the X
-    // sits on the accent in accentText.
-    @Test fun aChipAndItsXReachEachOtherAndTheXIsAccentTextOnAFocusedChip() {
+    // A chip's X is its own stop, and a remote reaches it with Right from the chip and the chip with Left. The desktop's X is textDim
+    // (accentText on an accent chip) and danger under the pointer: a remote's focus on it is that, and on the chip nothing changes the X.
+    @Test fun aChipAndItsXReachEachOtherAndTheXTurnsDangerWithTheFocus() {
         onMain {
             val theme = Theme.DARK
-            val ui = ui(remote = true)
+            val ui = ui()
             val chip = ui.chip("Work", false, true, "profile:1", false)
             val x = ui.chipX("profile:1:remove", false)
             chip.addView(x, ui.chipXLp())
@@ -191,24 +234,27 @@ class UiComponentsDeviceTest {
             assertEquals(x.id, chip.nextFocusRightId)
             assertEquals(chip.id, x.nextFocusLeftId)
             assertTrue(chip.id != View.NO_ID && x.id != View.NO_ID && chip.id != x.id)
-            assertEquals("Resting on a chip, the cross is textDim", theme.textDim, x.imageTintList!!.getColorForState(intArrayOf(), 0))
-            x.isSelected = true
-            assertEquals("a focused chip is selected, and the cross sits on the accent", theme.accentText,
-                x.imageTintList!!.getColorForState(x.drawableState, 0))
-            x.isSelected = false
-            chip.getOnFocusChangeListener().onFocusChange(chip, true)
-            assertTrue("The chip's focus selects it", x.isSelected)
-            chip.getOnFocusChangeListener().onFocusChange(chip, false)
-            assertFalse(x.isSelected)
+            val tint = x.imageTintList!!
+            assertEquals("Resting on a chip, the cross is textDim", theme.textDim, tint.getColorForState(intArrayOf(), 0))
+            assertEquals("danger with the focus", theme.danger, tint.getColorForState(intArrayOf(android.R.attr.state_focused), 0))
+            assertEquals("and under the pointer", theme.danger, tint.getColorForState(intArrayOf(android.R.attr.state_pressed), 0))
+            assertEquals("A chip's focus does not select the cross: it has no look of its own to sit on", false, x.isSelected)
+            assertEquals(null, chip.onFocusChangeListener)
+            for (state in listOf("rest", "focused", "pressed")) assertEquals("The cross has no fill ($state)", Color.TRANSPARENT, fill(looks(x)[state]!!))
+            // On an accent chip it is accentText, and danger under the focus too.
+            val over = ui.chipX("profile:2:remove", true).imageTintList!!
+            assertEquals(theme.accentText, over.getColorForState(intArrayOf(), 0))
+            assertEquals(theme.danger, over.getColorForState(intArrayOf(android.R.attr.state_focused), 0))
         }
     }
 
-    // Split's + chip: 34 by 28, radius 13, on surface with a border, a + of 17 in accent; with the focus the accent fills it, border and all.
-    @Test fun thePlusChipIs34By28WithABorderAndFocusesInTheAccent() {
+    // Split's + chip: 34 by 28, radius 13, on surface with a border, a + of 17 in accent; with the focus it is surfaceHover, as a chip is
+    // under the pointer, and keeps its border and its +.
+    @Test fun thePlusChipIs34By28WithABorderAndFocusesAsAChipDoes() {
         onMain {
             for (dark in listOf(true, false)) {
                 val theme = Theme.of(dark)
-                val ui = ui(dark, remote = true)
+                val ui = ui(dark)
                 val plus = measured(ui.plusChip("New profile", "profile:add")) as TextView
                 assertEquals("+", plus.text.toString())
                 assertEquals(dp(34), plus.measuredWidth)
@@ -216,21 +262,22 @@ class UiComponentsDeviceTest {
                 val look = looks(plus)
                 assertEquals(theme.surface, fill(look["rest"]!!))
                 assertEquals("with a border", theme.border, edge(look["rest"]!!))
-                assertEquals(theme.accent, fill(look["focused"]!!))
-                assertEquals("and none once it has the focus", theme.accent, edge(look["focused"]!!))
+                assertEquals(theme.surfaceHover, fill(look["pressed"]!!))
+                assertEquals(theme.surfaceHover, fill(look["focused"]!!))
+                assertEquals("and the border stays", theme.border, edge(look["focused"]!!))
                 assertEquals(theme.accent, plus.textColors.defaultColor)
-                assertEquals(theme.accentText, plus.textColors.getColorForState(intArrayOf(android.R.attr.state_focused), 0))
+                assertEquals("The + is accent with the focus too", theme.accent, plus.textColors.getColorForState(intArrayOf(android.R.attr.state_focused), 0))
                 assertEquals("New profile", plus.contentDescription)
             }
         }
     }
 
     // The editor's select box: a label over a box that is the control, 34 high, whose border turns accent under the pointer.
-    @Test fun aSelectBoxIsAFieldWhoseBorderTurnsAccentUnderThePointer() {
+    @Test fun aSelectBoxIsAFieldWhoseBorderTurnsAccentUnderThePointerAndWithTheFocus() {
         onMain {
             for (dark in listOf(true, false)) {
                 val theme = Theme.of(dark)
-                val ui = ui(dark, remote = false)
+                val ui = ui(dark)
                 val shown = arrayOfNulls<TextView>(1)
                 var opened = 0
                 val field = ui.selectField("Split profile", "Default", "editor:profile", shown) { opened++ }
@@ -246,12 +293,10 @@ class UiComponentsDeviceTest {
                 assertEquals(theme.inputBorder, edge(look["rest"]!!))
                 assertEquals("accent under the pointer", theme.accent, edge(look["pressed"]!!))
                 assertEquals("and with the focus", theme.accent, edge(look["focused"]!!))
+                assertEquals("on the same fill: the desktop's focus is the border alone", theme.inputBg, fill(look["focused"]!!))
                 box.performClick()
                 assertEquals(1, opened)
             }
-            val remote = looks(ui(remote = true).selectField("Split profile", "Default", "editor:profile", null) { }
-                .findViewWithTag<View>("editor:profile"))
-            assertEquals("With a remote the focused box is also on surface", Theme.DARK.surface, fill(remote["focused"]!!))
         }
     }
 
@@ -274,59 +319,107 @@ class UiComponentsDeviceTest {
         }
     }
 
-    // Strong fills rest in neutral ones with a remote, so that the focus is the one strong fill.
-    @Test fun withARemoteOnlyTheFocusIsAStrongFill() {
+    // The rest: what a remote's focus shows on a nav tile, a row, a menu row, the header's buttons, Home's + and a dropdown's value is
+    // what the pointer shows on them. The current tab, which the desktop leaves as it is under the pointer, keeps its infoBg.
+    @Test fun aRemotesFocusOnTheOtherControlsIsTheirHoverLook() {
         onMain {
             for (dark in listOf(true, false)) {
                 val theme = Theme.of(dark)
-                val touch = ui(dark, remote = false)
-                val remote = ui(dark, remote = true)
-                val primaryTouch = looks(touch.button("Save", Ui.Kind.PRIMARY, 88, "b:p"))
-                val primaryRemote = looks(remote.button("Save", Ui.Kind.PRIMARY, 88, "b:p"))
-                assertEquals("A primary button rests on the accent", theme.accent, fill(primaryTouch["rest"]!!))
-                assertEquals("and with a remote on surface", theme.surface, fill(primaryRemote["rest"]!!))
-                assertEquals("it goes darker under the pointer", theme.primaryHover, fill(primaryTouch["pressed"]!!))
-                assertEquals("and has the accent with the focus", theme.accent, fill(primaryRemote["focused"]!!))
-                val dangerTouch = looks(touch.button("Delete", Ui.Kind.DESTRUCTIVE, 76, "b:d"))
-                val dangerRemote = looks(remote.button("Delete", Ui.Kind.DESTRUCTIVE, 76, "b:d"))
-                assertEquals("A destructive button rests on danger", theme.danger, fill(dangerTouch["rest"]!!))
-                assertEquals("and with a remote on surface", theme.surface, fill(dangerRemote["rest"]!!))
-                assertEquals(theme.destructiveHover, fill(dangerTouch["pressed"]!!))
-                assertEquals("It focuses in danger either way", theme.danger, fill(dangerRemote["focused"]!!))
-                assertEquals(theme.danger, fill(dangerTouch["focused"]!!))
-                val neutral = looks(touch.button("Cancel", Ui.Kind.NEUTRAL, 76, "b:n"))
-                assertEquals(theme.surface, fill(neutral["rest"]!!))
-                assertEquals(theme.surfaceHover, fill(neutral["pressed"]!!))
-                assertEquals(theme.accent, fill(neutral["focused"]!!))
-                val secondary = looks(touch.button("Cancel", Ui.Kind.SECONDARY, 88, "b:s"))
-                assertEquals("The editor's Cancel rests on the page", theme.bg, fill(secondary["rest"]!!))
-                assertEquals(theme.border, edge(secondary["rest"]!!))
-                assertEquals(theme.surface, fill(secondary["pressed"]!!))
-                val selectedTouch = looks(touch.chip("Work", true, true, "profile:1", false))
-                val selectedRemote = looks(remote.chip("Work", true, true, "profile:1", false))
-                assertEquals("The selected chip rests on the accent", theme.accent, fill(selectedTouch["rest"]!!))
-                assertEquals("and with a remote on infoBg", theme.infoBg, fill(selectedRemote["rest"]!!))
-                val other = looks(touch.chip("Default", false, true, "profile:0", false))
-                assertEquals(theme.surface, fill(other["rest"]!!))
-                assertEquals(theme.surfaceHover, fill(other["pressed"]!!))
-                assertEquals(theme.accent, fill(other["focused"]!!))
+                val ui = ui(dark)
+                val tile = looks(View(context).also { ui.focus(it, "tab:1", Ui.Look.TILE) })
+                assertEquals(Color.TRANSPARENT, fill(tile["rest"]!!))
+                assertEquals("A tile under the pointer is surface", theme.surface, fill(tile["pressed"]!!))
+                assertEquals("and with the focus", theme.surface, fill(tile["focused"]!!))
+                val current = looks(View(context).also { ui.focus(it, "tab:0", Ui.Look.TILE, Ui.F_CURRENT) })
+                assertEquals("The current tab rests on infoBg", theme.infoBg, fill(current["rest"]!!))
+                assertEquals("and keeps it under the pointer and with the focus, which only grow it", theme.infoBg, fill(current["pressed"]!!))
+                assertEquals(theme.infoBg, fill(current["focused"]!!))
+                for ((look, radius) in listOf(Ui.Look.ROW to 8, Ui.Look.MENU_ROW to 6, Ui.Look.PILL to 8, Ui.Look.ICON to 6)) {
+                    val looks = looks(View(context).also { ui.focus(it, "t:$look", look) })
+                    assertEquals("$look rests on the page", Color.TRANSPARENT, fill(looks["rest"]!!))
+                    assertEquals("$look under the pointer", theme.surface, fill(looks["pressed"]!!))
+                    assertEquals("and with the focus", theme.surface, fill(looks["focused"]!!))
+                    assertEquals("$look's radius", dp(radius).toFloat(), (looks["focused"] as GradientDrawable).cornerRadius, 0.5f)
+                }
+                // The icons of the header's buttons and of Home's + stay accent while the button is filled.
+                for (button in listOf(ui.iconButton(R.drawable.ic_add, 22, "Add", "configs:add"), ui.smallIconButton(R.drawable.ic_add_home, 14, "Add", "home:add"))) {
+                    val tint = (button.getChildAt(0) as android.widget.ImageView).imageTintList!!
+                    assertEquals(theme.accent, tint.getColorForState(intArrayOf(), 0))
+                    assertEquals(theme.accent, tint.getColorForState(intArrayOf(android.R.attr.state_focused), 0))
+                }
+                // A dropdown's value and its ▾ go from textDim to the text colour, with no fill.
+                val row = ui.dropdown("Theme", "System", "settings:theme") {}
+                val group = row.findViewWithTag<android.view.ViewGroup>("settings:theme")
+                for (state in listOf("rest", "pressed", "focused")) assertEquals("A value has no fill ($state)", Color.TRANSPARENT, fill(looks(group)[state]!!))
+                for (part in 0..1) {
+                    val shown = group.getChildAt(if (part == 0) 0 else 2) as TextView
+                    assertEquals(theme.textDim, shown.textColors.defaultColor)
+                    assertEquals(theme.text, shown.textColors.getColorForState(intArrayOf(android.R.attr.state_focused), 0))
+                    assertEquals(theme.text, shown.textColors.getColorForState(intArrayOf(android.R.attr.state_pressed), 0))
+                }
             }
         }
     }
 
-    // A text field keeps the desktop's own focus, an accent border, and with a remote also surface.
+    // A control rests as the desktop draws it however the screen is driven, and its focus is its hover: a primary button is accent with
+    // accentText and goes to primaryHover, a destructive one danger with white and destructiveHover, a dialog's neutral one surface and
+    // surfaceHover, the editor's Cancel its page with a border and surface, a chip surface and surfaceHover, and a selected chip, which
+    // the desktop leaves as it is, accent with accentText and no mark, and primaryHover with the focus alone.
+    @Test fun buttonsAndChipsRestAsTheDesktopDrawsThemAndFocusAsTheyAreUnderThePointer() {
+        onMain {
+            for (dark in listOf(true, false)) {
+                val theme = Theme.of(dark)
+                val ui = ui(dark)
+                val primary = ui.button("Save", Ui.Kind.PRIMARY, 88, "b:p")
+                val primaryLooks = looks(primary)
+                assertEquals("A primary button rests on the accent", theme.accent, fill(primaryLooks["rest"]!!))
+                assertEquals("it goes darker under the pointer", theme.primaryHover, fill(primaryLooks["pressed"]!!))
+                assertEquals("and with the focus", theme.primaryHover, fill(primaryLooks["focused"]!!))
+                assertEquals("its words are accentText in every state", theme.accentText, (primary as TextView).textColors.defaultColor)
+                assertEquals(theme.accentText, primary.textColors.getColorForState(intArrayOf(android.R.attr.state_focused), 0))
+                val destructive = ui.button("Delete", Ui.Kind.DESTRUCTIVE, 76, "b:d")
+                val dangerLooks = looks(destructive)
+                assertEquals("A destructive button rests on danger", theme.danger, fill(dangerLooks["rest"]!!))
+                assertEquals(theme.destructiveHover, fill(dangerLooks["pressed"]!!))
+                assertEquals(theme.destructiveHover, fill(dangerLooks["focused"]!!))
+                assertEquals("with a white label, always", theme.onDanger, (destructive as TextView).textColors.defaultColor)
+                assertEquals(theme.onDanger, destructive.textColors.getColorForState(intArrayOf(android.R.attr.state_focused), 0))
+                val neutral = looks(ui.button("Cancel", Ui.Kind.NEUTRAL, 76, "b:n"))
+                assertEquals(theme.surface, fill(neutral["rest"]!!))
+                assertEquals(theme.surfaceHover, fill(neutral["pressed"]!!))
+                assertEquals(theme.surfaceHover, fill(neutral["focused"]!!))
+                val secondary = looks(ui.button("Cancel", Ui.Kind.SECONDARY, 88, "b:s"))
+                assertEquals("The editor's Cancel rests on the page", theme.bg, fill(secondary["rest"]!!))
+                assertEquals(theme.border, edge(secondary["rest"]!!))
+                assertEquals(theme.surface, fill(secondary["pressed"]!!))
+                assertEquals(theme.surface, fill(secondary["focused"]!!))
+                assertEquals("and keeps its border", theme.border, edge(secondary["focused"]!!))
+                val selected = looks(ui.chip("Work", true, true, "profile:1", false))
+                assertEquals("The selected chip rests on the accent", theme.accent, fill(selected["rest"]!!))
+                assertEquals("and the pointer changes nothing", theme.accent, fill(selected["pressed"]!!))
+                assertEquals("the focus alone goes darker, as a primary button does", theme.primaryHover, fill(selected["focused"]!!))
+                val selectedChip = ui.chip("Work", true, true, "profile:1", false)
+                val label = selectedChip.getChildAt(0) as TextView
+                assertEquals("accentText on it", theme.accentText, label.textColors.defaultColor)
+                assertEquals("with no mark after the name", "Work", label.text.toString())
+                val other = looks(ui.chip("Default", false, true, "profile:0", false))
+                assertEquals(theme.surface, fill(other["rest"]!!))
+                assertEquals(theme.surfaceHover, fill(other["pressed"]!!))
+                assertEquals(theme.surfaceHover, fill(other["focused"]!!))
+            }
+        }
+    }
+
+    // A text field keeps the desktop's own focus, an accent border, on the same fill.
     @Test fun aFieldTurnsItsBorderAccentWithTheFocus() {
         onMain {
             for (dark in listOf(true, false)) {
                 val theme = Theme.of(dark)
-                val touch = looks(ui(dark, remote = false).pageInput("domains, comma-separated, then Enter", "domains:input"))
-                assertEquals(theme.inputBg, fill(touch["rest"]!!))
-                assertEquals(theme.inputBorder, edge(touch["rest"]!!))
-                assertEquals(theme.accent, edge(touch["focused"]!!))
-                assertEquals("On a phone the fill stays", theme.inputBg, fill(touch["focused"]!!))
-                val remote = looks(ui(dark, remote = true).pageInput("domains", "domains:input"))
-                assertEquals("With a remote it also reads from further away", theme.surface, fill(remote["focused"]!!))
-                assertEquals(theme.accent, edge(remote["focused"]!!))
+                val field = looks(ui(dark).pageInput("domains, comma-separated, then Enter", "domains:input"))
+                assertEquals(theme.inputBg, fill(field["rest"]!!))
+                assertEquals(theme.inputBorder, edge(field["rest"]!!))
+                assertEquals(theme.accent, edge(field["focused"]!!))
+                assertEquals("The fill stays, whatever drives the screen", theme.inputBg, fill(field["focused"]!!))
             }
             val ui = ui()
             val input = EditText(context)
@@ -336,22 +429,40 @@ class UiComponentsDeviceTest {
         }
     }
 
-    // A link is its words, wrap_content, and a link in the danger colour focuses in danger.
-    @Test fun aLinkHugsItsWordsAndADangerLinkFocusesInDanger() {
+    // A link is its words, wrap_content, and its focus is its hover: the other colour and an underline, with no fill, as the desktop's
+    // link is under the pointer. A danger link goes to its lighter.
+    @Test fun aLinkHugsItsWordsAndItsFocusIsItsHoverColourUnderlined() {
         onMain {
             val theme = Theme.DARK
             val ui = ui()
             val link = measured(ui.link("Recommended for Russia", 12f, Ui.LinkKind.ACCENT, "domains:russia"), dp(400)) as TextView
             val words = Math.ceil(link.paint.measureText(link.text.toString()).toDouble()).toInt()
             assertNear("A link is its words and a little around them", words + link.paddingLeft + link.paddingRight, link.measuredWidth, 2)
+            val focused = intArrayOf(android.R.attr.state_focused)
             assertEquals(theme.accent, link.textColors.defaultColor)
+            assertEquals("An accent link goes to the text colour", theme.text, link.textColors.getColorForState(focused, 0))
+            for (state in listOf("rest", "pressed", "focused")) assertEquals("A link has no fill ($state)", Color.TRANSPARENT, fill(looks(link)[state]!!))
             val danger = ui.link("Clear all", 12f, Ui.LinkKind.DANGER, "domains:clear")
             assertEquals(theme.danger, danger.textColors.defaultColor)
-            assertEquals(theme.danger, fill(looks(danger)["focused"]!!))
-            assertEquals("White on it", theme.onDanger, danger.textColors.getColorForState(intArrayOf(android.R.attr.state_focused), 0))
+            assertEquals("A danger link goes to its lighter", theme.dangerLinkHover, danger.textColors.getColorForState(focused, 0))
+            assertEquals(theme.dangerLinkHover, danger.textColors.getColorForState(intArrayOf(android.R.attr.state_pressed), 0))
             val text = ui.link("Add a config", 15f, Ui.LinkKind.TEXT, "configs:hint")
             assertEquals(theme.text, text.textColors.defaultColor)
             assertEquals("A text link goes accent under the pointer", theme.accent, text.textColors.getColorForState(intArrayOf(android.R.attr.state_pressed), 0))
+            assertEquals("and with the focus", theme.accent, text.textColors.getColorForState(focused, 0))
+            val faint = ui.link("FreeTunnel 1.0", 12f, Ui.LinkKind.FAINT, "settings:site")
+            assertEquals(theme.textFaint, faint.textColors.defaultColor)
+            assertEquals(theme.accent, faint.textColors.getColorForState(focused, 0))
+            // Underlined where the desktop's is, under the pointer (TvDeviceTest looks at it with the focus, in a window).
+            val hot = ui.link("Copy", 13f, Ui.LinkKind.ACCENT, "log:copy") as Ui.LinkText
+            val underline = android.graphics.Paint.UNDERLINE_TEXT_FLAG
+            assertEquals(0, hot.paintFlags and underline)
+            hot.isPressed = true
+            assertTrue("pressed", hot.paintFlags and underline != 0)
+            hot.isPressed = false
+            assertEquals(0, hot.paintFlags and underline)
+            hot.isHovered = true
+            assertTrue("hovered", hot.paintFlags and underline != 0)
         }
     }
 
@@ -368,7 +479,8 @@ class UiComponentsDeviceTest {
             assertEquals("\u2190", arrow.text.toString())
             assertEquals("The arrow is textDim", theme.textDim, arrow.textColors.defaultColor)
             assertEquals("and the text colour under the pointer", theme.text, arrow.textColors.getColorForState(intArrayOf(android.R.attr.state_pressed), 0))
-            assertEquals("A remote's focus is the accent", theme.accent, fill(looks(arrow)["focused"]!!))
+            assertEquals("and with a remote's focus", theme.text, arrow.textColors.getColorForState(intArrayOf(android.R.attr.state_focused), 0))
+            for (state in listOf("rest", "pressed", "focused")) assertEquals("The arrow has no fill ($state): it only tints", Color.TRANSPARENT, fill(looks(arrow)[state]!!))
             assertEquals("Back", arrow.contentDescription.toString())
             val title = header.getChildAt(1) as TextView
             assertEquals("The title is Medium, never bold", Ui.MEDIUM, title.typeface)
@@ -385,6 +497,7 @@ class UiComponentsDeviceTest {
 
             val row = measured(ui.editorToggleRow("Show TOML and password", ui.toggle(false, false, "editor:show")), dp(300))
             assertTrue("A toggle row of the editor is 32 high at least", row.measuredHeight >= dp(32))
+            assertEquals("It fills with surface while the toggle has the focus", theme.surface, fill(looks(row)["activated"]!!))
 
             val box = android.widget.ScrollView(context)
             ui.focus(box, "licenses:text", Ui.Look.BOX)
@@ -420,7 +533,7 @@ class UiComponentsDeviceTest {
             val ui = ui()
             val x = ui.chipX("domain:0", false)
             assertEquals("A ChipX is textDim at rest", Theme.DARK.textDim, x.imageTintList!!.defaultColor)
-            assertEquals("and white with the focus, on its danger circle", Theme.DARK.onDanger,
+            assertEquals("and danger with the focus, as under the pointer: a tint, not a circle", Theme.DARK.danger,
                 x.imageTintList!!.getColorForState(intArrayOf(android.R.attr.state_focused), 0))
             assertEquals("Danger under the pointer", Theme.DARK.danger,
                 x.imageTintList!!.getColorForState(intArrayOf(android.R.attr.state_pressed), 0))
@@ -428,7 +541,7 @@ class UiComponentsDeviceTest {
     }
 
     // Home's selector is its name and ▾ and no wider, 6 apart, in the text colour and the accent under the pointer, in Medium,
-    // never bold; with the focus the accent around them and accentText in them. Without configs it is "Add a config" alone.
+    // never bold; with the focus the same, the name underlined, and no box round them. Without configs it is "Add a config" alone.
     @Test fun homesSelectorIsAsWideAsItsNameAndArrowAndFocusesAsALink() {
         onMain {
             val theme = Theme.DARK
@@ -441,12 +554,13 @@ class UiComponentsDeviceTest {
             assertEquals(theme.text, name.textColors.defaultColor)
             assertEquals("and the accent under the pointer", theme.accent, name.textColors.getColorForState(intArrayOf(android.R.attr.state_hovered), 0))
             assertEquals("The arrow follows it", theme.accent, arrow.textColors.getColorForState(intArrayOf(android.R.attr.state_hovered), 0))
-            assertEquals("accentText with the focus", theme.accentText, name.textColors.getColorForState(intArrayOf(android.R.attr.state_focused), 0))
+            assertEquals("and with the focus", theme.accent, name.textColors.getColorForState(intArrayOf(android.R.attr.state_focused), 0))
+            assertEquals(theme.accent, arrow.textColors.getColorForState(intArrayOf(android.R.attr.state_focused), 0))
             assertNear("As wide as the name, 6, the arrow and its own padding", name.measuredWidth + dp(6) + arrow.measuredWidth + dp(12), selector.measuredWidth, 2)
             assertTrue("Far from the width of the screen", selector.measuredWidth < dp(300))
             val looks = looks(selector)
             assertEquals("It rests on the page", Color.TRANSPARENT, fill(looks["rest"]!!))
-            assertEquals("and the accent is its focus", theme.accent, fill(looks["focused"]!!))
+            assertEquals("and has no box for its focus: the words are", Color.TRANSPARENT, fill(looks["focused"]!!))
             // A long name is cut at the room it is given, and the arrow stays after what shows.
             val long = measured(ui.selector("A very very very long name of a server that goes on", true, dp(120), "home:config"), dp(400)) as android.view.ViewGroup
             assertTrue("The name takes at most the room", (long.getChildAt(0) as TextView).measuredWidth <= dp(120))
@@ -457,8 +571,8 @@ class UiComponentsDeviceTest {
         }
     }
 
-    // A speed tile: the arrow in its colour and the number in Medium 15; a badge: 11 in Medium on infoBg, 8 in, whose text and fill
-    // follow a row's focus.
+    // A speed tile: the arrow in its colour and the number in Medium 15; a badge: 11 in Medium on infoBg, 8 in, the same on a row that
+    // is filled as on one that is not.
     @Test fun aSpeedTileAndABadgeAreAsTheDesktopDrawsThem() {
         onMain {
             val theme = Theme.DARK
@@ -476,18 +590,16 @@ class UiComponentsDeviceTest {
             val badge = measured(ui.badge("connected", theme.success)) as TextView
             assertEquals(Ui.MEDIUM, badge.typeface)
             assertEquals(theme.success, badge.textColors.defaultColor)
-            assertEquals("accentText on a row's accent", theme.accentText, badge.textColors.getColorForState(intArrayOf(android.R.attr.state_focused), 0))
+            assertEquals("It does not change with a row's focus", theme.success, badge.textColors.getColorForState(intArrayOf(android.R.attr.state_focused), 0))
             val words = Math.ceil(badge.paint.measureText("connected").toDouble()).toInt()
             assertNear("8 in from each side", words + dp(16), badge.measuredWidth, 2)
-            val states = badge.background as StateListDrawable
-            states.setState(intArrayOf())
-            assertEquals("on infoBg", theme.infoBg, fill(states.current))
+            assertEquals("on infoBg", theme.infoBg, fill(badge.background))
         }
     }
 
     // A config row: its logo, its name taking what is left, the three icons in cells 26 wide at the right 6 from the edge, each 40 high in the
-    // 48 of the row; it rests on the page, on surface while one of its icons has the focus, and is the accent when it has it itself, with the
-    // icons on it in accentText; a close icon's cell focuses in danger.
+    // 48 of the row; it rests on the page, on surface under the pointer, with the focus and while one of its icons has the focus; an icon
+    // changes its colour alone (the text colour, danger for the close icon), on the row or off it.
     @Test fun aConfigRowIsLaidOutAndLooksAsTheDesktopsDoes() {
         onMain {
             val theme = Theme.DARK
@@ -514,18 +626,24 @@ class UiComponentsDeviceTest {
             states.setState(intArrayOf(android.R.attr.state_pressed))
             assertEquals("and under the pointer", theme.surface, fill(states.current))
             states.setState(intArrayOf(android.R.attr.state_focused))
-            assertEquals("With the focus it is the accent", theme.accent, fill(states.current))
+            assertEquals("With the focus it is surface too, not a strong fill", theme.surface, fill(states.current))
 
-            assertEquals("An icon's cell takes the accent", theme.accent, fill(looks(row.editIcon)["focused"]!!))
-            assertEquals("and the close icon's takes danger", theme.danger, fill(looks(row.removeIcon)["focused"]!!))
+            for (icon in listOf(row.exportIcon, row.editIcon, row.removeIcon))
+                for (state in listOf("rest", "pressed", "focused")) assertEquals("An icon's cell has no fill ($state): the row fills", Color.TRANSPARENT, fill(looks(icon)[state]!!))
             val tint = (row.editIcon.getChildAt(0) as android.widget.ImageView).imageTintList!!
             assertEquals("An icon is textDim", theme.textDim, tint.defaultColor)
             assertEquals("the text colour under the pointer", theme.text, tint.getColorForState(intArrayOf(android.R.attr.state_pressed), 0))
-            assertEquals("accentText on its accent cell", theme.accentText, tint.getColorForState(intArrayOf(android.R.attr.state_focused), 0))
-            assertEquals("and on the row's accent", theme.accentText, tint.getColorForState(intArrayOf(android.R.attr.state_selected), 0))
+            assertEquals("and with the focus", theme.text, tint.getColorForState(intArrayOf(android.R.attr.state_focused), 0))
+            assertEquals("The row's own focus does not change it: the desktop's icons are textDim on a row that is under the pointer",
+                theme.textDim, tint.getColorForState(intArrayOf(android.R.attr.state_selected), 0))
             val close = (row.removeIcon.getChildAt(0) as android.widget.ImageView).imageTintList!!
             assertEquals("The close icon turns danger under the pointer", theme.danger, close.getColorForState(intArrayOf(android.R.attr.state_pressed), 0))
-            assertEquals("and white on its danger cell", theme.onDanger, close.getColorForState(intArrayOf(android.R.attr.state_focused), 0))
+            assertEquals("and with the focus", theme.danger, close.getColorForState(intArrayOf(android.R.attr.state_focused), 0))
+            // The row fills while one of its icons has the focus, as the desktop's does under the pointer.
+            row.exportIcon.onFocusChangeListener.onFocusChange(row.exportIcon, true)
+            assertTrue(row.isActivated)
+            row.exportIcon.onFocusChangeListener.onFocusChange(row.exportIcon, false)
+            assertFalse(row.isActivated)
 
             // A row without a ping or a badge has neither, and the name takes the room.
             val plain = ConfigRowView(context, ui, 0, "Name", false, null, null, false, "Export config", "Edit config", "Delete")
@@ -534,18 +652,18 @@ class UiComponentsDeviceTest {
         }
     }
 
-    // The logo as a control has the nav tile's proportions at 132, and the accent for its focus, and nothing else.
-    @Test fun theLogoControlFocusesInTheAccentOnAWideRadius() {
+    // The desktop's logo has no hover, and a fill behind it washes out its greys (#d0d0d0 .. #454545 on the accent, #4f4f4f in the light
+    // theme), so as a control it has no background in any state: its focus is its size (HeroValues), and the nav tile it is in.
+    @Test fun theLogoControlHasNoFillForItsFocus() {
         onMain {
-            val theme = Theme.DARK
-            val box = FrameLayout(context)
-            ui().focus(box, "home:toggle", Ui.Look.HERO)
-            val looks = looks(box)
-            assertEquals("It rests on the page", Color.TRANSPARENT, fill(looks["rest"]!!))
-            assertEquals("and the accent is its focus", theme.accent, fill(looks["focused"]!!))
-            assertEquals("with no hover of its own", Color.TRANSPARENT, fill(looks["pressed"]!!))
-            assertEquals(dp(28).toFloat(), (looks["focused"] as GradientDrawable).cornerRadius, 0.5f)
-            assertNull("A remote's focus is its background", box.foreground)
+            for (dark in listOf(true, false)) {
+                val box = FrameLayout(context)
+                ui(dark).focus(box, "home:toggle", Ui.Look.HERO)
+                val looks = looks(box)
+                for (state in listOf("rest", "pressed", "focused")) assertEquals("The logo has no fill ($state)", Color.TRANSPARENT, fill(looks[state]!!))
+                assertNull("A remote's focus is not a foreground either", box.foreground)
+                assertTrue(box.isFocusable)
+            }
         }
     }
 

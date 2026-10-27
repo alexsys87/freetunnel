@@ -85,6 +85,9 @@ final class HeroMotion {
     /** A press on the logo, or the OK of a remote on it. */
     void press(boolean down) { values.press(down); }
 
+    /** The logo has a remote's focus, or has lost it. */
+    void focus(boolean focused) { values.focus(focused); }
+
     /** The views are gone (another page, or the window): nothing may go on animating them. */
     void release() { values.release(); }
 
@@ -93,4 +96,5 @@ final class HeroMotion {
     float riseNow() { return values.rise(); }
     int roomNow() { return Math.round(values.room()); }
     float scaleNow() { return values.scale(); }
+    float heldNow() { return values.held(); }
 }

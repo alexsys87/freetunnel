@@ -12,8 +12,8 @@ import android.text.TextUtils;
 
 /**
  * A row of the Configs page, as the desktop draws it (qml/pages/ConfigsPage.qml): 56 from one row to the next, the
- * row itself 48 high with 4 above and below, radius 8, on the page and on surface under the pointer or while one of
- * its icons has the focus. In it, 10 from the left and 6 from the right with 8 between: the logo (22, whole for the
+ * row itself 48 high with 4 above and below, radius 8, on the page and on surface under the pointer, with the focus, or while
+ * one of its icons has the focus (and then the icon alone changes its colour, as the desktop's does under the pointer). In it, 10 from the left and 6 from the right with 8 between: the logo (22, whole for the
  * config that is selected and at 0.4 for the others), its name (14, in Medium when it is the selected one, elided), the
  * ping (12 in textDim) when there is one, a badge while the selected config is connected or connecting, and the icons for
  * export (17), edit (16) and close (16), each in a cell 26 wide.
@@ -56,7 +56,7 @@ final class ConfigRowView extends LinearLayout {
         logo.setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);
         addView(logo, ui.lp(22, 22));
 
-        TextView label = ui.follow(active ? ui.medium(name, 14, t.text) : ui.label(name, 14, t.text), t.text, t.text, t.accentText);
+        TextView label = active ? ui.medium(name, 14, t.text) : ui.label(name, 14, t.text);
         label.setSingleLine(true);
         label.setEllipsize(TextUtils.TruncateAt.END);
         LayoutParams labelLp = new LayoutParams(0, LayoutParams.WRAP_CONTENT, 1);
@@ -64,7 +64,7 @@ final class ConfigRowView extends LinearLayout {
         addView(label, labelLp);
 
         if (ping != null && ping.length() > 0) {
-            TextView answer = ui.follow(ui.label(ping, 12, t.textDim), t.textDim, t.textDim, t.accentText);
+            TextView answer = ui.label(ping, 12, t.textDim);
             answer.setSingleLine(true);
             LayoutParams p = ui.lp(-2, -2);
             p.leftMargin = ui.dp(8);
@@ -94,10 +94,6 @@ final class ConfigRowView extends LinearLayout {
         setId(rowId);
         setNextFocusRightId(exportId);
         exportIcon.setNextFocusLeftId(rowId);
-        // The row's own focus is the accent, and what it holds sits on it.
-        setOnFocusChangeListener((v, hasFocus) -> {
-            for (FrameLayout icon : icons) icon.setSelected(hasFocus);
-        });
     }
 
     /** The row's place in a list of rows: 4 above and below it, which makes the pitch 56. */

@@ -57,7 +57,7 @@ import kotlin.concurrent.thread
 // On every screen it also asserts what the parity is about, and collects what it finds, so that one finding does not cost the
 // pictures after it: the activity's own window is the only one shown (no system dialog, and no other app's), no view has a
 // foreground (a ring), and the control that has the focus is no wider than what it holds plus its padding, unless it is a row of a
-// list, a field or a box of text, or a small cell, or the Home logo's tile.
+// list, a field or a box of text, or a small cell, or the Home logo (a control of 132 across by design, with no tile behind it).
 class UiTourDeviceTest {
     private val instrumentation get() = InstrumentationRegistry.getInstrumentation()
     private val context get() = instrumentation.targetContext
@@ -461,15 +461,14 @@ class UiTourDeviceTest {
         }
         return view.width
     }
-    // The rows of a list, fields and boxes of text are as wide as their place by design, as the desktop's are; the Home logo has a tile
-    // of its own.
+    // The rows of a list, fields and boxes of text are as wide as their place by design, as the desktop's are; the Home logo is 132 across.
     private val rowKeys = Regex("(config:\\d+:select|home:pick:\\d+|select:\\d+|add:[a-z]+|picker:\\d+|licenses:\\d+|licenses:text|log:box|home:toggle|editor:toml|editor:name|editor:profile)")
     private fun tooWide(): String? {
         val focused = act().currentFocus ?: return null
         val key = focused.tag as? String ?: return null
         if (rowKeys.matches(key) || focused is EditText) return null
         val density = act().resources.displayMetrics.density
-        // A small cell cannot span the screen: a tab, the header's + and ping, Home's +, a ChipX, a toggle.
+        // A small cell cannot span the screen: a tab, the header's + and ping, Home's +, a ChipX, a toggle (the row round which fills).
         if (focused.width <= 64 * density) return null
         if (focused is TextView && focused.lineCount > 1) return null
         var minimum = focused.minimumWidth
@@ -557,7 +556,7 @@ class UiTourDeviceTest {
         screen("home-disconnected") { goTo(0); shot("home-disconnected", "Home with no session: the logo at half opacity, no line under it, the selector, +, the speed tiles") }
         if (remote) {
             screen("home-selector-focused") { focusOn("home:config"); shot("home-selector-focused", "Home, the selector has the remote's focus") }
-            screen("home-logo-focused") { focusOn("home:toggle"); shot("home-logo-focused", "Home, the logo has the remote's focus: the accent tile") }
+            screen("home-logo-focused") { focusOn("home:toggle"); shot("home-logo-focused", "Home, the logo has the remote's focus: held at 1.05, with no tile behind it") }
             screen("nav-focused-tile") { goTo(0); focusOn("tab:2"); shot("nav-focused-tile", "The nav bar, Split's tile focused, Home's the current page") }
             screen("nav-focused-current-tile") { focusOn("tab:0"); shot("nav-focused-current-tile", "The nav bar, the current page's tile focused") }
         }
@@ -668,7 +667,7 @@ class UiTourDeviceTest {
             screen("configs-row-focused") { goTo(1); focusOn("config:1:select"); shot("configs-row-focused", "Configs, a row has the remote's focus") }
             screen("configs-icon-focused") {
                 goTo(1); focusOn("config:1:export")
-                shot("configs-icon-focused", "Configs, a row's export icon has the focus: the row on surface, the icon on accent")
+                shot("configs-icon-focused", "Configs, a row's export icon has the focus: the row on surface, the icon in the text colour")
             }
             screen("configs-remove-focused") {
                 goTo(1); focusOn("config:1:remove")

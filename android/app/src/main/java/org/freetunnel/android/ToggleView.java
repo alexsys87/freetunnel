@@ -17,14 +17,11 @@ import android.view.animation.DecelerateInterpolator;
  * slides across in 120 ms, easing out. Dimmed to 0.45 while disabled. A tap anywhere on
  * it flips it. The one on Logs is 34 by 20.
  *
- * <p>The view is 4 larger on each side than its track, which is what its focus look
- * (a round accent backdrop, set by Ui.focus) fills: the track and the knob stay as
- * they are, and the knob's place still says whether it is on.
+ * <p>The view is its track and nothing around it: the desktop's toggle has no hover and no focus look of its own, and a fill round a
+ * track reads as the ring the desktop never draws. A remote's focus is shown by the row the toggle is in (Ui.toggleRow).
  */
 final class ToggleView extends View {
     interface Listener { void onToggled(ToggleView toggle, boolean checked); }
-
-    static final int PAD_DP = 4;
 
     private final Theme theme;
     private final float density;
@@ -61,7 +58,7 @@ final class ToggleView extends View {
     private int px(float dp) { return Math.round(dp * density); }
 
     @Override protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
-        setMeasuredDimension(px(trackWidth + 2 * PAD_DP), px(trackHeight + 2 * PAD_DP));
+        setMeasuredDimension(px(trackWidth), px(trackHeight));
     }
 
     @Override public void setEnabled(boolean enabled) {
@@ -103,11 +100,10 @@ final class ToggleView extends View {
     }
 
     @Override protected void onDraw(Canvas canvas) {
-        float pad = px(PAD_DP);
         float width = px(trackWidth);
         float height = px(trackHeight);
         float radius = height / 2;
-        rect.set(pad, pad, pad + width, pad + height);
+        rect.set(0, 0, width, height);
         paint.setStyle(Paint.Style.FILL);
         paint.setColor(mix(theme.toggleOff, theme.accent, progress));
         canvas.drawRoundRect(rect, radius, radius, paint);
@@ -122,8 +118,8 @@ final class ToggleView extends View {
         }
         float knob = px(16);
         float inset = px(3);
-        float x = pad + inset + (width - knob - 2 * inset) * progress;
-        float y = pad + (height - knob) / 2;
+        float x = inset + (width - knob - 2 * inset) * progress;
+        float y = (height - knob) / 2;
         paint.setStyle(Paint.Style.FILL);
         paint.setColor(mix(theme.offKnob, theme.onKnob, progress));
         canvas.drawCircle(x + knob / 2, y + knob / 2, knob / 2, paint);

@@ -11,8 +11,8 @@ import java.util.ArrayList;
 import java.util.List;
 
 // How Home's logo gets from one state to the next: the desktop's times and easings, nothing started again by a render()
-// that changed nothing, views replaced while it moves, the pulse and its settling, and the press. The clock is a fake that
-// the test advances.
+// that changed nothing, views replaced while it moves, the pulse and its settling, the press and a remote's focus. The clock is a
+// fake that the test advances.
 public final class HeroValuesTest {
     private static final class Run implements HeroValues.Handle {
         final float from;
@@ -294,6 +294,69 @@ public final class HeroValuesTest {
         // The pulse goes on under the press.
         clock.runs.get(0).at(1.0f);
         assertEquals(0.96f, v.scale, 0.0001f);
+    }
+
+    // The desktop's logo has nothing under the pointer, and a fill behind it washes its greys out, so a remote's focus is its size: held
+    // at the pulse's peak, in the time a press takes.
+    @Test public void aRemotesFocusHoldsTheLogoAtThePulsesPeakAndLetsGo() {
+        Views v = bind();
+        values.show(false, HomeState.OFF, 0, false, false);
+        values.focus(true);
+        Run grow = find(clock.runs, 1f, 1.05f);
+        assertEquals(120, grow.millis);
+        assertEquals(HeroValues.Easing.OUT_CUBIC, grow.easing);
+        grow.at(1.02f);
+        assertEquals(1.02f, v.scale, 0.0001f);
+        grow.finish();
+        assertEquals(1.05f, v.scale, 0.0001f);
+        assertEquals(1.05f, values.held(), 0);
+        // The same focus again, as a render() that gave it back says, starts nothing.
+        int runs = clock.runs.size();
+        values.focus(true);
+        assertEquals(runs, clock.runs.size());
+        values.focus(false);
+        find(clock.runs, 1.05f, 1f).finish();
+        assertEquals(1f, v.scale, 0);
+        assertEquals(1f, values.held(), 0);
+    }
+
+    // The three multiply, so none of them holds another still: a focused logo still pulses, and still shrinks under OK.
+    @Test public void theScaleIsThePulseTimesThePressTimesTheFocus() {
+        Views v = bind();
+        values.show(true, HomeState.BUSY, 26, true, false);
+        clock.last().at(1.05f);
+        values.focus(true);
+        clock.last().finish();
+        assertEquals(1.05f * 1.05f, v.scale, 0.0001f);
+        // The pulse goes on under the focus: its low is not lost to it.
+        clock.runs.get(0).at(0.97f);
+        assertEquals(0.97f * 1.05f, v.scale, 0.0001f);
+        values.press(true);
+        find(clock.runs, 1f, 0.96f).finish();
+        assertEquals(0.97f * 0.96f * 1.05f, v.scale, 0.0001f);
+    }
+
+    // A press, a pulse and a focus belong to the views that saw them. Left half way by a page that went, they would stay in the
+    // next views for good: nothing else sets them.
+    @Test public void releaseLeavesNoScaleBehindForTheNextViews() {
+        Views old = bind();
+        values.show(true, HomeState.BUSY, 26, true, false);
+        clock.last().at(1.03f);
+        values.focus(true);
+        clock.last().at(1.04f);
+        values.press(true);
+        float seen = old.scale;
+        values.release();
+        assertTrue("Everything that moved is stopped", clock.live().isEmpty());
+        Views fresh = bind();
+        assertEquals("The old views hear no more of it", seen, old.scale, 0);
+        assertEquals("The next views start at their size", 1f, fresh.scale, 0);
+        assertEquals(1f, values.held(), 0);
+        assertEquals(1f, values.scale(), 0);
+        // A focus that is still there is asked for again by whoever has it, and takes the time again.
+        values.focus(true);
+        assertEquals(1f, clock.last().from, 0);
+        assertEquals(1.05f, clock.last().to, 0);
     }
 
     @Test public void releaseStopsEverythingKeepsTheValuesAndSilencesTheOldViews() {
