@@ -68,9 +68,12 @@ Both are the desktop's pages ([HomePage.qml](../qml/pages/HomePage.qml),
   while OK is held. Under it, while there is a session, one line: Connecting…,
   Disconnecting…, or the time the connection has been up, `HH:MM:SS` as the
   desktop shows it. While the kill switch blocks traffic the line says so in the
-  warn colour, with a Reconnect button under it; that has no counterpart on the
-  desktop. With no config the logo, "Add a config" and + all open Configs with
-  its add menu.
+  warn colour, with a Reconnect link under it, an accent link like Logs' *Turn on*
+  (the desktop has no such state, and nothing but the logo is a button on Home).
+  The connection coming up is shown by the logo and the line alone: there is no
+  notice for a check of the config or for a rebuild of the VPN, as there is none
+  on the desktop, whose notices are errors and what an import did. With no
+  config the logo, "Add a config" and + all open Configs with its add menu.
 - **Server choice is on Home.** The config's name with a ▾ opens a dropdown
   under it with a row for each config, three showing at once, the selected one
   in the accent. A row selects that config, and reconnects to it if a session
@@ -132,7 +135,9 @@ Android-only list.
   keeping a remote's focus; an offer says **Version X is available** with an arrow down that bends into ↻ under
   the focus or pointer and a click downloads; a download says **Downloading… N%** beside a turning ↻ and a click
   cancels it; a downloaded update says so in Android's own words and a click installs it (after the question, with the
-  VPN on); an error says why, worded as the desktop words a failed check, beside a ↻ that tries again. Outside the
+  VPN on); an error says why, worded as the desktop words a failed check, beside a ↻ that tries again. The line is
+  the only control, so the texts that tell what to do next say "this line", and there is no *Install update* button
+  on the screen (that is what a screen reader adds to the line, and the red button of the question). Outside the
   official build the section says it doesn't come from the official channel.
 - The footer, **FreeTunnel 1.0.0 · TrustTunnel core 1.1.7**, each name a link to its page (a toast where there is no
   browser, as on most TVs; the core's version is read from the AAR's name by the build), and Android's own
@@ -275,12 +280,16 @@ window of ours to appear in.
   as well as `tt://` links.
 - **Import confirmation**, for a link, a file, the clipboard and what a phone
   sent: the desktop's question, "Add a VPN server from this link?" or "…file?",
-  with the name, then "Server: …", then where a phone sent it from, then what
-  is wrong with it. Cancel has the focus first, and the red Import answers
+  then "Server: …", then where a phone sent it from, then what is wrong with
+  it. As on the desktop, the question does not say the name the config would
+  have: it comes with the link, and the server is what the config connects to.
+  Cancel has the focus first, and the red Import answers
   only 400 ms after the question appears, so that an OK held on a remote
-  cannot answer what a phone or a web page asked. A name already in the list,
-  or the same file, offers Cancel, Add copy and Replace; Replace puts the new
-  config where the old one was. Questions wait in line, and none takes
+  cannot answer what a phone or a web page asked. A name already in the list
+  (the desktop's collision, and only that: the same server under another name
+  is added as a new config) offers Cancel, Add copy and Replace, and says the
+  name of the one it would replace; Replace puts the new config where the old
+  one was. Questions wait in line, and none takes
   another's place. Afterwards a toast says "Config added: …" and the page is
   where it was.
 - **Editor**: a card with ← and the title, the name, the TOML and Show TOML and
@@ -351,11 +360,16 @@ open the address in Chrome or Safari instead.
   code in the address and send their own configuration, between your sends as
   well as before them. The TV's confirmation of each text shows the server and
   the sender's address, so check both every time, and use it only on a network
-  you trust. The name and
-  the server, a file's name too, are shown there on one line, without
-  characters that reverse or hide text, with at most two marks such as accents
-  on a letter, and cut to 80 characters, so that nothing in them can cover the
-  sender's address. What is saved is the name as the file has it.
+  you trust. The server, and the
+  name of the config it would replace if one has that name, are shown there on
+  one line, without characters that reverse or hide text, with at most two marks
+  such as accents on a letter, and cut to 80 characters, so that nothing in
+  them can cover the sender's address. The question does not say the name the
+  new config would get, as the desktop's does not. What is saved is the name as
+  the file has it. A text is checked before it is asked about, and that check is
+  answered whatever else the TV is doing meanwhile (a tap on the logo, a
+  config chosen, Replace building the VPN again for the text before it): no
+  text is lost to another check, and none makes another stale.
 - It does not work while the phone's VPN is on, over mobile data, or on a guest
   network that keeps its devices apart.
 
@@ -588,7 +602,7 @@ argument `additionalTestOutputDir`, which the Android Gradle Plugin copies to
 `app/build/outputs/connected_android_test_additional_output` and CI uploads with the
 device results (`android-device-results` for the phone, `android-tv-device-results` for the
 TV); a copy is also written to `/data/local/tmp/uitour`, which the CI script pulls if Gradle
-copied nothing. Each pass folder, `uitour/<phone|tv>-<pass>/`, has `NN-name.png`,
+copied no picture (it makes the folders of its output before the run, so an empty one proves nothing). Each pass folder, `uitour/<phone|tv>-<pass>/`, has `NN-name.png`,
 `index.txt` and a contact sheet, `index.html`.
 
 On every screen the tour also asserts what the parity is about, and collects the findings so that
@@ -703,9 +717,9 @@ running, so a connection is never started twice; turning Always-on on while
 connected therefore doesn't reconnect. The downloaded APK is deleted after the
 update.
 
-Cancelling Android's install dialog keeps the verified APK, and **Install
-update** works again without a new download. If the dialog was lost, for
-example after switching apps, **Install update** starts the installation over.
+Cancelling Android's install dialog keeps the verified APK, and the update
+line works again without a new download. If the dialog was lost, for
+example after switching apps, the line starts the installation over.
 A failure says whether the network, GitHub's rate limit, the security check or
 Android's installer stopped it. GitHub limits unauthenticated checks per public
 address. FreeTunnel's own traffic bypasses its VPN, so the limit is shared with

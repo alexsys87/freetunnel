@@ -329,7 +329,7 @@ class UiTourDeviceTest {
         private val dir = "${base()}/uitour/$name"
         private val local = File(dir)
         private val direct: Boolean
-        private var mirror = Build.VERSION.SDK_INT >= 30 && !dir.startsWith("/data/local/tmp/")
+        private var mirror = Build.VERSION.SDK_INT >= 31 && !dir.startsWith("/data/local/tmp/")
         private val mirrorDir = "/data/local/tmp/uitour/$name"
         var mirrorProblem: String? = null
         init {
@@ -355,9 +355,10 @@ class UiTourDeviceTest {
     }
     private fun runShell(command: String): String =
         ParcelFileDescriptor.AutoCloseInputStream(instrumentation.uiAutomation.executeShellCommand(command)).bufferedReader().use { it.readText() }
-    // "dd" takes what is piped to it: the command is not run by a shell, so there is no redirection to write.
+    // "dd" takes what is piped to it: the command is not run by a shell, so there is no redirection to write. UiAutomation.executeShellCommandRw
+    // is Android 12's (API 31): on 11 it would be a NoSuchMethodError and not this message.
     private fun writeAsShell(path: String, bytes: ByteArray) {
-        assertTrue("Writing as the shell user needs Android 11", Build.VERSION.SDK_INT >= 30)
+        assertTrue("Writing as the shell user needs Android 12", Build.VERSION.SDK_INT >= 31)
         val pipes = instrumentation.uiAutomation.executeShellCommandRw("dd of=$path")
         ParcelFileDescriptor.AutoCloseOutputStream(pipes[1]).use { it.write(bytes) }
         ParcelFileDescriptor.AutoCloseInputStream(pipes[0]).use { it.readBytes() }
@@ -628,7 +629,14 @@ class UiTourDeviceTest {
             if (remote) focusOn("home:reconnect")
             shot("home-blocked-reconnect", "Home with traffic blocked (state 6): why, and Reconnect with the first focus"); done.add("home-blocked-reconnect")
         } catch (t: Throwable) {
-            for (name in all) if (name !in done) unreachable(name, "${t.javaClass.simpleName}: ${t.message}")
+            // The consent was granted, or this is not reached, so these screens can be taken here: one that is lost is the app's fault (Reconnect
+            // not offered, a service that does not connect), and fails the tour with the others, as a screen of the pages does. Only the missing
+            // consent, above, is a screen that cannot be reached.
+            val line = t.stackTrace.firstOrNull { it.className.contains("UiTourDeviceTest") }?.lineNumber
+            for (name in all) if (name !in done) {
+                unreachable(name, "${t.javaClass.simpleName}: ${t.message}")
+                failures.add("$name: ${t.javaClass.simpleName}: ${t.message} (line $line)")
+            }
         } finally {
             runCatching { FreeTunnelVpnService.stop(context) }
             try {

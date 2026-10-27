@@ -582,8 +582,9 @@ class VpnDeviceTest {
         eventually { FreeTunnelVpnService.state(context) == 6 && alert(49) != null }
         val name = tunName()
         val activity = instrumentation.startActivitySync(Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) as MainActivity
-        fun reconnectButton(): android.widget.Button? {
-            var found: android.widget.Button? = null
+        // Reconnect is a link, as Logs' "Turn on" is: the desktop's Home has no button besides the logo.
+        fun reconnectButton(): android.widget.TextView? {
+            var found: android.widget.TextView? = null
             instrumentation.runOnMainSync { found = activity.window.decorView.findViewWithTag("home:reconnect") }
             return found
         }
@@ -595,6 +596,7 @@ class VpnDeviceTest {
             assertNotNull("Opening the app must keep the alert of a live episode", alert(49))
             val button = reconnectButton()
             assertNotNull("State 6 must offer Reconnect on the home screen", button)
+            assertFalse("and as a link, not a button", button is android.widget.Button)
             assertEquals(context.getString(R.string.vpn_reconnect), button!!.text.toString())
             val gaps = tunGaps {
                 instrumentation.runOnMainSync { assertTrue(button.performClick()) }
@@ -736,7 +738,7 @@ class VpnDeviceTest {
         failure?.let { throw it }
     }
     // Opens one of MainActivity's overlays on the main thread, hands check the overlay's layer in the activity's own window,
-    // and closes it with Back, which asks nothing of an editor in which nothing was typed.
+    // and closes it with Back (until the keyboard is away and the overlay with it), which asks nothing of an editor in which nothing was typed.
     private fun inOverlay(activity: MainActivity, name: String, start: () -> Unit, check: (android.view.ViewGroup) -> Unit) {
         onMain { start() }
         instrumentation.waitForIdleSync()
@@ -745,8 +747,15 @@ class VpnDeviceTest {
             assertNotNull("The $name must be an overlay of the activity's window", layer)
             check(layer!!)
         }
-        instrumentation.sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_BACK)
-        instrumentation.waitForIdleSync()
+        // With the soft keyboard up, which the app picker puts up on a phone (the CI emulator has no hardware keyboard), the first Back only
+        // takes the keyboard away, as for any app: Back is sent until the overlay is gone, three times at most.
+        repeat(3) {
+            var open = false
+            onMain { open = activity.window.decorView.findViewWithTag<android.view.View?>("overlay:$name") != null }
+            if (!open) return@repeat
+            instrumentation.sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_BACK)
+            instrumentation.waitForIdleSync()
+        }
         onMain { assertNull("Back must close the $name", activity.window.decorView.findViewWithTag<android.view.View?>("overlay:$name")) }
     }
 
@@ -828,6 +837,50 @@ class VpnDeviceTest {
                     }
                 }
             }
+        }
+    }
+
+    // Receive from phone takes several texts to a session. The VPN runs the config "Home"; the first text has that name, so the TV offers Replace, and a
+    // second waits behind it. Answering Replace builds the VPN again on the new text, though the second text's check starts the moment the first is
+    // answered: a check of a text to add is not what makes that rebuild stale (it was one number for both, and the later check dropped the
+    // earlier answer, which left the VPN on the old server while the list showed the new). The second is then asked about, not lost.
+    @Test fun replacingTheRunningConfigRebuildsTheVpnWhileTheNextTextIsChecked() = withSink { config ->
+        val cm = context.getSystemService(ConnectivityManager::class.java)
+        val saved = org.json.JSONArray().put(org.json.JSONObject().put("name", "Home").put("toml", config))
+        assertTrue(ConfigStore.write(prefs, saved.toString()))
+        FreeTunnelVpnService.start(context, config)
+        eventually { network()?.let { cm.getLinkProperties(it)?.mtu == 1350 } == true && nativeClient() != null && FreeTunnelVpnService.state(context) != 0 }
+        withMainActivity { activity ->
+            fun onScreen(key: String): Boolean {
+                var found = false
+                onMain { found = activity.window.decorView.findViewWithTag<android.view.View?>(key) != null }
+                return found
+            }
+            fun message(): String? {
+                var shown: String? = null
+                onMain { shown = activity.window.decorView.findViewWithTag<android.widget.TextView?>("confirm:message")?.text?.toString() }
+                return shown
+            }
+            val queue = MainActivity::class.java.getDeclaredField("receivedTexts").apply { isAccessible = true }.get(activity) as ReceivedQueue
+            onMain {
+                // The activity read the state when it was made; the receiver that keeps it is told of changes as they come.
+                MainActivity::class.java.getDeclaredField("vpnState").apply { isAccessible = true }.setInt(activity, FreeTunnelVpnService.state(context))
+                queue.waiting().addAndGet(2)
+                queue.add(config.replace("1350", "1300"), "Home", "192.0.2.9")
+                queue.add(config.replace("1350", "1250"), "Second", "192.0.2.9")
+                privateMethod("processReceived").invoke(activity)
+            }
+            eventually { message()?.contains(context.getString(R.string.import_exists, "Home")) == true }
+            // The red Replace takes no click for its first 400 ms.
+            SystemClock.sleep(600)
+            onMain { assertTrue(activity.window.decorView.findViewWithTag<android.view.View>("confirm:ok").performClick()) }
+            eventually { network()?.let { cm.getLinkProperties(it)?.mtu == 1300 } == true }
+            assertTrue("The list shows the replacement", ConfigStore.read(prefs).contains("1300"))
+            // And the second text, which was checked while the VPN was being built again, is asked about.
+            eventually { message()?.contains(context.getString(R.string.import_question_file)) == true }
+            assertTrue(onScreen("confirm:cancel"))
+            onMain { activity.window.decorView.findViewWithTag<android.view.View>("confirm:cancel").performClick() }
+            eventually { !onScreen("confirm:cancel") }
         }
     }
 

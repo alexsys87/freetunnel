@@ -148,7 +148,8 @@ jobs:
           # UiTourDeviceTest saves a picture of every screen. Android Gradle Plugin copies what a test writes to
           # additionalTestOutputDir into android/app/build/outputs/connected_android_test_additional_output; the test also
           # writes every file to /data/local/tmp/uitour, which is pulled here, still on the line of the Gradle run and keeping
-          # its exit status, if Gradle copied nothing.
+          # its exit status, if Gradle copied no picture. (Gradle makes the folders of its output before the run, so an empty
+          # folder is no sign that it copied anything: the test is for a picture.)
           script: |
             ./android/gradlew -p android --no-daemon :app:installDebug :app:installDebugAndroidTest
             adb shell appops set org.freetunnel.android ACTIVATE_VPN allow
@@ -157,7 +158,7 @@ jobs:
             adb shell appops set org.freetunnel.android REQUEST_INSTALL_PACKAGES allow
             if [ "${{ matrix.target }}" = android-tv ]; then adb shell pm list features | grep -qx 'feature:android.software.leanback'; fi
             if [ "${{ matrix.target }}" = android-tv ]; then mkdir -p android/app/build/reports/tv-screens && adb shell monkey -p org.freetunnel.android -c android.intent.category.LEANBACK_LAUNCHER 1 && sleep 5 && adb exec-out screencap -p > android/app/build/reports/tv-screens/app.png && adb shell input keyevent KEYCODE_HOME && sleep 3 && adb exec-out screencap -p > android/app/build/reports/tv-screens/launcher.png; fi
-            status=0; ./android/gradlew -p android --no-daemon :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.debugCertificate="$("$ANDROID_HOME"/build-tools/35.0.0/apksigner verify --print-certs android/app/build/outputs/apk/debug/app-debug.apk | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')" || status=$?; if [ -z "$(ls -A android/app/build/outputs/connected_android_test_additional_output 2>/dev/null)" ]; then adb pull /data/local/tmp/uitour android/app/build/reports/uitour || true; fi; exit $status
+            status=0; ./android/gradlew -p android --no-daemon :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.debugCertificate="$("$ANDROID_HOME"/build-tools/35.0.0/apksigner verify --print-certs android/app/build/outputs/apk/debug/app-debug.apk | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')" || status=$?; if [ -z "$(find android/app/build/outputs/connected_android_test_additional_output -type f -name '*.png' 2>/dev/null | head -n 1)" ]; then adb pull /data/local/tmp/uitour android/app/build/reports/uitour || true; fi; exit $status
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:

@@ -8,8 +8,8 @@ import java.util.concurrent.atomic.AtomicInteger;
  * which of them the TV is being asked about. Plain JDK, and used on the main thread only, except the
  * count, which the receiver adds to from its own thread.
  *
- * <p>One at a time: the checks an import goes through start with a number that cancels the check
- * before it, so a second text is not taken up until the first is answered. A text holds a place in
+ * <p>One at a time: a second text is not taken up until the first is answered, so that they are asked about
+ * in the order they came and the question on the screen is never replaced. A text holds a place in
  * {@link #waiting()} from the moment the receiver takes it until it is answered, dropped or given
  * back, whatever the answer: the receiver adds the place when it takes the text (LinkReceiver),
  * and turns a send away at LinkReceiver.MAX_WAITING of them. Nothing here adds a configuration: it

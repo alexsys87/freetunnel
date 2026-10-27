@@ -239,7 +239,7 @@ class UiComponentsDeviceTest {
             assertEquals("danger with the focus", theme.danger, tint.getColorForState(intArrayOf(android.R.attr.state_focused), 0))
             assertEquals("and under the pointer", theme.danger, tint.getColorForState(intArrayOf(android.R.attr.state_pressed), 0))
             assertEquals("A chip's focus does not select the cross: it has no look of its own to sit on", false, x.isSelected)
-            assertEquals(null, chip.onFocusChangeListener)
+            assertNull("and the chip has no listener that does", chip.onFocusChangeListener)
             for (state in listOf("rest", "focused", "pressed")) assertEquals("The cross has no fill ($state)", Color.TRANSPARENT, fill(looks(x)[state]!!))
             // On an accent chip it is accentText, and danger under the focus too.
             val over = ui.chipX("profile:2:remove", true).imageTintList!!
@@ -335,11 +335,11 @@ class UiComponentsDeviceTest {
                 assertEquals("and keeps it under the pointer and with the focus, which only grow it", theme.infoBg, fill(current["pressed"]!!))
                 assertEquals(theme.infoBg, fill(current["focused"]!!))
                 for ((look, radius) in listOf(Ui.Look.ROW to 8, Ui.Look.MENU_ROW to 6, Ui.Look.PILL to 8, Ui.Look.ICON to 6)) {
-                    val looks = looks(View(context).also { ui.focus(it, "t:$look", look) })
-                    assertEquals("$look rests on the page", Color.TRANSPARENT, fill(looks["rest"]!!))
-                    assertEquals("$look under the pointer", theme.surface, fill(looks["pressed"]!!))
-                    assertEquals("and with the focus", theme.surface, fill(looks["focused"]!!))
-                    assertEquals("$look's radius", dp(radius).toFloat(), (looks["focused"] as GradientDrawable).cornerRadius, 0.5f)
+                    val seen = looks(View(context).also { ui.focus(it, "t:$look", look) })
+                    assertEquals("$look rests on the page", Color.TRANSPARENT, fill(seen["rest"]!!))
+                    assertEquals("$look under the pointer", theme.surface, fill(seen["pressed"]!!))
+                    assertEquals("and with the focus", theme.surface, fill(seen["focused"]!!))
+                    assertEquals("$look's radius", dp(radius).toFloat(), (seen["focused"] as GradientDrawable).cornerRadius, 0.5f)
                 }
                 // The icons of the header's buttons and of Home's + stay accent while the button is filled.
                 for (button in listOf(ui.iconButton(R.drawable.ic_add, 22, "Add", "configs:add"), ui.smallIconButton(R.drawable.ic_add_home, 14, "Add", "home:add"))) {

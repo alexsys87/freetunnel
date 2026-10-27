@@ -171,9 +171,7 @@ vpn_traffic_blocked
 vpn_reconnect
 vpn_blocked_title
 vpn_blocked_details
-validating_config
 config_validation_error
-text_applying_routing_settings
 
 ## Android's Always-on VPN and its Block connections without VPN, which the desktop has no counterpart of
 text_android_vpn_settings

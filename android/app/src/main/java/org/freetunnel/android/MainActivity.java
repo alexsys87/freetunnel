@@ -167,9 +167,9 @@ public final class MainActivity extends Activity {
     // Receive from phone: the open port and its card, both closed by stopReceiver().
     private LinkReceiver linkReceiver;
     // The texts it took that the TV has not answered yet: the one being checked or asked about and those
-    // waiting for their turn, one at a time, since a check bumps validationRequest, which would cancel one
-    // already running. The receiver counts them too, in the queue's count, and turns a send away with the
-    // busy page at LinkReceiver.MAX_WAITING. They outlive the port: what was taken is the TV's to answer.
+    // waiting for their turn, one at a time, so that they are asked about in the order they came. The receiver
+    // counts them too, in the queue's count, and turns a send away with the busy page at LinkReceiver.MAX_WAITING.
+    // They outlive the port: what was taken is the TV's to answer.
     private final ReceivedQueue receivedTexts = new ReceivedQueue(new AtomicInteger());
     // The notice that said why the last was refused is up, and the next waits until it is gone or until receivedHoldUntil.
     private boolean receivedHold;
@@ -400,6 +400,7 @@ public final class MainActivity extends Activity {
         if (pageFocus) { restoreKey = null; pageFocus = false; }
         // The control a change asked to have the focus after it, in place of whichever had it: a field left open for the
         // next one, or the + chip a new profile's name was typed from.
+        final String asked = focusAfterRender;
         if (focusAfterRender != null) { restoreKey = focusAfterRender; focusAfterRender = null; }
         int generation = ++renderGeneration;
         // The field for a new profile's name belongs to the Split page: on any other it is dropped.
@@ -459,7 +460,7 @@ public final class MainActivity extends Activity {
         }
         renderedPage = page;
         restoreFocus(generation, restoreKey, restoreScrollY);
-        refocusFields(restoreKey);
+        refocusFields(asked);
         // Its list is the configs as they were: with another page or another list it is no longer what it was opened on.
         Overlay picker = overlay("homepicker");
         if (picker != null && (page != 0 || configs.size() != homePickerCount)) closeOverlay(picker);
@@ -496,12 +497,14 @@ public final class MainActivity extends Activity {
             }
         });
     }
-    // In touch mode restoreFocus does nothing, which suits a page that was only drawn again, but not a field that is being typed
-    // in: the one for a new profile's name while it is open, and the domains field (or Settings' routes field) after one Enter, for the next.
-    private void refocusFields(String key) {
+    // In touch mode restoreFocus does nothing, which suits a page that was only drawn again (a ping result, a turn of the screen:
+    // none of them brings a keyboard up), but not a field that is being typed in: the one for a new profile's name while it is open,
+    // and the domains field (or Settings' routes field) after one Enter, for the next, which is what asked is: the key a change asked
+    // the focus for (focusAfterRender), and null for any other render.
+    private void refocusFields(String asked) {
         if ((page != 2 && page != 3) || !getWindow().getDecorView().isInTouchMode()) return;
-        String wanted = page == 2 ? (profileNameOpen ? "profile:name" : "domains:input".equals(key) ? key : null)
-                : "routes:input".equals(key) ? key : null;
+        String wanted = page == 2 ? (profileNameOpen ? "profile:name" : "domains:input".equals(asked) ? asked : null)
+                : "routes:input".equals(asked) ? asked : null;
         if (wanted == null) return;
         View field = pageRoot.findViewWithTag(wanted);
         if (!(field instanceof EditText)) return;
@@ -513,8 +516,8 @@ public final class MainActivity extends Activity {
     }
     private static final Pattern NUMBERED_KEY = Pattern.compile("([a-z]+):(\\d{1,5})(:[a-z]+)?");
     // The control with this key. When it is gone, such as after a deletion, the nearest
-    // one before it: config:2:edit, then config:1:edit and config:0:edit. Otherwise the
-    // page's own: Reconnect while traffic is blocked, else Connect, on Home, and the
+    // one before it: config:2:edit, then config:1:edit and config:0:edit; and where there is none of its kind, what is beside
+    // where it was (see neighbours). Otherwise the page's own: Reconnect while traffic is blocked, else Connect, on Home, and the
     // page's tab elsewhere.
     private View focusTarget(String key) {
         View found = key == null ? null : host.findViewWithTag(key);
@@ -524,10 +527,41 @@ public final class MainActivity extends Activity {
             for (int n = Integer.parseInt(numbered.group(2)) - 1; n >= 0 && found == null; n--)
                 found = host.findViewWithTag(numbered.group(1) + ":" + n + rest);
         }
+        if (found == null && key != null) {
+            for (String next : neighbours(key)) {
+                found = pageRoot.findViewWithTag(next);
+                if (found != null) break;
+            }
+        }
         if (found == null && page == 0) found = pageRoot.findViewWithTag("home:reconnect");
         if (found == null) found = pageRoot.findViewWithTag(page == 0 ? "home:toggle" : "tab:" + page);
         return found;
     }
+    // What is beside a control that is gone when no other of its kind is left, by key, nearest first: a rule's Clear all that has cleared
+    // the rules goes to the link beside it, the last chip of a list to the link or the field above it, the last config to the words
+    // that stand in for the list, the last custom profile to the chip before it. Without these a deletion would send the remote
+    // to the page's tab, at the top, while the page stays scrolled to where the control was.
+    private static String[] neighbours(String key) {
+        Matcher numbered = NUMBERED_KEY.matcher(key);
+        if (numbered.matches()) {
+            int n = Integer.parseInt(numbered.group(2));
+            switch (numbered.group(1)) {
+                case "config": return new String[]{"configs:hint", "configs:add"};
+                case "profile": return new String[]{"profile:" + Math.max(0, n - 1), "profile:add"};
+                case "domain": return new String[]{"domains:russia", "domains:input"};
+                case "app": return new String[]{"apps:choose"};
+                case "route": return new String[]{"routes:restore", "routes:input"};
+                default: return new String[0];
+            }
+        }
+        switch (key) {
+            case "domains:clear": return new String[]{"domains:russia", "domains:input"};
+            case "apps:clear": return new String[]{"apps:choose"};
+            case "routes:clear": return new String[]{"routes:restore", "routes:input"};
+            default: return new String[0];
+        }
+    }
+
     // Back closes what is on top first: an overlay. Without tabs to tap, Back on a TV then
     // goes to Home, and leaves the app from there. Home's own control gets the focus: left
     // on the tab it was on, the next OK would go straight back to that page.
@@ -662,6 +696,9 @@ public final class MainActivity extends Activity {
         retag(overlay.layer);
         overlay.layer.setDescendantFocusability(ViewGroup.FOCUS_BLOCK_DESCENDANTS);
         updateOverlayState();
+        // Before the focus goes back: what it does may be to show the control that is to have it, such as the empty Configs page's
+        // "Add a config", which is hidden while its own menu is open, and a view that is not shown takes no focus.
+        if (overlay.onClose != null) overlay.onClose.run();
         returnFocus(overlay);
         if (typing) hideKeyboard();
         // The fade ends in taking the view away. Not left to the animation alone: with the activity stopped, as
@@ -670,7 +707,6 @@ public final class MainActivity extends Activity {
         Runnable remove = () -> overlayLayer.removeView(overlay.layer);
         overlay.layer.animate().alpha(0f).setDuration(130).withEndAction(remove).start();
         host.postDelayed(remove, 400);
-        if (overlay.onClose != null) overlay.onClose.run();
     }
     private static boolean isInside(View view, View ancestor) {
         for (View up = view; up != null; ) {
@@ -685,13 +721,18 @@ public final class MainActivity extends Activity {
     }
     // To what opened it, by key; failing that the overlay now on top; failing that the page's
     // own control (focusTarget). A phone in touch mode has no focus to return.
+    // A control that refuses the focus (hidden, or behind the overlay that is now on top) is no more a place to put it than one
+    // that is gone: left there, the focus stays in the layer that is closing, and when that goes Android hands it to the first
+    // control of the window, the Home tab.
     private void returnFocus(Overlay closed) {
         if (getWindow().getDecorView().isInTouchMode()) return;
         View target = closed.openerKey == null ? null : host.findViewWithTag(closed.openerKey);
+        if (target != null && target.requestFocus()) return;
         Overlay top = topOverlay();
-        if (target == null && top != null) { focusOverlay(top); return; }
-        if (target == null) target = focusTarget(closed.openerKey);
-        if (target != null) target.requestFocus();
+        if (top != null) { focusOverlay(top); return; }
+        // Gone, the nearest one to it; or there, and refusing, the page's own: the same key would only find the same control.
+        View next = focusTarget(target == null ? closed.openerKey : null);
+        if (next != null) next.requestFocus();
     }
 
     // The page behind an overlay takes no focus and no accessibility, nor does an overlay
@@ -1177,16 +1218,13 @@ public final class MainActivity extends Activity {
         status.setTag("home:status");
         content.addView(status, lp(-2, -2));
         if (kind == HomeState.Line.BLOCKED) {
-            // The service retries on its own; this reconnects now. It is also the way in on Android TV, which has no tile
-            // and makes notification actions hard to reach, so a remote lands on it first (focusTarget).
-            Button reconnect = ui.button(getString(R.string.vpn_reconnect), Ui.Kind.PRIMARY, 76, "home:reconnect");
-            reconnect.setOnClickListener(v -> {
-                FreeTunnelVpnService.reconnect(this);
-                toast(getString(R.string.text_recovering_connection));
-            });
-            LinearLayout.LayoutParams reconnectLp = lp(-2, 32);
-            reconnectLp.topMargin = dp(8);
-            content.addView(reconnect, reconnectLp);
+            // The service retries on its own; this reconnects now. The desktop has no such state, and nothing but the logo is
+            // a button on Home: this is the accent link of Logs' "Turn on" (13), under the line. It is also the way in on
+            // Android TV, which has no tile and makes notification actions hard to reach, so a remote lands on it first
+            // (focusTarget). The connection coming up again is its own sign: the line turns to Connecting… and the logo pulses.
+            TextView reconnect = ui.link(getString(R.string.vpn_reconnect), 13, Ui.LinkKind.ACCENT, "home:reconnect");
+            reconnect.setOnClickListener(v -> FreeTunnelVpnService.reconnect(this));
+            content.addView(reconnect, lp(-2, -2));
         }
         // As high as it needs whatever room the line has been given so far: while the line grows, it shows whole, as the desktop's does.
         content.measure(View.MeasureSpec.makeMeasureSpec(pageWidthPx(), View.MeasureSpec.AT_MOST), View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
@@ -1397,7 +1435,6 @@ public final class MainActivity extends Activity {
         validateAsync(config.toml, profile, () -> {
             if (FreeTunnelVpnService.state(this) == 0) return;
             FreeTunnelVpnService.start(this, config.toml, profile);
-            toast(getString(R.string.text_applying_routing_settings));
         }, () -> {});
     }
 
@@ -1406,16 +1443,23 @@ public final class MainActivity extends Activity {
     private interface Checked { void accept(RoutingConfig.Import checked); }
 
     private void validateAsync(String source, String profile, Runnable accepted, Runnable rejected) {
-        validateAsync(source, profile, false, checked -> accepted.run(), rejected);
+        validateAsync(source, profile, false, true, checked -> accepted.run(), rejected);
     }
 
     // With asImport, the text is first checked as a file to add (RoutingConfig.cleanImport),
     // which may refuse it, or take out a subscription or whatever in its certificate
     // is not a certificate. Here on the worker, since that parses the whole file once more.
-    private void validateAsync(String source, String profile, boolean asImport, Checked accepted, Runnable rejected) {
+    //
+    // A check that is superseded is dropped, and says nothing: a newer check, or a change to the list of configs, makes what it
+    // was asked for stale. That is for a check about the config in use (connecting, building the VPN again, the editor's Save),
+    // which validationRequest numbers. A check of a file or a link to add is not: it is answered whatever else is going on,
+    // since dropping it would lose a text the TV was to ask about, and nothing about it goes stale (the question is worked out
+    // from the list as it is when the answer comes). Nor does it make another check stale: Replace builds the VPN again
+    // while the next text waits behind it. No toast for the check itself: the desktop shows none, and the pulse of the logo or
+    // the question that comes is the answer.
+    private void validateAsync(String source, String profile, boolean asImport, boolean supersedable, Checked accepted, Runnable rejected) {
         if (storageFailed) { toast(getString(R.string.text_storage_is_unavailable_data_has_not_been_changed)); rejected.run(); return; }
-        final long request = ++validationRequest;
-        toast(getString(R.string.validating_config));
+        final long request = supersedable ? ++validationRequest : validationRequest;
         validationWorker.execute(() -> {
             try {
                 RoutingConfig.Import checked = asImport ? RoutingConfig.cleanImport(source) : new RoutingConfig.Import(source, false);
@@ -1423,7 +1467,7 @@ public final class MainActivity extends Activity {
                 NativeConfigValidator.INSTANCE.validate(getApplicationContext(), plan.getToml());
                 runOnUiThread(() -> {
                     if (isDestroyed()) return;
-                    if (request != validationRequest) { rejected.run(); return; }
+                    if (supersedable && request != validationRequest) { rejected.run(); return; }
                     if (plan.getWarning() != null) toast(getString(plan.getWarning()));
                     accepted.accept(checked);
                 });
@@ -1431,13 +1475,13 @@ public final class MainActivity extends Activity {
                 runOnUiThread(() -> {
                     if (isDestroyed()) return;
                     rejected.run();
-                    if (request == validationRequest) refuseImport(refused.messageResource);
+                    if (!supersedable || request == validationRequest) refuseImport(refused.messageResource);
                 });
             } catch (Exception error) {
                 runOnUiThread(() -> {
                     if (isDestroyed()) return;
                     rejected.run();
-                    if (request == validationRequest) toast(getString(R.string.config_validation_error, error.getMessage()));
+                    if (!supersedable || request == validationRequest) toast(getString(R.string.config_validation_error, error.getMessage()));
                 });
             }
         });
@@ -1650,7 +1694,7 @@ public final class MainActivity extends Activity {
 
         // The text is the app's own, and the subscription and whatever in the
         // certificate is not a certificate were left out as the link was read.
-        validateAsync(imported.toml, SplitProfiles.DEFAULT, false, checked -> showImportConfirmation(imported.name, false,
+        validateAsync(imported.toml, SplitProfiles.DEFAULT, false, false, checked -> showImportConfirmation(imported.name, false,
                 new RoutingConfig.Import(checked.getToml(), imported.subscriptionNotKept, imported.certificateIgnored), origin, true, done),
                 () -> answered(done, true));
     }
@@ -1658,7 +1702,7 @@ public final class MainActivity extends Activity {
     // export that names its server.
     private void importToml(String name, String toml, String origin) { importToml(name, toml, origin, null); }
     private void importToml(String name, String toml, String origin, Answered done) {
-        validateAsync(stripBom(toml), SplitProfiles.DEFAULT, true, checked -> showImportConfirmation(
+        validateAsync(stripBom(toml), SplitProfiles.DEFAULT, true, false, checked -> showImportConfirmation(
                 checked.getName() != null ? checked.getName() : name, checked.getName() == null, checked, origin, false, done),
                 () -> answered(done, true));
     }
@@ -1783,7 +1827,7 @@ public final class MainActivity extends Activity {
     // The next text it took, checked and asked about, when none is: importText, then validateAsync, then the
     // confirmation, then the next. Nothing is added without a yes. A text holds its place in the receiver's
     // count until it is answered, whatever the answer, which is what lets the phone send another when ten
-    // waited. When one is refused, its notice stays up before the next one's "Validating…" takes its place.
+    // waited. When one is refused, its notice stays up before the next one's check, and its question, can cover it.
     private void processReceived() {
         if (isDestroyed() || receivedTexts.busy() || receivedTexts.queued() == 0) return;
         if (receivedHold) {
@@ -1854,17 +1898,21 @@ public final class MainActivity extends Activity {
     // The question before anything is added, as the desktop asks it (Backend::askToImport): whether it
     // is a link or a file, the server it would connect to, and what is wrong with it. The lines are
     // those, with the first, the second and the third in this order whatever they say:
-    //   Add a VPN server from this link? “Name”        (or, for a name already in the list: “Name” already exists…)
+    //   Add a VPN server from this link?               (or, for a name already in the list: “Name” already exists…)
     //   Server: host
     //   Sent from 192.168.1.5                           (Android only: where a phone sent it from)
-    // then the rest. origin is the address the text was sent from, shown so that a text someone
-    // else on the network sent first can be told apart; null when it came from here. The name and the
-    // server are shown as ShownText shows them, so that whatever sent them, the lines after them stay
-    // in sight. namedAfterFile is true when name is the one the text was imported under, its file's name
-    // or the app's words for where it came from, and false when it is a link's or an export's own; link
-    // is true for a tt:// link. Cancel has the focus, and Import is red and waits for 400 ms. A name
-    // already in the list, or the same file, is the desktop's collision: Replace puts it where that one
-    // is, Add copy adds it as another.
+    // then the rest. The question does not say the name it would be added under, as the desktop's does
+    // not: the name comes with the link, and is the one thing whoever made it fully controls, so that a
+    // decision made on the name alone can be made on a lie; the server is what it connects to.
+    // origin is the address the text was sent from, shown so that a text someone
+    // else on the network sent first can be told apart; null when it came from here. The name that is
+    // shown (the existing one's, in a collision) and the server are shown as ShownText shows them, so that
+    // whatever sent them, the lines after them stay in sight. namedAfterFile is true when name is the one the
+    // text was imported under, its file's name or the app's words for where it came from, and false when it
+    // is a link's or an export's own; link is true for a tt:// link. Cancel has the focus, and Import is red
+    // and waits for 400 ms. A name already in the list is the desktop's collision, and the desktop's alone:
+    // Replace puts it where that one is, Add copy adds it as another. The same server under another
+    // name is no collision, as on the desktop.
     private void showImportConfirmation(String name, boolean namedAfterFile, RoutingConfig.Import checked, String origin, boolean link) {
         showImportConfirmation(name, namedAfterFile, checked, origin, link, null);
     }
@@ -1874,10 +1922,10 @@ public final class MainActivity extends Activity {
         org.tomlj.TomlTable parsed = RoutingConfig.validate(source);
         Config clash = null;
         for (Config config : configs) {
-            if (config.name.equals(name) || config.toml.equals(source)) { clash = config; break; }
+            if (config.name.equals(name)) { clash = config; break; }
         }
         StringBuilder message = new StringBuilder(clash == null
-                ? getString(link ? R.string.import_question_link : R.string.import_question_file) + " “" + ShownText.of(name) + "”"
+                ? getString(link ? R.string.import_question_link : R.string.import_question_file)
                 : getString(R.string.import_exists, ShownText.of(clash.name)));
         message.append('\n').append(getString(R.string.import_server, ShownText.of(parsed.getString("endpoint.hostname"))));
         if (origin != null) message.append(getString(R.string.text_nsent_from_s, origin));
@@ -2052,7 +2100,7 @@ public final class MainActivity extends Activity {
             // certificate just as an imported one can. An endpoint's export is
             // turned into a whole file, and the name stays the one typed here,
             // as it does for a link, which is checked as importDeepLink() checks it.
-            validateAsync(link != null ? link.toml : text, chosenProfile[0], link == null, result -> {
+            validateAsync(link != null ? link.toml : text, chosenProfile[0], link == null, true, result -> {
                 RoutingConfig.Import checked = link == null ? result
                         : new RoutingConfig.Import(result.getToml(), link.subscriptionNotKept, link.certificateIgnored);
                 if (overlay.closed) return;

@@ -28,8 +28,8 @@ needs Android 8.0 or later.
 
 ### Security
 
-- Profiles are encrypted with a key kept in Android Keystore, and are left out
-  of backups and device transfer.
+- Server configurations are encrypted with a key kept in Android Keystore, and
+  are left out of backups and device transfer.
 - The configuration editor hides the password, blocks screenshots and screen
   recording, and asks the keyboard neither to learn from what is typed there
   nor to show its own copy of it.
