@@ -35,7 +35,7 @@ import android.widget.TextView;
  */
 final class Ui {
     /** What a control's rest, hover and focus look like. */
-    enum Look { TILE, ROW, MENU_ROW, PILL, LINK, ICON, CHIP, BUTTON, PRIMARY, DANGER, FIELD, TOGGLE }
+    enum Look { TILE, ROW, MENU_ROW, PILL, LINK, ICON, CHIP, BUTTON, PRIMARY, DANGER, FIELD, BOX, TOGGLE }
     /** The four buttons the desktop has. */
     enum Kind { PRIMARY, SECONDARY, NEUTRAL, DESTRUCTIVE }
     /** The three colours of link: accent, text colour and danger. */
@@ -240,6 +240,14 @@ final class Ui {
                 focused = remote ? t.surface : t.inputBg;
                 focusStroke = t.accent;
                 break;
+            case BOX:
+                // A box of text that a remote scrolls, such as a license or the log: the
+                // desktop's surface, radius 8; with the focus, the field's accent border.
+                rest = t.surface;
+                hot = t.surface;
+                focused = t.surface;
+                focusStroke = t.accent;
+                break;
             case TOGGLE:
                 radius = 99;
                 break;
@@ -413,6 +421,65 @@ final class Ui {
         focus(input, key, Look.FIELD);
         box.addView(input, lp(-1, 34));
         return box;
+    }
+
+    /**
+     * The desktop's text area (the editor's certificate): a Field's label and look, and a box
+     * of several lines in monospace 12, at least this high and growing with what is typed.
+     */
+    LinearLayout fieldArea(CharSequence name, EditText input, String key, int minHeightDp) {
+        LinearLayout box = column();
+        box.addView(label(name, 13, t.textDim), lp(-1, -2));
+        gap(box, 4);
+        input.setTypeface(Typeface.MONOSPACE);
+        input.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        input.setTextColor(t.text);
+        input.setHintTextColor(t.textFaint);
+        input.setPadding(dp(10), dp(8), dp(10), dp(8));
+        input.setGravity(Gravity.TOP | Gravity.START);
+        input.setMinHeight(dp(minHeightDp));
+        focus(input, key, Look.FIELD);
+        box.addView(input, lp(-1, -2));
+        return box;
+    }
+
+    /** The editor's toggle row: its label, 13 in textDim, and the toggle, 32 high. */
+    LinearLayout editorToggleRow(CharSequence title, ToggleView toggle) {
+        LinearLayout r = row();
+        r.setMinimumHeight(dp(32));
+        r.addView(label(title, 13, t.textDim), new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+        gapH(r, 8);
+        r.addView(toggle, lp(-2, -2));
+        return r;
+    }
+
+    /** A card's ←, 20 in textDim and the text colour under the pointer, in a cell 6 larger all round. */
+    TextView backArrow(String key, CharSequence description, View.OnClickListener back) {
+        TextView arrow = label("←", 20, t.textDim);
+        arrow.setTextColor(colors(t.textDim, t.text, t.accentText));
+        arrow.setGravity(Gravity.CENTER);
+        arrow.setPadding(dp(8), dp(1), dp(8), dp(1));
+        arrow.setContentDescription(description);
+        arrow.setOnClickListener(back);
+        return focus(arrow, key, Look.ICON);
+    }
+
+    /**
+     * A card's header, 48 high: the ← 14 from the left, and 12 on from it the title, 15 in
+     * Medium. The title is the header's second child, for a card that changes it.
+     */
+    LinearLayout cardHeader(CharSequence title, String backKey, CharSequence backDescription, View.OnClickListener back) {
+        LinearLayout bar = row();
+        bar.setMinimumHeight(dp(48));
+        bar.setPadding(dp(6), 0, dp(14), 0);
+        bar.addView(backArrow(backKey, backDescription, back), lp(-2, -2));
+        TextView name = medium(title, 15, t.text);
+        name.setSingleLine(true);
+        name.setEllipsize(TextUtils.TruncateAt.MIDDLE);
+        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1);
+        p.leftMargin = dp(4);
+        bar.addView(name, p);
+        return bar;
     }
 
     /** A button of the header, 40 by 32, radius 8, with an icon of this size in accent. */

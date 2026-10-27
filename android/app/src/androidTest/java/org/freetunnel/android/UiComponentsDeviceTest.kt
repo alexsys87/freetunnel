@@ -253,6 +253,47 @@ class UiComponentsDeviceTest {
         }
     }
 
+    // The parts of a card (the editor, the app picker, Receive from phone, the licenses): the header is 48 high with the arrow in a cell
+    // of its own and the title in Medium; the editor's text area has a Field's look in monospace 12 and grows from its minimum; its
+    // toggle row is 32 high; and a box of text that a remote scrolls rests on surface and takes the field's accent border.
+    @Test fun aCardsHeaderTextAreaToggleRowAndBoxOfTextAreAsTheDesktopDrawsThem() {
+        onMain {
+            val theme = Theme.DARK
+            val ui = ui()
+            val header = measured(ui.cardHeader("New config", "editor:back", "Back") {}, dp(372)) as android.view.ViewGroup
+            assertEquals("A card's header is 48 high", dp(48), header.measuredHeight)
+            val arrow = header.findViewWithTag<TextView>("editor:back")
+            assertEquals("\u2190", arrow.text.toString())
+            assertEquals("The arrow is textDim", theme.textDim, arrow.textColors.defaultColor)
+            assertEquals("and the text colour under the pointer", theme.text, arrow.textColors.getColorForState(intArrayOf(android.R.attr.state_pressed), 0))
+            assertEquals("A remote's focus is the accent", theme.accent, fill(looks(arrow)["focused"]!!))
+            assertEquals("Back", arrow.contentDescription.toString())
+            val title = header.getChildAt(1) as TextView
+            assertEquals("The title is Medium, never bold", Ui.MEDIUM, title.typeface)
+            assertEquals("New config", title.text.toString())
+
+            val area = EditText(context)
+            val field = ui.fieldArea("TOML", area, "editor:toml", 150)
+            measured(field, dp(300))
+            assertTrue("The text area is at least 150 high", area.measuredHeight >= dp(150))
+            assertEquals(android.graphics.Typeface.MONOSPACE, area.typeface)
+            val areaLooks = looks(area)
+            assertEquals("It is a Field: inputBg with an inputBorder", theme.inputBg, fill(areaLooks["rest"]!!))
+            assertEquals(theme.accent, edge(areaLooks["focused"]!!))
+
+            val row = measured(ui.editorToggleRow("Show TOML and password", ui.toggle(false, false, "editor:show")), dp(300))
+            assertTrue("A toggle row of the editor is 32 high at least", row.measuredHeight >= dp(32))
+
+            val box = android.widget.ScrollView(context)
+            ui.focus(box, "licenses:text", Ui.Look.BOX)
+            val boxLooks = looks(box)
+            assertEquals("A box of text rests on surface", theme.surface, fill(boxLooks["rest"]!!))
+            assertEquals("without a border", theme.surface, edge(boxLooks["rest"]!!))
+            assertEquals("and takes the field's accent border with the focus", theme.accent, edge(boxLooks["focused"]!!))
+            assertEquals(theme.surface, fill(boxLooks["focused"]!!))
+        }
+    }
+
     // Every icon is made from the desktop's SVG path data: each loads, at the size the desktop draws it.
     @Test fun everyVectorDrawableLoads() {
         for ((id, size) in listOf(R.drawable.ic_connection to 24, R.drawable.ic_network to 24, R.drawable.ic_settings to 24,

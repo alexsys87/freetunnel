@@ -16,7 +16,6 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.provider.Settings
-import android.widget.Toast
 import org.json.JSONArray
 import java.io.File
 import java.io.IOException
@@ -27,6 +26,7 @@ import java.net.SocketTimeoutException
 import java.net.URI
 import java.security.MessageDigest
 import java.util.concurrent.Executors
+import java.util.function.IntConsumer
 
 /** Process-local UI state; all network, hashing and session writes use one worker. */
 object AndroidUpdater {
@@ -229,14 +229,19 @@ object AndroidUpdater {
         if (total <= 0 || (size >= 0 && total != size)) throw IOException("Incomplete APK")
     }
 
-    fun install(activity: Activity) {
+    /**
+     * Installs the verified update. [notice] says, with a string resource, what the user must be told where
+     * Android has no screen to say it: the app shows it as its own toast. Nothing is shown without it.
+     */
+    @JvmOverloads
+    fun install(activity: Activity, notice: IntConsumer? = null) {
         // From INSTALLING only once the session went to Android and its dialog may be lost.
         if (state != State.READY && !(state == State.INSTALLING && committed)) return
         if (!activity.packageManager.canRequestPackageInstalls()) {
             // Some TV and OEM builds have no such screen; the toast says where to look.
             runCatching {
                 activity.startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, "package:${activity.packageName}".toUri()))
-            }.onFailure { Toast.makeText(activity, R.string.update_allow_installs, Toast.LENGTH_LONG).show() }
+            }.onFailure { notice?.accept(R.string.update_allow_installs) }
             return
         }
         val file = verifiedFile
