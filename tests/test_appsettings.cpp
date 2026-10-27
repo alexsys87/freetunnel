@@ -2,6 +2,7 @@
 #include <QtTest>
 
 #include <QCoreApplication>
+#include <QFile>
 #include <QScopeGuard>
 #include <QSettings>
 #include <QTemporaryDir>
@@ -19,6 +20,7 @@ class TestAppSettings : public QObject {
 private slots:
     void initTestCase();
     void defaultsWhenEmpty();
+    void theRecommendedListIsExactlyTheSharedFile();
     void roundTrip();
     void profilesPreserveOrder();
     void theInsecureTmpLogPathIsMigratedOnLoad();
@@ -59,6 +61,29 @@ void TestAppSettings::defaultsWhenEmpty() {
     QCOMPARE(s.hotkey_connect, QStringLiteral("Ctrl+Shift+E"));
     QCOMPARE(s.hotkey_disconnect, QStringLiteral("Ctrl+Shift+D"));
     QVERIFY(s.last_config_path.isEmpty());
+}
+
+// data/split/recommended-russia.txt is the one list, for this app and the Android one. The
+// app has it compiled in (cmake/SharedData.cmake), and what it hands out has to be what
+// the file says: every rule in it, in its order, and nothing else. Read here the way the
+// Android test reads it: a line is a rule unless it is blank or begins with #.
+void TestAppSettings::theRecommendedListIsExactlyTheSharedFile() {
+    QFile file(QString::fromUtf8(FT_RECOMMENDED_RUSSIA_FILE));
+    QVERIFY2(file.open(QIODevice::ReadOnly), "the shared list can not be read");
+    const QByteArray bytes = file.readAll();
+    QVERIFY2(!bytes.startsWith("\xEF\xBB\xBF"), "the shared list has a byte order mark");
+    QStringList expected;
+    for (const QString &raw : QString::fromUtf8(bytes).split(QLatin1Char('\n'))) {
+        const QString line = raw.trimmed();
+        if (!line.isEmpty() && !line.startsWith(QLatin1Char('#')))
+            expected << line;
+    }
+    QVERIFY2(expected.size() > 50, "the shared list is nearly empty");
+    QCOMPARE(recommendedRussiaDomains(), expected);
+    // Nothing in it is one the app would drop, nor a rule twice: sanitizing it changes nothing.
+    QCOMPARE(sanitizedBypassRules(expected), expected);
+    // The Cyrillic domain is in it as typed, and is in the list the app hands out.
+    QVERIFY(expected.contains(QStringLiteral("мвд.рф")));
 }
 
 void TestAppSettings::roundTrip() {

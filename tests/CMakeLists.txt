@@ -132,6 +132,11 @@ endif()
 
 include(${CMAKE_CURRENT_LIST_DIR}/../cmake/FreetunnelDeps.cmake)
 
+# data/ is shared with the Android app: the lists the app has compiled in (AppSettings.cpp
+# includes what this generates, from a directory this puts on the include path of
+# every target below).
+include(${CMAKE_CURRENT_LIST_DIR}/../cmake/SharedData.cmake)
+
 # macOS SDKs may ship AGL.framework without a linkable binary; Qt still requests it.
 if(APPLE AND TARGET WrapOpenGL::WrapOpenGL)
     set_property(
@@ -435,6 +440,10 @@ add_executable(test_appsettings
     ../src/core/BypassRules.cpp
 )
 target_include_directories(test_appsettings PRIVATE ../include ../include/core)
+# The file the list is compiled from, which the test reads for itself.
+get_filename_component(FT_RECOMMENDED_RUSSIA_FILE
+    "${CMAKE_CURRENT_LIST_DIR}/../data/split/recommended-russia.txt" ABSOLUTE)
+target_compile_definitions(test_appsettings PRIVATE FT_RECOMMENDED_RUSSIA_FILE="${FT_RECOMMENDED_RUSSIA_FILE}")
 target_link_libraries(test_appsettings PRIVATE Qt6::Core Qt6::Network Qt6::Test)
 add_test(NAME appsettings COMMAND test_appsettings -o ${CMAKE_CURRENT_BINARY_DIR}/report-appsettings.txt,txt)
 

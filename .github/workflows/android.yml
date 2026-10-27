@@ -3,11 +3,13 @@ on:
   # qml/**, assets/icons/** and assets/logo.svg are the desktop's palette and icons,
   # which the Android app copies: tests/test_android_theme_matches_desktop.sh and
   # tests/test_android_icons.sh read them, so a change to them runs this too.
+  # data/** holds the lists both apps read (Recommended for Russia): the app copies them
+  # into its assets, and its unit tests check every line, so a change to one runs this too.
   push:
     branches: [main]
-    paths: ['include/core/ReleaseSigning.h', 'android/**', 'scripts/prepare-trusttunnel-android.sh', 'scripts/build-android-release.sh', 'scripts/sign-android-release.sh', 'scripts/check-android-signer.sh', 'scripts/check-android-release-tag.sh', 'scripts/check-android-release-unpublished.sh', 'tests/test_android_*.sh', 'THIRD_PARTY_NOTICES.md', 'LICENSE', 'licenses/**', 'scripts/check-apk-notices.sh', 'scripts/android-icons-from-svg.py', 'qml/**', 'assets/icons/**', 'assets/logo.svg', '.github/workflows/android.yml']
+    paths: ['include/core/ReleaseSigning.h', 'android/**', 'scripts/prepare-trusttunnel-android.sh', 'scripts/build-android-release.sh', 'scripts/sign-android-release.sh', 'scripts/check-android-signer.sh', 'scripts/check-android-release-tag.sh', 'scripts/check-android-release-unpublished.sh', 'tests/test_android_*.sh', 'THIRD_PARTY_NOTICES.md', 'LICENSE', 'licenses/**', 'scripts/check-apk-notices.sh', 'scripts/android-icons-from-svg.py', 'qml/**', 'assets/icons/**', 'assets/logo.svg', 'data/**', '.github/workflows/android.yml']
   pull_request:
-    paths: ['include/core/ReleaseSigning.h', 'android/**', 'scripts/prepare-trusttunnel-android.sh', 'scripts/build-android-release.sh', 'scripts/sign-android-release.sh', 'scripts/check-android-signer.sh', 'scripts/check-android-release-tag.sh', 'scripts/check-android-release-unpublished.sh', 'tests/test_android_*.sh', 'THIRD_PARTY_NOTICES.md', 'LICENSE', 'licenses/**', 'scripts/check-apk-notices.sh', 'scripts/android-icons-from-svg.py', 'qml/**', 'assets/icons/**', 'assets/logo.svg', '.github/workflows/android.yml']
+    paths: ['include/core/ReleaseSigning.h', 'android/**', 'scripts/prepare-trusttunnel-android.sh', 'scripts/build-android-release.sh', 'scripts/sign-android-release.sh', 'scripts/check-android-signer.sh', 'scripts/check-android-release-tag.sh', 'scripts/check-android-release-unpublished.sh', 'tests/test_android_*.sh', 'THIRD_PARTY_NOTICES.md', 'LICENSE', 'licenses/**', 'scripts/check-apk-notices.sh', 'scripts/android-icons-from-svg.py', 'qml/**', 'assets/icons/**', 'assets/logo.svg', 'data/**', '.github/workflows/android.yml']
   workflow_dispatch:
   # android-release.yml runs this whole workflow on the tagged commit, and signs
   # nothing until it has passed there.
