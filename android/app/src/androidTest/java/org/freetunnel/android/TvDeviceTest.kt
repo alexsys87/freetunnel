@@ -543,18 +543,32 @@ class TvDeviceTest {
     // As a phone's browser sends it, over a raw socket: this test runs in the app's
     // process, where the default network security config refuses cleartext HTTP to
     // HttpURLConnection. request() is given the Host and the page's path.
-    private fun http(url: String, request: (host: String, path: String) -> String): String {
+    private fun http(url: String, request: (host: String, path: String) -> String): String =
+        httpBytes(url) { host, path -> request(host, path).toByteArray() }
+    private fun httpBytes(url: String, request: (host: String, path: String) -> ByteArray): String {
         val page = URI(url)
         return Socket(page.host, page.port).use { socket ->
             socket.soTimeout = 10_000
-            socket.getOutputStream().write(request("${page.host}:${page.port}", page.rawPath).toByteArray())
+            socket.getOutputStream().write(request("${page.host}:${page.port}", page.rawPath))
             socket.getInputStream().readBytes().toString(Charsets.UTF_8)
         }
     }
+    // The urlencoded form the page sent before it took files, which the TV still takes.
     private fun formPost(host: String, path: String, text: String): String {
         val body = "link=" + URLEncoder.encode(text, "UTF-8")
         return "POST $path HTTP/1.1\r\nHost: $host\r\nContent-Type: application/x-www-form-urlencoded\r\n" +
             "Content-Length: ${body.length}\r\n\r\n$body"
+    }
+    // The page's own form as Chrome sends it, with a file chosen and nothing pasted
+    // unless text is given: the text field, then the file field with its name, as the
+    // browser writes it, and its content. With no file chosen, both are empty.
+    private fun filePost(host: String, path: String, fileName: String, content: ByteArray, text: String = ""): ByteArray {
+        val boundary = "----WebKitFormBoundary7MA4YWxkTrZu0gW"
+        val body = ("--$boundary\r\nContent-Disposition: form-data; name=\"link\"\r\n\r\n$text\r\n" +
+            "--$boundary\r\nContent-Disposition: form-data; name=\"file\"; filename=\"$fileName\"\r\n" +
+            "Content-Type: application/octet-stream\r\n\r\n").toByteArray() + content + "\r\n--$boundary--\r\n".toByteArray()
+        return ("POST $path HTTP/1.1\r\nHost: $host\r\nContent-Type: multipart/form-data; boundary=$boundary\r\n" +
+            "Content-Length: ${body.size}\r\n\r\n").toByteArray() + body
     }
     // stop() closes the port, but the receiver's thread, waiting in accept(), lets go
     // of it only once it wakes, a moment later on a slow emulator. Until then a
@@ -643,6 +657,91 @@ class TvDeviceTest {
         assertTrue(saved().last().getString("toml").contains("hostname = \"vpn.example.com\""))
     }
 
+    // Both legs: a file chosen on the phone instead of pasted. A send with nothing
+    // in it or one too large to take is no strike. A TOML file with no name of its
+    // own is named after its file, without the escape the browser wrote for the
+    // quote, and with the backslash a name on a phone or a Mac may have. It is the
+    // TOML that VpnDeviceTest validates natively, with a byte order mark and CRLF
+    // line ends.
+    @SdkSuppress(minSdkVersion = 29)
+    @Test fun aFileFromAPhoneIsNamedAfterItAndAddedOnlyOnceTheTvConfirmsIt() {
+        val a = open()
+        render(a, 1)
+        onMain { method("receiveFromPhone").invoke(a) }
+        instrumentation.waitForIdleSync()
+        val opened = receiver(a)
+        assertNotNull("The emulator must have a private-network IPv4 address on Wi-Fi or Ethernet", opened)
+        val url = opened!!.url()
+        val page = http(url) { h, _ -> "GET / HTTP/1.1\r\nHost: $h\r\n\r\n" }
+        assertTrue(page, page.contains("enctype=\"multipart/form-data\"") &&
+            page.contains("<input type=\"file\" id=\"file\" name=\"file\">") &&
+            page.contains(LinkReceiver.escape(context.getString(R.string.receive_page_file))))
+        // Sent with nothing chosen, the form comes back, and the TV goes on waiting.
+        val empty = httpBytes(url) { h, path -> filePost(h, path, "", ByteArray(0)) }
+        assertTrue(empty, empty.startsWith("HTTP/1.1 400 ") &&
+            empty.contains(LinkReceiver.escape(context.getString(R.string.receive_page_retry))))
+        assertSame(opened, receiver(a))
+        // A photo chosen by mistake gets the page that says it is too large: the TV
+        // reads the rest before it closes, so the answer is not lost to a reset.
+        val photo = httpBytes(url) { h, path -> filePost(h, path, "photo.jpg", ByteArray(2 * LinkReceiver.MAX_BODY_BYTES)) }
+        assertTrue(photo, photo.startsWith("HTTP/1.1 413 ") &&
+            photo.contains(LinkReceiver.escape(context.getString(R.string.receive_page_too_large))))
+        assertSame(opened, receiver(a))
+        val toml = "\uFEFF" + source.replace("vpn.invalid", "file.example.com").replace("\n", "\r\n") + "\r\n"
+        val sent = httpBytes(url) { h, path -> filePost(h, path, "Home\\Office %22TV%22\u202E VPN.toml", toml.toByteArray()) }
+        assertTrue(sent, sent.startsWith("HTTP/1.1 200 ") && sent.contains(context.getString(R.string.receive_page_sent)))
+        eventually("The receiver must stop") { receiver(a) == null }
+        assertClosed(url)
+        // Shown without what would reverse the rest; saved as the file has it, as one
+        // picked on the TV is.
+        val name = "Home\\Office \"TV\" VPN.toml"
+        val from = context.getString(R.string.text_nsent_from_s, URI(url).host).trim()
+        fun confirmation() = windows().lastOrNull { window ->
+            window.findViewById<TextView>(android.R.id.message)?.text
+                ?.let { it.contains(name) && it.contains("file.example.com") && it.contains(from) } == true
+        }
+        eventually("The confirmation must name the file, the server and \"$from\"", 30_000) { onMain { confirmation() != null } }
+        assertEquals("Nothing is added before the TV confirms", 2, saved().size)
+        onMain { confirmation()!!.findViewById<Button>(android.R.id.button1).performClick() }
+        eventually("Add must save it") { saved().size == 3 }
+        assertEquals("Home\\Office \"TV\"\u202E VPN.toml", saved().last().getString("name"))
+        assertTrue(saved().last().getString("toml").contains("hostname = \"file.example.com\""))
+    }
+
+    // Both legs: a TOML file with no name of its own and no file's name to go by,
+    // pasted into the page or in a file whose name shows nothing, is named for where
+    // it came from.
+    @SdkSuppress(minSdkVersion = 29)
+    @Test fun aTomlFromAPhoneWithNoFileNameIsNamedForWhereItCameFrom() {
+        val a = open()
+        render(a, 1)
+        val named = context.getString(R.string.text_from_another_device)
+        for ((server, fileName) in listOf("pasted.example.com" to null, "nameless.example.com" to "\u202E\u200F")) {
+            onMain { method("receiveFromPhone").invoke(a) }
+            instrumentation.waitForIdleSync()
+            val opened = receiver(a)
+            assertNotNull("The emulator must have a private-network IPv4 address on Wi-Fi or Ethernet", opened)
+            val url = opened!!.url()
+            val toml = source.replace("vpn.invalid", server)
+            val sent = httpBytes(url) { h, path ->
+                if (fileName == null) filePost(h, path, "", ByteArray(0), text = toml) else filePost(h, path, fileName, toml.toByteArray())
+            }
+            assertTrue(sent, sent.startsWith("HTTP/1.1 200 ") && sent.contains(context.getString(R.string.receive_page_sent)))
+            eventually("The receiver must stop") { receiver(a) == null }
+            val from = context.getString(R.string.text_nsent_from_s, URI(url).host).trim()
+            fun confirmation() = windows().lastOrNull { window ->
+                window.findViewById<TextView>(android.R.id.message)?.text
+                    ?.let { it.contains(named) && it.contains(server) && it.contains(from) } == true
+            }
+            eventually("The confirmation must say \"$named\", $server and \"$from\"", 30_000) { onMain { confirmation() != null } }
+            val before = saved().size
+            onMain { confirmation()!!.findViewById<Button>(android.R.id.button1).performClick() }
+            eventually("Add must save it") { saved().size == before + 1 }
+            assertEquals(named, saved().last().getString("name"))
+            assertTrue(saved().last().getString("toml").contains("hostname = \"$server\""))
+        }
+    }
+
     @SdkSuppress(minSdkVersion = 29)
     @Test fun cancelOrLeavingTheAppClosesThePort() {
         val a = open()
@@ -668,36 +767,77 @@ class TvDeviceTest {
         assertClosed(second)
     }
 
-    // A file sets the name and the server that the confirmation shows. Line breaks or
-    // a long run of text in them must not push what comes after, the sender and that
-    // verification is off, out of a message a remote cannot scroll. The confirmation
-    // is opened directly, as after the checks: whether the core takes such a server
-    // name is the core's to say.
+    // A file sets the name and the server that the confirmation shows. Line breaks,
+    // characters that reverse or hide text, a long run of text or a tall stack of
+    // marks in them must not push what comes after, the sender and that verification
+    // is off, out of a message a remote cannot scroll, or paint over it. The
+    // confirmation is opened directly, as after the checks: whether the core takes
+    // such a server name is the core's to say.
     @SdkSuppress(minSdkVersion = 29)
     @Test fun theConfirmationShowsTheSenderWhateverTheFileSays() {
         val a = open()
-        val toml = source.replace("hostname = \"vpn.invalid\"",
-            "hostname = \"my-real-vpn.example${"\\n".repeat(40)}${"x".repeat(62)}\"\nskip_verification = true")
-        val name = "My \uD83D\uDD12 VPN" + "\u2028\u2029\r".repeat(20) + "y".repeat(72)
-        onMain {
-            method("showImportConfirmation", String::class.java, RoutingConfig.Import::class.java, String::class.java)
-                .invoke(a, name, RoutingConfig.Import(toml, false), "192.0.2.7")
+        // The confirmation's message for that name and server, then cancelled.
+        fun message(name: String, hostname: String): String {
+            val toml = source.replace("hostname = \"vpn.invalid\"", "hostname = \"$hostname\"\nskip_verification = true")
+            onMain {
+                method("showImportConfirmation", String::class.java, Boolean::class.javaPrimitiveType,
+                    RoutingConfig.Import::class.java, String::class.java)
+                    .invoke(a, name, false, RoutingConfig.Import(toml, false), "192.0.2.7")
+            }
+            instrumentation.waitForIdleSync()
+            val dialog = onMain { windows().last { it.findViewById<View>(android.R.id.button2) != null } }
+            try {
+                return onMain { dialog.findViewById<TextView>(android.R.id.message).text.toString() }
+            } finally {
+                onMain { dialog.findViewById<Button>(android.R.id.button2).performClick() }
+                instrumentation.waitForIdleSync()
+            }
         }
-        instrumentation.waitForIdleSync()
-        val dialog = onMain { windows().last { it.findViewById<View>(android.R.id.button2) != null } }
-        try {
-            val message = onMain { dialog.findViewById<TextView>(android.R.id.message).text.toString() }
-            // Each on one line and cut to 80 characters, so the sender is the third line.
-            // On one line, the name is 80, so it is shown whole, and the server is 81.
-            val shownName = "My \uD83D\uDD12 VPN" + "y".repeat(72)
-            val shownServer = "my-real-vpn.example" + "x".repeat(60) + "…"
+        // Each on one line and cut to 80 characters, so the sender is the third line.
+        fun assertShown(message: String, shownName: String, shownServer: String) {
             assertTrue(message, message.startsWith(context.getString(R.string.text_add_configuration_36) + shownName +
                 context.getString(R.string.text_nserver) + shownServer + context.getString(R.string.text_nsent_from_s, "192.0.2.7") +
                 context.getString(R.string.text_nserver_certificate_verification_is_disabled)))
             assertEquals(context.getString(R.string.text_nsent_from_s, "192.0.2.7").trim(), message.split("\n")[2])
-        } finally {
-            onMain { dialog.findViewById<Button>(android.R.id.button2).performClick() }
+        }
+        // On one line, the name is 80, so it is shown whole, and the server is 81.
+        assertShown(message("My \uD83D\uDD12 VPN" + "\u2028\u2029\r\u202E\u2066".repeat(20) + "y".repeat(72),
+                "my-real-vpn.example${"\\n".repeat(40)}${"x".repeat(62)}"),
+            "My \uD83D\uDD12 VPN" + "y".repeat(72), "my-real-vpn.example" + "x".repeat(60) + "…")
+        // A letter and 79 marks under it fit in 80 characters, and drawn, a stack that
+        // tall would cover the lines below it. Each character is shown with two at most.
+        val stack = "\u0316\u0317\u0318\u0319".repeat(20).dropLast(1)
+        assertShown(message("a$stack", "vpn${stack}.example"), "a\u0316\u0317", "vpn\u0316\u0317.example")
+    }
+
+    // A configuration named after its file keeps the file's extension, which is not
+    // counted as another alphabet: "Дом.toml" is no mix, but a name that mixes them
+    // itself, or in its extension, still is. A link's or an export's own name is
+    // counted whole, as is the server a link without one is named after: "раураӏ.com"
+    // is Cyrillic made to look like "paypal.com".
+    @SdkSuppress(minSdkVersion = 29)
+    @Test fun aFilesExtensionIsNoOtherAlphabet() {
+        val a = open()
+        val note = context.getString(R.string.text_nthe_name_mixes_similar_characters_from_different_al).trim()
+        val lookalike = "\u0440\u0430\u0443\u0440\u0430\u04cf.com"
+        for ((name, namedAfterFile, mixed) in listOf(Triple("\u0414\u043e\u043c.toml", true, false),
+                Triple("\u0414o\u043c.toml", true, true), Triple("\u0414\u043e\u043c.t\u043eml", true, true),
+                Triple("home.toml", true, false), Triple(lookalike, false, true), Triple("\u0414\u043e\u043c.toml", false, true),
+                Triple("home.toml", false, false))) {
+            onMain {
+                method("showImportConfirmation", String::class.java, Boolean::class.javaPrimitiveType,
+                    RoutingConfig.Import::class.java, String::class.java)
+                    .invoke(a, name, namedAfterFile, RoutingConfig.Import(source, false), "192.0.2.7")
+            }
             instrumentation.waitForIdleSync()
+            val dialog = onMain { windows().last { it.findViewById<View>(android.R.id.button2) != null } }
+            try {
+                val message = onMain { dialog.findViewById<TextView>(android.R.id.message).text.toString() }
+                assertEquals("$name, named after a file: $namedAfterFile: $message", mixed, message.contains(note))
+            } finally {
+                onMain { dialog.findViewById<Button>(android.R.id.button2).performClick() }
+                instrumentation.waitForIdleSync()
+            }
         }
     }
 

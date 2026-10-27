@@ -672,19 +672,20 @@ public final class MainActivity extends Activity {
 
         // The text is the app's own, and the subscription and whatever in the
         // certificate is not a certificate were left out as the link was read.
-        validateAsync(imported.toml, false, checked -> showImportConfirmation(imported.name,
+        validateAsync(imported.toml, false, checked -> showImportConfirmation(imported.name, false,
                 new RoutingConfig.Import(checked.getToml(), imported.subscriptionNotKept, imported.certificateIgnored), origin), () -> {});
     }
-    // Named after where the text came from, unless it is an endpoint's export that
-    // names its server.
+    // Named after its file or where the text came from, unless it is an endpoint's
+    // export that names its server.
     private void importToml(String name, String toml, String origin) {
         validateAsync(stripBom(toml), true, checked -> showImportConfirmation(
-                checked.getName() != null ? checked.getName() : name, checked, origin), () -> {});
+                checked.getName() != null ? checked.getName() : name, checked.getName() == null, checked, origin), () -> {});
     }
 
     // Receive from phone: a phone on the same network opens the page the QR code or
-    // the address leads to, and sends a link or a TOML file from there (LinkReceiver).
-    // What arrives goes through the same checks and confirmation as any import.
+    // the address leads to, and sends a link or a TOML file from there, pasted or as
+    // a file (LinkReceiver). What arrives goes through the same checks and
+    // confirmation as any import.
     private void receiveFromPhone() {
         stopReceiver();
         InetAddress address = lanAddress();
@@ -721,11 +722,12 @@ public final class MainActivity extends Activity {
         dialog.getButton(AlertDialog.BUTTON_NEGATIVE).setFocusedByDefault(true);
         // These arrive on the receiver's thread, and count only for the receiver still open.
         r.start(new LinkReceiver.Listener() {
-            @Override public void received(String text, String sender) {
+            @Override public void received(String text, String fileName, String sender) {
                 runOnUiThread(() -> {
                     if (isDestroyed() || linkReceiver != r) return;
                     stopReceiver();
-                    importText(getString(R.string.text_from_another_device), text, sender);
+                    // A TOML file is named after its file, as one picked here is; a link names itself.
+                    importText(fileName != null ? fileName : getString(R.string.text_from_another_device), text, sender);
                 });
             }
             @Override public void stopped(LinkReceiver.Stop reason) {
@@ -768,8 +770,10 @@ public final class MainActivity extends Activity {
     // The phone's page in this device's language.
     private LinkReceiver.Pages receivePages() {
         return new LinkReceiver.Pages(java.util.Locale.getDefault().toLanguageTag(), getString(R.string.receive_page_title),
-                getString(R.string.receive_page_prompt), getString(R.string.receive_page_send), getString(R.string.receive_page_note),
-                getString(R.string.receive_page_sent), getString(R.string.receive_page_wrong_code), getString(R.string.receive_page_locked_out));
+                getString(R.string.receive_page_prompt), getString(R.string.receive_page_file), getString(R.string.receive_page_send),
+                getString(R.string.receive_page_note), getString(R.string.receive_page_sent), getString(R.string.receive_page_retry),
+                getString(R.string.receive_page_too_large), getString(R.string.receive_page_wrong_code),
+                getString(R.string.receive_page_locked_out));
     }
     // These two refusals are about what this version cannot do yet, and say what to
     // do instead. That is more than the two lines a toast shows, so they get a dialog.
@@ -789,11 +793,15 @@ public final class MainActivity extends Activity {
     }
     // origin is the address the text was sent from, shown so that a text someone
     // else on the network sent first can be told apart; null when it came from here.
-    private void showImportConfirmation(String name, RoutingConfig.Import checked, String origin) {
+    // The name and the server are shown as ShownText shows them, so that whatever
+    // sent them, the lines after them stay in sight. namedAfterFile is true when name
+    // is the one the text was imported under, its file's name or the app's words for
+    // where it came from, and false when it is a link's or an export's own.
+    private void showImportConfirmation(String name, boolean namedAfterFile, RoutingConfig.Import checked, String origin) {
         String source = checked.getToml();
         org.tomlj.TomlTable parsed = RoutingConfig.validate(source);
-        String message = getString(R.string.text_add_configuration_36) + shown(name) + getString(R.string.text_nserver)
-                + shown(parsed.getString("endpoint.hostname"));
+        String message = getString(R.string.text_add_configuration_36) + ShownText.of(name) + getString(R.string.text_nserver)
+                + ShownText.of(parsed.getString("endpoint.hostname"));
         if (origin != null) message += getString(R.string.text_nsent_from_s, origin);
         if (Boolean.TRUE.equals(parsed.getBoolean("endpoint.skip_verification")))
             message += getString(R.string.text_nserver_certificate_verification_is_disabled);
@@ -803,7 +811,12 @@ public final class MainActivity extends Activity {
                 message += getString(R.string.text_nthis_configuration_or_name_already_exists_a_separat); break;
             }
         }
-        if (name.codePoints().mapToObj(Character.UnicodeScript::of)
+        // A file's extension is not counted: a configuration named after "Дом.toml"
+        // would otherwise always be said to mix alphabets. Only a file's: a link's or
+        // an export's name, or the server a link is named after, such as "раураӏ.com",
+        // is counted whole.
+        String word = namedAfterFile && name.matches("(?s).+\\.[0-9A-Za-z]{1,5}") ? name.substring(0, name.lastIndexOf('.')) : name;
+        if (word.codePoints().mapToObj(Character.UnicodeScript::of)
                 .filter(script -> script != Character.UnicodeScript.COMMON && script != Character.UnicodeScript.INHERITED
                         && script != Character.UnicodeScript.UNKNOWN).distinct().count() > 1)
             message += getString(R.string.text_nthe_name_mixes_similar_characters_from_different_al);
@@ -813,18 +826,6 @@ public final class MainActivity extends Activity {
                     if (configs.size() == 1) activeIndex = 0;
                     saveConfigs(); page = 1; render();
                 }));
-    }
-    // A name or a server as the confirmation shows it: on one line, and cut to 80
-    // characters. A file sets both, and a remote cannot scroll a dialog's message,
-    // so line breaks or a long run of text in them could push the lines after them,
-    // where the text was sent from and that verification is off, out of sight.
-    // What is saved stays as it was.
-    private static String shown(String text) {
-        StringBuilder line = new StringBuilder(text.length());
-        text.codePoints().filter(c -> !Character.isISOControl(c) && Character.getType(c) != Character.LINE_SEPARATOR
-                && Character.getType(c) != Character.PARAGRAPH_SEPARATOR).forEach(line::appendCodePoint);
-        if (line.codePointCount(0, line.length()) <= 80) return line.toString();
-        return line.substring(0, line.offsetByCodePoints(0, 79)) + "…";
     }
     private static String stripBom(String toml) {
         return toml.startsWith("\uFEFF") ? toml.substring(1) : toml;
