@@ -33,6 +33,17 @@ NOT_KEYS = ('b', 't', 'bad')
 STRING = re.compile(r'"((?:\\.|[^"\\\n])*)"')
 
 
+# The pictures the UI tour must take: the screens the parity is looked at on. A screen it cannot reach is logged by the tour,
+# but it may not drop one from its list. A name ending in - is the start of several (one for each state of the update row).
+TOUR_SCREENS = (
+    'home-disconnected', 'home-empty', 'home-selector-focused', 'home-config-dropdown', 'home-connecting', 'home-connected',
+    'home-blocked-reconnect', 'home-toast', 'nav-focused-tile', 'configs-list', 'configs-row-focused', 'configs-icon-focused',
+    'configs-add-menu', 'configs-export-menu', 'configs-delete-confirm', 'configs-empty', 'split-profiles-rules',
+    'split-after-recommended', 'split-mode-dropdown', 'split-new-profile-input', 'split-through-vpn-notice', 'app-picker',
+    'settings-top', 'settings-theme-dropdown', 'settings-bottom-update-', 'licenses-list', 'licenses-text', 'logs', 'logs-off',
+    'editor-new', 'editor-edit-focused', 'editor-discard-confirm', 'import-confirm', 'import-replace', 'receive-from-phone')
+
+
 def read(path):
     with open(path, encoding='utf-8') as handle:
         return handle.read()
@@ -315,6 +326,13 @@ def main(android):
                     continue
                 if not fits(literal, templates, words, app_text):
                     find(path, number, 'no control has the key "%s" (the app builds no key of that shape)' % literal)
+    for path, text in tests.items():
+        if os.path.basename(path) == 'UiTourDeviceTest.kt':
+            for name in TOUR_SCREENS:
+                if ('shot("%s' % name) not in text:
+                    find(path, 1, 'the tour takes no picture "%s"' % name)
+            if 'phone-$name-$language' not in text:
+                find(path, 1, 'the tour does not save the phone pages')
     for finding in sorted(set(findings)):
         print(finding)
     return 1 if findings else 0
