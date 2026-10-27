@@ -541,6 +541,47 @@ with it. In the full run, that test is skipped.
 emulator tests without lint baselines, the emulator tests on a phone and on an
 Android TV image. `tests/test_android_tv_manifest.sh` checks what TV launchers
 read from the built APK, including what the TrustTunnel AAR's manifest adds.
+The device tests reach into the app by name (a control's key, a private field or
+method, a string), and run half an hour into CI, so
+`tests/test_android_device_tests.sh` (`scripts/check-android-device-tests.py`) reads the
+tests and the app first, in the job that builds the app, and fails for a name one of them has
+and the other does not; that job also compiles the Kotlin tests
+(`:app:compileDebugAndroidTestKotlin`).
+
+**The UI tour.** `UiTourDeviceTest` goes through every screen of the app and saves a
+picture of each, so that the parity with the desktop is a thing to look at. One pass is a
+theme (dark, light, and dark in Russian) driven with a remote's keys, the focus put on a control and OK
+pressed on it; the phone leg also goes through it by taps in each theme (`touch-dark`,
+`touch-light`), with no focus to show. Each pass seeds three configs, sets `theme_mode` and recreates the
+activity, and visits Home (disconnected, the selector and the logo focused, the dropdown, a toast, then
+connecting, connected, disconnecting and the kill switch's blocked state with Reconnect, through a
+local server that accepts and never answers, as `VpnDeviceTest` does), the nav with a focused
+tile, Configs (the list with pings, a row, its icons, the add, export and delete menus, empty), the
+editor (new, edit, the discard question), the import question and the Replace question,
+Split (profiles and rules, after Recommended for Russia, the mode dropdown, the new profile
+field, the Through VPN notice), the app picker, Settings (the top, the theme and language
+dropdowns, the routes, the foot with the update row in each state the updater's test hooks reach), the
+licenses (list and text), Logs (on and off) and, on the TV leg only, Receive from phone, with the
+text a phone sent asked about over the card. A state it cannot reach is written to the pass's
+`index.txt` as `UNREACHABLE` and not drawn. The pages the TV serves to a phone are saved as `.html`
+in English and Russian, as they are served and with each theme forced.
+
+Pictures are taken with `UiAutomation.takeScreenshot()`, except while the window is `FLAG_SECURE`,
+which the editor makes it and which a screenshot shows black: that is drawn from the activity's own
+view into a bitmap, and the app's protection is left alone. The files go to the instrumentation
+argument `additionalTestOutputDir`, which the Android Gradle Plugin copies to
+`app/build/outputs/connected_android_test_additional_output` and CI uploads with the
+device results (`android-device-results` for the phone, `android-tv-device-results` for the
+TV); a copy is also written to `/data/local/tmp/uitour`, which the CI script pulls if Gradle
+copied nothing. Each pass folder, `uitour/<phone|tv>-<pass>/`, has `NN-name.png`,
+`index.txt` and a contact sheet, `index.html`.
+
+On every screen the tour also asserts what the parity is about, and collects the findings so that
+one does not cost the pictures after it: only the activity's own window is shown (no dialog, no
+popup, nothing of another app), no view has a foreground (a ring), and the control that has the
+focus is no wider than what it holds plus its padding, unless it is a row of a list, a field or a
+box of text, a small cell or the Home logo's tile. The pass fails at its end if there is any.
+
 Device tests exercise the real JNI adapter, TUN replacement/failure cleanup,
 encrypted storage and exported-entry boundaries.
 Their lifecycle TCP sink is not a working tunnel endpoint. Historical manual
