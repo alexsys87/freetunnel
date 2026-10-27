@@ -545,7 +545,8 @@ The device tests reach into the app by name (a control's key, a private field or
 method, a string), and run half an hour into CI, so
 `tests/test_android_device_tests.sh` (`scripts/check-android-device-tests.py`) reads the
 tests and the app first, in the job that builds the app, and fails for a name one of them has
-and the other does not; that job also compiles the Kotlin tests
+and the other does not, for an `onMain` block that runs another, for an `eventually()` without its message, and for a
+picture dropped from the tour (below); that job also compiles the Kotlin tests
 (`:app:compileDebugAndroidTestKotlin`).
 
 **The UI tour.** `UiTourDeviceTest` goes through every screen of the app and saves a
