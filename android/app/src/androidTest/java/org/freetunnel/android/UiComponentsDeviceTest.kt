@@ -16,6 +16,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -322,6 +323,128 @@ class UiComponentsDeviceTest {
                 x.imageTintList!!.getColorForState(intArrayOf(android.R.attr.state_focused), 0))
             assertEquals("Danger under the pointer", Theme.DARK.danger,
                 x.imageTintList!!.getColorForState(intArrayOf(android.R.attr.state_pressed), 0))
+        }
+    }
+
+    // Home's selector is its name and ▾ and no wider, 6 apart, in the text colour and the accent under the pointer, in Medium,
+    // never bold; with the focus the accent around them and accentText in them. Without configs it is "Add a config" alone.
+    @Test fun homesSelectorIsAsWideAsItsNameAndArrowAndFocusesAsALink() {
+        onMain {
+            val theme = Theme.DARK
+            val ui = ui()
+            val selector = measured(ui.selector("DE \u00b7 Frankfurt", true, 0, "home:config"), dp(400)) as android.view.ViewGroup
+            val name = selector.getChildAt(0) as TextView
+            val arrow = selector.getChildAt(1) as TextView
+            assertEquals("\u25be", arrow.text.toString())
+            assertEquals("The name is Medium, never bold", Ui.MEDIUM, name.typeface)
+            assertEquals(theme.text, name.textColors.defaultColor)
+            assertEquals("and the accent under the pointer", theme.accent, name.textColors.getColorForState(intArrayOf(android.R.attr.state_hovered), 0))
+            assertEquals("The arrow follows it", theme.accent, arrow.textColors.getColorForState(intArrayOf(android.R.attr.state_hovered), 0))
+            assertEquals("accentText with the focus", theme.accentText, name.textColors.getColorForState(intArrayOf(android.R.attr.state_focused), 0))
+            assertNear("As wide as the name, 6, the arrow and its own padding", name.measuredWidth + dp(6) + arrow.measuredWidth + dp(12), selector.measuredWidth, 2)
+            assertTrue("Far from the width of the screen", selector.measuredWidth < dp(300))
+            val looks = looks(selector)
+            assertEquals("It rests on the page", Color.TRANSPARENT, fill(looks["rest"]!!))
+            assertEquals("and the accent is its focus", theme.accent, fill(looks["focused"]!!))
+            // A long name is cut at the room it is given, and the arrow stays after what shows.
+            val long = measured(ui.selector("A very very very long name of a server that goes on", true, dp(120), "home:config"), dp(400)) as android.view.ViewGroup
+            assertTrue("The name takes at most the room", (long.getChildAt(0) as TextView).measuredWidth <= dp(120))
+            assertEquals(android.text.TextUtils.TruncateAt.END, (long.getChildAt(0) as TextView).ellipsize)
+            // With nothing to choose from it is the words alone.
+            val empty = ui.selector("Add a config", false, 0, "home:config")
+            assertEquals("No \u25be", 1, empty.childCount)
+        }
+    }
+
+    // A speed tile: the arrow in its colour and the number in Medium 15; a badge: 11 in Medium on infoBg, 8 in, whose text and fill
+    // follow a row's focus.
+    @Test fun aSpeedTileAndABadgeAreAsTheDesktopDrawsThem() {
+        onMain {
+            val theme = Theme.DARK
+            val ui = ui()
+            val value = arrayOfNulls<TextView>(1)
+            val tile = ui.speedTile("\u2193", theme.success, value)
+            assertEquals(theme.success, (tile.getChildAt(0) as TextView).currentTextColor)
+            assertEquals("\u2193", (tile.getChildAt(0) as TextView).text.toString())
+            assertSame(value[0], tile.getChildAt(1))
+            assertEquals("The number is Medium", Ui.MEDIUM, value[0]!!.typeface)
+            assertEquals(theme.text, value[0]!!.currentTextColor)
+            assertFalse("A tile is no control", tile.isFocusable || tile.isClickable)
+            assertEquals("It rests on the tile colour", theme.tile, fill(tile.background))
+
+            val badge = measured(ui.badge("connected", theme.success)) as TextView
+            assertEquals(Ui.MEDIUM, badge.typeface)
+            assertEquals(theme.success, badge.textColors.defaultColor)
+            assertEquals("accentText on a row's accent", theme.accentText, badge.textColors.getColorForState(intArrayOf(android.R.attr.state_focused), 0))
+            val words = Math.ceil(badge.paint.measureText("connected").toDouble()).toInt()
+            assertNear("8 in from each side", words + dp(16), badge.measuredWidth, 2)
+            val states = badge.background as StateListDrawable
+            states.setState(intArrayOf())
+            assertEquals("on infoBg", theme.infoBg, fill(states.current))
+        }
+    }
+
+    // A config row: its logo, its name taking what is left, the three icons in cells 26 wide at the right 6 from the edge, each 40 high in the
+    // 48 of the row; it rests on the page, on surface while one of its icons has the focus, and is the accent when it has it itself, with the
+    // icons on it in accentText; a close icon's cell focuses in danger.
+    @Test fun aConfigRowIsLaidOutAndLooksAsTheDesktopsDoes() {
+        onMain {
+            val theme = Theme.DARK
+            val ui = ui()
+            val row = ConfigRowView(context, ui, 1, "DE \u00b7 Frankfurt", true, "42 ms", "connected", true, "Export config", "Edit config", "Delete")
+            row.measure(MeasureSpec.makeMeasureSpec(dp(400), MeasureSpec.EXACTLY), MeasureSpec.makeMeasureSpec(dp(48), MeasureSpec.EXACTLY))
+            row.layout(0, 0, dp(400), dp(48))
+            assertEquals("config:1:select", row.tag)
+            assertEquals(dp(26), row.removeIcon.width)
+            assertEquals(dp(40), row.removeIcon.height)
+            assertNear("The icons end 6 from the edge", dp(400) - dp(6), row.removeIcon.right, 1)
+            assertEquals("side by side", row.removeIcon.left, row.editIcon.right)
+            assertEquals(row.editIcon.left, row.exportIcon.right)
+            assertTrue("The name has room", (row.getChildAt(1) as TextView).width > dp(100))
+            assertNear("The logo is 22", dp(22), row.getChildAt(0).width, 1)
+            assertEquals(listOf("config:1:export", "config:1:edit", "config:1:remove"), listOf(row.exportIcon, row.editIcon, row.removeIcon).map { it.tag })
+            assertEquals("Edit config", row.editIcon.contentDescription)
+
+            val states = row.background as StateListDrawable
+            states.setState(intArrayOf())
+            assertEquals("It rests on the page", Color.TRANSPARENT, fill(states.current))
+            states.setState(intArrayOf(android.R.attr.state_activated))
+            assertEquals("and on surface while an icon of it has the focus", theme.surface, fill(states.current))
+            states.setState(intArrayOf(android.R.attr.state_pressed))
+            assertEquals("and under the pointer", theme.surface, fill(states.current))
+            states.setState(intArrayOf(android.R.attr.state_focused))
+            assertEquals("With the focus it is the accent", theme.accent, fill(states.current))
+
+            assertEquals("An icon's cell takes the accent", theme.accent, fill(looks(row.editIcon)["focused"]!!))
+            assertEquals("and the close icon's takes danger", theme.danger, fill(looks(row.removeIcon)["focused"]!!))
+            val tint = (row.editIcon.getChildAt(0) as android.widget.ImageView).imageTintList!!
+            assertEquals("An icon is textDim", theme.textDim, tint.defaultColor)
+            assertEquals("the text colour under the pointer", theme.text, tint.getColorForState(intArrayOf(android.R.attr.state_pressed), 0))
+            assertEquals("accentText on its accent cell", theme.accentText, tint.getColorForState(intArrayOf(android.R.attr.state_focused), 0))
+            assertEquals("and on the row's accent", theme.accentText, tint.getColorForState(intArrayOf(android.R.attr.state_selected), 0))
+            val close = (row.removeIcon.getChildAt(0) as android.widget.ImageView).imageTintList!!
+            assertEquals("The close icon turns danger under the pointer", theme.danger, close.getColorForState(intArrayOf(android.R.attr.state_pressed), 0))
+            assertEquals("and white on its danger cell", theme.onDanger, close.getColorForState(intArrayOf(android.R.attr.state_focused), 0))
+
+            // A row without a ping or a badge has neither, and the name takes the room.
+            val plain = ConfigRowView(context, ui, 0, "Name", false, null, null, false, "Export config", "Edit config", "Delete")
+            assertEquals("logo, name and three icons", 5, plain.childCount)
+            assertEquals("The other configs' logo is dim", 0.4f, plain.getChildAt(0).alpha, 0.001f)
+        }
+    }
+
+    // The logo as a control has the nav tile's proportions at 132, and the accent for its focus, and nothing else.
+    @Test fun theLogoControlFocusesInTheAccentOnAWideRadius() {
+        onMain {
+            val theme = Theme.DARK
+            val box = FrameLayout(context)
+            ui().focus(box, "home:toggle", Ui.Look.HERO)
+            val looks = looks(box)
+            assertEquals("It rests on the page", Color.TRANSPARENT, fill(looks["rest"]!!))
+            assertEquals("and the accent is its focus", theme.accent, fill(looks["focused"]!!))
+            assertEquals("with no hover of its own", Color.TRANSPARENT, fill(looks["pressed"]!!))
+            assertEquals(dp(28).toFloat(), (looks["focused"] as GradientDrawable).cornerRadius, 0.5f)
+            assertNull("A remote's focus is its background", box.foreground)
         }
     }
 }

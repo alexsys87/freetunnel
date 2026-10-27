@@ -3,6 +3,7 @@ package org.freetunnel.android
 import android.app.Activity
 import android.app.Instrumentation
 import android.content.ActivityNotFoundException
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
@@ -253,6 +254,8 @@ class TvDeviceTest {
                 assertEquals("$name: a box of text at rest", theme.surface, look.restEdge)
             }
             Regex("(domain|app):\\d+").matches(key) -> assertEquals("$name: a ChipX focuses in danger", theme.danger, look.focusedFill)
+            // The close icon of a config row, as the desktop's turns danger under the pointer.
+            Regex("config:\\d+:remove").matches(key) -> assertEquals("$name: the close icon focuses in danger", theme.danger, look.focusedFill)
             // The red button, whichever confirmation it answers.
             key == "confirm:ok" -> assertEquals("$name: the red button focuses in danger", theme.danger, look.focusedFill)
             else -> assertEquals("$name: the focus is the accent", theme.accent, look.focusedFill)
@@ -314,7 +317,7 @@ class TvDeviceTest {
         leaveTouchMode(a)
         render(a, 0)
         onMain {
-            val selector = root(a).findViewWithTag<TextView>("home:config")
+            val selector = root(a).findViewWithTag<View>("home:config")
             assertTrue("The selector is ${selector.width} wide on a ${root(a).width} wide screen", selector.width < root(a).width / 2)
         }
         var links = 0
@@ -374,13 +377,515 @@ class TvDeviceTest {
         eventually("then Connect") { focusedKey(a) == "home:toggle" }
         render(a, 2)
         eventually("and the page's tab elsewhere") { focusedKey(a) == "tab:2" }
-        // A remote's keys.
+        // A remote's keys: Right from a row reaches its icons one after another, Left comes back, and Down is the next row.
         render(a, 1)
         focusOn(a, "config:0:select")
         instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_RIGHT)
-        eventually("Right from Select") { focusedKey(a) == "config:0:edit" }
+        eventually("Right from a row reaches its export icon") { focusedKey(a) == "config:0:export" }
+        instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_RIGHT)
+        eventually("then edit") { focusedKey(a) == "config:0:edit" }
+        instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_RIGHT)
+        eventually("then remove") { focusedKey(a) == "config:0:remove" }
+        instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_LEFT)
+        instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_LEFT)
+        instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_LEFT)
+        eventually("Left three times is back on the row") { focusedKey(a) == "config:0:select" }
         instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_DOWN)
-        eventually("Down to the next configuration") { focusedKey(a) == "config:1:edit" }
+        eventually("Down from a row to the next row") { focusedKey(a) == "config:1:select" }
+    }
+
+    // ---- Home: the desktop's. The logo is the control, with the line, the selector, + and the speed tiles ----
+
+    private fun hero(a: MainActivity) = field("hero").get(a) as HeroMotion
+    // Home as it is for a state of the VPN; stopping is the time between Disconnect and the service saying it is off.
+    private fun vpnShows(a: MainActivity, state: Int, stopping: Boolean = false, page: Int = 0) {
+        serviceState(state)
+        onMain { field("vpnState").setInt(a, state); field("stopping").setBoolean(a, stopping) }
+        render(a, page)
+    }
+    private fun statusLine(a: MainActivity): TextView = onMain { root(a).findViewWithTag<TextView>("home:status") }
+    private fun logoOf(a: MainActivity): ImageView = onMain { (root(a).findViewWithTag<ViewGroup>("home:toggle")).getChildAt(0) as ImageView }
+    private fun selectorName(a: MainActivity): String = onMain { (root(a).findViewWithTag<ViewGroup>("home:config").getChildAt(0) as TextView).text.toString() }
+    private fun near(expected: Float, actual: Float, delta: Float = 0.02f) = Math.abs(expected - actual) <= delta
+    private fun dp(a: MainActivity, n: Float) = n * a.resources.displayMetrics.density
+    private fun topOf(view: View): Int = IntArray(2).also { view.getLocationInWindow(it) }[1]
+
+    @Test fun theLogoIsHomesControlAndNothingElseOnItIsAButtonOrAWordForTheState() {
+        val a = open()
+        leaveTouchMode(a)
+        render(a, 0)
+        eventually("The logo has the first focus") { focusedKey(a) == "home:toggle" }
+        onMain {
+            val logo = root(a).findViewWithTag<View>("home:toggle")
+            assertTrue("The logo is a control", logo.isFocusable && logo.isClickable)
+            assertEquals("132 across", Math.round(dp(a, 132f)), logo.width)
+            assertEquals("and as high", logo.width, logo.height)
+            assertFalse("The logo is no Button", logo is Button)
+            assertEquals(context.getString(R.string.text_connect_freetunnel), logo.contentDescription)
+            val words = descendants(pageRoot(a)).filterIsInstance<TextView>().map { it.text.toString() }
+            for (word in listOf("Connect", "Disconnect", "Connected", "Disconnected", "Подключить", "Отключить", "Подключено", "Отключено"))
+                assertFalse("\"$word\" is on Home", word in words)
+            assertEquals("Only the tabs, the logo, the selector and its + are controls", setOf("tab:0", "tab:1", "tab:2", "tab:3", "tab:4", "home:toggle", "home:config", "home:add"),
+                descendants(pageRoot(a)).filter { it.isFocusable }.mapNotNull { it.tag as? String }.toSet())
+        }
+        // + and the selector with a config lead to the add menu and the dropdown.
+        click(a, "home:add")
+        eventually("+ opens Configs with the add menu") { onMain { field("page").getInt(a) } == 1 && overlayTag(a, "addmenu") != null }
+    }
+
+    @Test fun withNoConfigsTheSelectorAndTheLogoLeadToTheAddMenu() {
+        seed(0)
+        val a = open()
+        render(a, 0)
+        onMain {
+            val selector = root(a).findViewWithTag<ViewGroup>("home:config")
+            assertEquals(context.getString(R.string.text_add_configuration), (selector.getChildAt(0) as TextView).text.toString())
+            assertEquals("It has no ▾", 1, selector.childCount)
+            assertNull("and no +", root(a).findViewWithTag<View?>("home:add"))
+        }
+        click(a, "home:toggle")
+        eventually("The logo opens Configs with its add menu") { onMain { field("page").getInt(a) } == 1 && overlayTag(a, "addmenu") != null }
+        assertNull("Configs has no ping with nothing to ping", onMain { root(a).findViewWithTag<View?>("configs:ping") })
+        assertEquals("The words in the middle of the page are hidden under their own menu", View.INVISIBLE,
+            onMain { root(a).findViewWithTag<View>("configs:hint").visibility })
+        instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
+        eventually("Back closes the menu") { overlayTag(a, "addmenu") == null }
+        assertEquals("and shows them again", View.VISIBLE, onMain { root(a).findViewWithTag<View>("configs:hint").visibility })
+        render(a, 0)
+        click(a, "home:config")
+        eventually("The words on Home lead there as well") { onMain { field("page").getInt(a) } == 1 && overlayTag(a, "addmenu") != null }
+    }
+
+    // The logo's opacity and the line under it are the state's: nothing off, Connecting…, the time, why traffic is blocked with Reconnect
+    // under it, and Disconnecting…
+    @Test fun theLogoAndTheLineUnderItFollowTheStateOfTheVpn() {
+        val a = open()
+        val theme = theme(a)
+        vpnShows(a, 0)
+        assertEquals("Nothing under the logo while it is off", "", statusLine(a).text.toString())
+        eventually("and it is dim") { near(0.5f, logoOf(a).alpha) }
+        assertTrue(near(0f, statusLine(a).alpha))
+        for (state in listOf(1, 3, 4, 5)) {
+            vpnShows(a, state)
+            assertEquals("State $state", context.getString(R.string.text_connecting), statusLine(a).text.toString())
+            assertEquals(theme.textDim, statusLine(a).currentTextColor)
+            eventually("State $state is 0.7") { near(0.7f, logoOf(a).alpha) && near(1f, statusLine(a).alpha) }
+        }
+        // Up: the time since the service said it was connected, in the desktop's form, and the logo at full strength.
+        val started = FreeTunnelVpnService::class.java.getDeclaredField("sessionStartedAt").apply { isAccessible = true }
+        started.setLong(null, SystemClock.elapsedRealtime() - 65_000)
+        try {
+            vpnShows(a, 2)
+            assertTrue("The time is HH:MM:SS: " + statusLine(a).text, Regex("00:01:0[5-9]").matches(statusLine(a).text))
+        } finally {
+            started.setLong(null, 0L)
+        }
+        eventually("Connected is 1.0") { near(1f, logoOf(a).alpha) }
+        // While traffic is blocked: why, in warn, and Reconnect, a Button, under it.
+        vpnShows(a, 6)
+        assertEquals(context.getString(R.string.vpn_traffic_blocked), statusLine(a).text.toString())
+        assertEquals(theme.warn, statusLine(a).currentTextColor)
+        assertTrue(onMain { root(a).findViewWithTag<View>("home:reconnect") is Button })
+        eventually("Blocked is 0.7") { near(0.7f, logoOf(a).alpha) }
+        // From Disconnect until the service says it is off.
+        vpnShows(a, 2, stopping = true)
+        assertEquals(context.getString(R.string.text_disconnecting), statusLine(a).text.toString())
+        eventually("Disconnecting is 0.7") { near(0.7f, logoOf(a).alpha) }
+        assertNull("There is no Reconnect then", onMain { root(a).findViewWithTag<View?>("home:reconnect") })
+    }
+
+    // The logo rises when a session starts and the line takes its room over the same 280 ms; with none it sits 12 lower.
+    @Test fun theLogoSitsTwelveLowerWithNoSessionAndRisesWhenOneStarts() {
+        val a = open()
+        vpnShows(a, 0)
+        val down = Math.round(dp(a, 12f)).toFloat()
+        eventually("Idle, 12 lower") { near(down, onMain { root(a).findViewWithTag<View>("home:toggle").translationY }, 1f) }
+        assertEquals("No room under it", 0, onMain { hero(a).roomNow() })
+        vpnShows(a, 1)
+        eventually("It rises to its place") { near(0f, onMain { root(a).findViewWithTag<View>("home:toggle").translationY }, 1f) }
+        eventually("and the line has its room") { onMain { hero(a).roomNow() } > Math.round(dp(a, 20f)) }
+        vpnShows(a, 0)
+        eventually("It sinks back when the session ends") { near(down, onMain { root(a).findViewWithTag<View>("home:toggle").translationY }, 1f) }
+        eventually("and the line gives its room back") { onMain { hero(a).roomNow() } == 0 }
+    }
+
+    // While connecting or disconnecting it swings between 0.97 and 1.05 and comes back to 1.0 when that ends.
+    @Test fun theLogoPulsesWhileConnectingAndSettlesWhenItStops() {
+        val a = open()
+        vpnShows(a, 1)
+        eventually("It pulses while connecting") { onMain { hero(a).isPulsing } }
+        val scales = ArrayList<Float>()
+        val deadline = SystemClock.elapsedRealtime() + 3_000
+        while (SystemClock.elapsedRealtime() < deadline) { scales.add(onMain { hero(a).scaleNow() }); SystemClock.sleep(50) }
+        assertTrue("Never beyond its swing: $scales", scales.all { it in 0.965f..1.055f })
+        assertTrue("It goes up to 1.05: $scales", scales.maxOrNull()!! > 1.035f)
+        assertTrue("and down to 0.97: $scales", scales.minOrNull()!! < 0.985f)
+        // A render() of the same state does not start it again from the beginning.
+        render(a, 0)
+        assertTrue(onMain { hero(a).isPulsing })
+        vpnShows(a, 2)
+        eventually("It settles to 1.0 when connected") { onMain { !hero(a).isPulsing && near(1f, hero(a).scaleNow(), 0.005f) } }
+        vpnShows(a, 2, stopping = true)
+        eventually("and pulses again while disconnecting") { onMain { hero(a).isPulsing } }
+        vpnShows(a, 0)
+        eventually("and settles when it is off") { onMain { !hero(a).isPulsing && near(1f, hero(a).scaleNow(), 0.005f) } }
+    }
+
+    // OK on a remote shrinks the logo to 0.96 while it is down; the click is Connect, which is held back here, before the VPN consent.
+    @Test fun aPressShrinksTheLogoAndItsClickConnects() {
+        val a = open()
+        leaveTouchMode(a)
+        render(a, 0)
+        focusOn(a, "home:toggle")
+        // Nothing a click starts gets as far as asking for the VPN: its check waits behind this, and is dropped, as a newer check
+        // would drop it, before it can run on.
+        val gate = java.util.concurrent.CountDownLatch(1)
+        (field("validationWorker").get(a) as ExecutorService).execute { gate.await() }
+        fun requests() = onMain { field("validationRequest").getLong(a) }
+        fun dropWhatWasAsked() = onMain { field("validationRequest").setLong(a, field("validationRequest").getLong(a) + 1) }
+        val before = requests()
+        try {
+            instrumentation.sendKeySync(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_CENTER))
+            eventually("OK presses the logo to 0.96") { near(0.96f, onMain { hero(a).scaleNow() }, 0.01f) }
+            instrumentation.sendKeySync(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_DPAD_CENTER))
+            eventually("and it comes back when OK is let go") { near(1f, onMain { hero(a).scaleNow() }, 0.01f) }
+            eventually("The click connects: a check of the config begins") { requests() > before }
+            dropWhatWasAsked()
+            // A double tap counts once: the second is not a second toggle.
+            SystemClock.sleep(500)
+            val asked = requests()
+            click(a, "home:toggle")
+            click(a, "home:toggle")
+            assertEquals("Two clicks together are one", asked + 1, requests())
+            dropWhatWasAsked()
+        } finally {
+            gate.countDown()
+        }
+    }
+
+    // The line under the logo and the speeds change once a second without the page being built again, so the focus stays where it is.
+    @Test fun theTimerTicksWithoutRebuildingThePage() {
+        val a = open()
+        leaveTouchMode(a)
+        val started = FreeTunnelVpnService::class.java.getDeclaredField("sessionStartedAt").apply { isAccessible = true }
+        started.setLong(null, SystemClock.elapsedRealtime() - 1_000)
+        try {
+            vpnShows(a, 2)
+            focusOn(a, "home:config")
+            val before = onMain { root(a).findViewWithTag<View>("home:config") }
+            val first = statusLine(a).text.toString()
+            eventually("The time moves on", 5_000) { statusLine(a).text.toString() != first }
+            SystemClock.sleep(1_500)
+            assertSame("The page is not built again for it", before, onMain { root(a).findViewWithTag<View>("home:config") })
+            assertEquals("and the focus stays", "home:config", focusedKey(a))
+            // The two tiles are not controls, and say MB/s.
+            onMain {
+                val tiles = descendants(pageRoot(a)).filterIsInstance<TextView>().filter { it.text.endsWith(context.getString(R.string.text_mb_per_s)) }
+                assertEquals(2, tiles.size)
+                for (tile in tiles) {
+                    assertTrue("\"${tile.text}\" is a number with one decimal", Regex("\\d+\\.\\d MB/s|\\d+\\.\\d МБ/с").matches(tile.text))
+                    val box = tile.parent as View
+                    assertFalse("A speed tile is no control", box.isFocusable || box.isClickable)
+                    assertEquals("116 by 44", Math.round(dp(a, 116f)), box.width)
+                    assertEquals(Math.round(dp(a, 44f)), box.height)
+                }
+                val arrows = descendants(pageRoot(a)).filterIsInstance<TextView>().filter { it.text.toString() == "↓" || it.text.toString() == "↑" }
+                assertEquals(listOf(theme(a).success, theme(a).textDim), arrows.sortedBy { it.text.toString() }.reversed().map { it.currentTextColor })
+            }
+        } finally {
+            started.setLong(null, 0L)
+        }
+    }
+
+    // Home's server choice: a dropdown right on Home, under the selector, with the selected config in accent and the first focus.
+    // A row selects it and closes the dropdown, and the page is still Home.
+    @Test fun aRemoteChoosesAServerOnHomeWithoutLeavingThePage() {
+        val a = open()
+        leaveTouchMode(a)
+        render(a, 0)
+        focusOn(a, "home:config")
+        instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_CENTER)
+        eventually("OK opens the dropdown right on Home") { overlayTag(a, "homepicker") != null }
+        assertEquals("The page is still Home", 0, onMain { field("page").getInt(a) })
+        eventually("The selected config has the focus") { focusedKey(a) == "home:pick:0" }
+        instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_DOWN)
+        eventually("Down reaches the next config") { focusedKey(a) == "home:pick:1" }
+        instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_CENTER)
+        eventually("A pick closes the dropdown") { overlayTag(a, "homepicker") == null }
+        assertEquals(0, onMain { field("page").getInt(a) })
+        assertEquals("The pick is the selected config", 1, onMain { field("activeIndex").getInt(a) })
+        assertEquals("and it is saved", 1, prefs.getInt("active", 0))
+        eventually("The selector says so") { selectorName(a) == "Profile 1" }
+        eventually("The focus is back on the selector") { focusedKey(a) == "home:config" }
+        // The one that is selected already does nothing.
+        click(a, "home:config")
+        eventually { overlayTag(a, "homepicker") != null }
+        val requests = onMain { field("validationRequest").getLong(a) }
+        click(a, "home:pick:1")
+        eventually("It closes") { overlayTag(a, "homepicker") == null }
+        assertEquals("and changes nothing", requests, onMain { field("validationRequest").getLong(a) })
+    }
+
+    // Back closes the dropdown before anything else: it stays on Home, and in the app; so does a tap outside it.
+    @Test fun backAndATapOutsideCloseTheHomeDropdownFirst() {
+        val a = open()
+        render(a, 0)
+        click(a, "home:config")
+        eventually { overlayTag(a, "homepicker") != null }
+        instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
+        eventually("Back closes it") { overlayTag(a, "homepicker") == null }
+        assertFalse("and does not leave the app", onMain { a.isFinishing })
+        assertEquals(0, onMain { field("page").getInt(a) })
+        click(a, "home:config")
+        eventually { overlayTag(a, "homepicker") != null }
+        // The backdrop is what a tap outside lands on.
+        val layer = overlayTag(a, "homepicker") as ViewGroup
+        onMain { assertTrue(layer.getChildAt(0).performClick()) }
+        eventually("A tap outside closes it") { overlayTag(a, "homepicker") == null }
+        // And a page that is no longer Home takes it away.
+        click(a, "home:config")
+        eventually { overlayTag(a, "homepicker") != null }
+        render(a, 3)
+        eventually("Another page closes it") { overlayTag(a, "homepicker") == null }
+    }
+
+    // As wide as the widest name at 14 plus 30 (140 at least), a row of 40 for each, three showing, under the selector 6 down and
+    // centred on it, the selected one in accent.
+    @Test fun theHomeDropdownIsPlacedAndSizedAsTheDesktopsIs() {
+        seed(5)
+        val a = open()
+        render(a, 0)
+        click(a, "home:config")
+        eventually { overlayTag(a, "homepicker") != null }
+        instrumentation.waitForIdleSync()
+        onMain {
+            val layer = root(a).findViewWithTag<ViewGroup>("overlay:homepicker")
+            val panel = layer.getChildAt(1)
+            val selector = root(a).findViewWithTag<View>("home:config")
+            val rows = descendants(panel).filter { (it.tag as? String)?.startsWith("home:pick:") == true }.toList()
+            assertEquals("A row for each config", 5, rows.size)
+            for (row in rows) assertTrue("A row is 40 high", Math.abs(row.height - dp(a, 40f)) <= 1.5f)
+            assertTrue("Three rows show: ${panel.height}", Math.abs(panel.height - dp(a, 3 * 40f + 10f)) <= 3f)
+            assertTrue("140 across for short names: ${panel.width}", Math.abs(panel.width - dp(a, 140f)) <= 3f)
+            assertTrue("Under the selector, 6 down", Math.abs((topOf(panel) - (topOf(selector) + selector.height)) - dp(a, 6f)) <= 3f)
+            val panelAt = IntArray(2).also { panel.getLocationInWindow(it) }
+            val selectorAt = IntArray(2).also { selector.getLocationInWindow(it) }
+            assertTrue("Centred on it", Math.abs((panelAt[0] + panel.width / 2f) - (selectorAt[0] + selector.width / 2f)) <= 3f)
+            val colors = rows.map { ((it as ViewGroup).getChildAt(0) as TextView).textColors.defaultColor }
+            assertEquals("The selected one is accent, the others the text colour", listOf(theme(a).accent) + List(4) { theme(a).text }, colors)
+        }
+    }
+
+    // The toast on Home sits in the middle of the gap between the selector and the speed tiles.
+    @Test fun aToastOnHomeSitsBetweenTheSelectorAndTheSpeedTiles() {
+        val a = open()
+        render(a, 0)
+        onMain { method("showToast", CharSequence::class.java).invoke(a, "Config added: Profile 1") }
+        instrumentation.waitForIdleSync()
+        eventually("The toast lies in the gap, in the middle of it") {
+            onMain {
+                val toast = (field("toastLayer").get(a) as ViewGroup).getChildAt(0)
+                val selector = root(a).findViewWithTag<View>("home:config")
+                val tiles = field("homeSpeedRow").get(a) as View
+                val above = topOf(toast) - (topOf(selector) + selector.height)
+                val below = topOf(tiles) - (topOf(toast) + toast.height)
+                toast.height > 0 && above >= 0 && below >= 0 && Math.abs(above - below) <= dp(a, 4f)
+            }
+        }
+    }
+
+    // ---- Configs: rows, with icons for what the desktop's have icons for ----
+
+    private fun rowTexts(a: MainActivity, index: Int): List<String> = onMain {
+        val row = root(a).findViewWithTag<ViewGroup>("config:$index:select")
+        (0 until row.childCount).map { row.getChildAt(it) }.filterIsInstance<TextView>().map { it.text.toString() }
+    }
+    private fun pingOf(a: MainActivity, index: Int): String =
+        rowTexts(a, index).firstOrNull { it == "…" || it == "—" || Regex("\\d+ \\S+").matches(it) } ?: ""
+
+    @Test fun aConfigRowHasIconsAndNoTextButtons() {
+        val a = open()
+        render(a, 1)
+        onMain {
+            val words = descendants(pageRoot(a)).filterIsInstance<TextView>().map { it.text.toString() }
+            for (word in listOf("Select", "Edit", "✕", "●  selected", "TrustTunnel  ·  TOML", "Выбрать", "Изменить"))
+                assertFalse("\"$word\" is on Configs", word in words)
+            assertTrue("No Button on the page", descendants(pageRoot(a)).none { it is Button })
+            val row0 = root(a).findViewWithTag<ViewGroup>("config:0:select")
+            val row1 = root(a).findViewWithTag<ViewGroup>("config:1:select")
+            assertTrue("The row is 48 high", Math.abs(row0.height - dp(a, 48f)) <= 1.5f)
+            assertTrue("and the next is 56 down", Math.abs((topOf(row1) - topOf(row0)) - dp(a, 56f)) <= 1.5f)
+            // Its logo is whole for the selected config and at 0.4 for the others; its name is Medium for the selected one.
+            assertTrue(near(1f, (row0.getChildAt(0) as ImageView).alpha))
+            assertTrue(near(0.4f, (row1.getChildAt(0) as ImageView).alpha))
+            assertSame(Ui.MEDIUM, (row0.getChildAt(1) as TextView).typeface)
+            assertNotSame(Ui.MEDIUM, (row1.getChildAt(1) as TextView).typeface)
+            // The three icons, 26 wide each.
+            for (kind in listOf("export", "edit", "remove")) {
+                val icon = root(a).findViewWithTag<View>("config:0:$kind")
+                assertTrue("The $kind icon is a control", icon.isFocusable && icon.isClickable)
+                assertTrue("26 wide: ${icon.width}", Math.abs(icon.width - dp(a, 26f)) <= 1.5f)
+            }
+        }
+    }
+
+    // A row rests on surface while one of its icons has the focus, and the icon's cell takes the accent (danger for close); with
+    // the row itself focused it is the accent and what it holds sits on it.
+    @Test fun aFocusedIconSitsOnAnActivatedRowAndAFocusedRowIsAccent() {
+        val a = open()
+        leaveTouchMode(a)
+        render(a, 1)
+        val theme = theme(a)
+        focusOn(a, "config:1:edit")
+        onMain {
+            val row = root(a).findViewWithTag<View>("config:1:select")
+            assertTrue("The row is activated while its icon has the focus", row.isActivated)
+            assertEquals("and rests on surface", theme.surface, fillOf((row.background as StateListDrawable).current))
+            assertEquals("The icon's cell is the accent", theme.accent, fillOf((root(a).findViewWithTag<View>("config:1:edit").background as StateListDrawable).current))
+        }
+        focusOn(a, "config:1:remove")
+        onMain {
+            assertEquals("Close is danger", theme.danger, fillOf((root(a).findViewWithTag<View>("config:1:remove").background as StateListDrawable).current))
+        }
+        focusOn(a, "config:1:select")
+        onMain {
+            val row = root(a).findViewWithTag<View>("config:1:select")
+            assertFalse(row.isActivated)
+            assertEquals("A focused row is the accent", theme.accent, fillOf((row.background as StateListDrawable).current))
+            for (kind in listOf("export", "edit", "remove")) assertTrue("$kind sits on the accent", root(a).findViewWithTag<View>("config:1:$kind").isSelected)
+        }
+        focusOn(a, "config:0:select")
+        onMain { assertFalse("and not once the focus has moved", root(a).findViewWithTag<View>("config:1:export").isSelected) }
+    }
+
+    // The selected config's badge: connected, or connecting… for every state on the way, in the same pill; not while disconnecting.
+    @Test fun theBadgeIsOnTheSelectedConfigWhileItIsConnectedOrConnecting() {
+        val a = open()
+        val theme = theme(a)
+        val connected = context.getString(R.string.config_badge_connected)
+        val connecting = context.getString(R.string.config_badge_connecting)
+        fun badges(index: Int) = rowTexts(a, index).filter { it == connected || it == connecting }
+        vpnShows(a, 0, page = 1)
+        assertEquals(emptyList<String>(), badges(0))
+        vpnShows(a, 2, page = 1)
+        assertEquals(listOf(connected), badges(0))
+        assertEquals("Only on the selected one", emptyList<String>(), badges(1))
+        onMain {
+            val badge = descendants(root(a).findViewWithTag<View>("config:0:select")).filterIsInstance<TextView>().first { it.text.toString() == connected }
+            assertEquals(theme.success, badge.textColors.defaultColor)
+            assertTrue("A pill 20 high", Math.abs(badge.height - dp(a, 20f)) <= 1.5f)
+        }
+        for (state in listOf(1, 3, 4, 5, 6)) {
+            vpnShows(a, state, page = 1)
+            assertEquals("State $state", listOf(connecting), badges(0))
+        }
+        onMain {
+            val badge = descendants(root(a).findViewWithTag<View>("config:0:select")).filterIsInstance<TextView>().first { it.text.toString() == connecting }
+            assertEquals(theme.textDim, badge.textColors.defaultColor)
+        }
+        vpnShows(a, 2, stopping = true, page = 1)
+        assertEquals("Gone while it disconnects", emptyList<String>(), badges(0))
+    }
+
+    // The export icon opens a menu under it with the two ways out, without a check mark; the link goes to the clipboard, the notice says
+    // it holds the password, and the link is the config's own. Without a screen to save to, the file says so.
+    @Test fun theExportIconOffersAFileAndALinkAndTheLinkIsTheConfigs() {
+        val a = open()
+        render(a, 1)
+        click(a, "config:0:export")
+        eventually("The export menu opens") { overlayTag(a, "select") != null }
+        val menu = overlayTag(a, "select")!!
+        val texts = onMain { descendants(menu).filterIsInstance<TextView>().map { it.text.toString() } }
+        assertEquals("Two rows, and no check mark", listOf(context.getString(R.string.export_toml), context.getString(R.string.export_deep_link)), texts)
+        click(a, "select:1")
+        eventually("The menu closes") { overlayTag(a, "select") == null }
+        eventually("The notice says the link holds the password") { context.getString(R.string.deep_link_copied) in toastTexts(a) }
+        fun clip(): String? = onMain {
+            (a.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).primaryClip?.getItemAt(0)?.text?.toString()
+        }
+        eventually("The clipboard holds a link") { clip()?.startsWith("tt://?") == true }
+        val imported = DeepLinkImport.parse(clip()!!)
+        assertEquals("Profile 0", imported.name)
+        assertTrue(imported.toml, imported.toml.contains("hostname = \"vpn.invalid\"") && imported.toml.contains("password = \"test\""))
+        if (android.os.Build.VERSION.SDK_INT >= 33) {
+            val clipboard = a.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            assertTrue("Marked as sensitive, so a keyboard's history leaves it out",
+                onMain { clipboard.primaryClip?.description?.extras?.getBoolean(android.content.ClipDescription.EXTRA_IS_SENSITIVE) == true })
+        }
+        // The file: a phone's screen to save to is not driven from here; a TV without one says so.
+        val picker = context.packageManager.resolveActivity(Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE)
+            .setType("application/octet-stream"), 0)
+        if (picker == null) {
+            click(a, "config:0:export")
+            eventually { overlayTag(a, "select") != null }
+            click(a, "select:0")
+            eventually("With no screen to save to, it says so") { context.getString(R.string.export_no_picker) in toastTexts(a) }
+        }
+    }
+
+    // The probes run side by side, held back here so that "…" can be seen: "…" while pending, then the time or a dash for any failure.
+    @Test fun theProbesShowPendingThenTheTimeOrADash() {
+        val up = java.net.ServerSocket(0, 1, java.net.InetAddress.getLoopbackAddress())
+        val closedPort = java.net.ServerSocket(0, 1, java.net.InetAddress.getLoopbackAddress()).use { it.localPort }
+        try {
+            val profiles = org.json.JSONArray()
+            profiles.put(org.json.JSONObject().put("name", "Up").put("toml", source.replace("192.0.2.1:443", "127.0.0.1:${up.localPort}")))
+            profiles.put(org.json.JSONObject().put("name", "Down").put("toml", source.replace("192.0.2.1:443", "127.0.0.1:$closedPort")))
+            assertTrue(ConfigStore.write(prefs, profiles.toString()))
+            val a = open()
+            render(a, 1)
+            assertEquals("Nothing is known yet", listOf("", ""), listOf(pingOf(a, 0), pingOf(a, 1)))
+            val gate = java.util.concurrent.CountDownLatch(1)
+            val pool = field("pingWorker").get(a) as ExecutorService
+            repeat(4) { pool.execute { gate.await() } }
+            click(a, "configs:ping")
+            assertEquals("Pending while it is waiting", listOf("…", "…"), listOf(pingOf(a, 0), pingOf(a, 1)))
+            gate.countDown()
+            eventually("Both answer") { pingOf(a, 0) != "…" && pingOf(a, 1) != "…" }
+            assertTrue("A time: " + pingOf(a, 0), Regex("\\d+ (ms|мс)").matches(pingOf(a, 0)))
+            assertEquals("A dash for a refusal", "—", pingOf(a, 1))
+        } finally {
+            up.close()
+        }
+    }
+
+    // On a phone a row is moved by pressing and holding it, then dragging: it lands in the slot it was dropped on, the order is saved, and the
+    // selection stays on the same config.
+    @Test fun aPhoneReordersARowByPressingAndDragging() {
+        assumeFalse("A TV has no finger, and the desktop has no keys to move a row", isTv)
+        seed(3)
+        val a = open()
+        render(a, 1)
+        val row = byKey(a, "config:0:select")
+        val at = IntArray(2)
+        onMain { row.getLocationOnScreen(at) }
+        val x = at[0] + row.width / 3f
+        val y = at[1] + row.height / 2f
+        val pitch = onMain { Math.round(56 * a.resources.displayMetrics.density) }
+        val down = SystemClock.uptimeMillis()
+        fun send(action: Int, atY: Float) {
+            instrumentation.sendPointerSync(MotionEvent.obtain(down, SystemClock.uptimeMillis(), action, x, atY, 0))
+        }
+        send(MotionEvent.ACTION_DOWN, y)
+        SystemClock.sleep(android.view.ViewConfiguration.getLongPressTimeout() + 400L)
+        for (step in 1..8) { send(MotionEvent.ACTION_MOVE, y + 2f * pitch * step / 8f); SystemClock.sleep(30) }
+        send(MotionEvent.ACTION_UP, y + 2f * pitch)
+        eventually("The row lands in the slot it was dropped on, and it is saved") { saved().map { it.getString("name") } == listOf("Profile 1", "Profile 2", "Profile 0") }
+        assertEquals("The selection is on the same config", 2, onMain { field("activeIndex").getInt(a) })
+        eventually("and the page shows it") { rowTexts(a, 2).contains("Profile 0") }
+    }
+
+    // A tap on a row selects it, and the page stays where it is; the one selected already does nothing.
+    @Test fun aTapOnARowSelectsItWithoutLeavingThePage() {
+        val a = open()
+        render(a, 1)
+        click(a, "config:1:select")
+        assertEquals("The selected config", 1, onMain { field("activeIndex").getInt(a) })
+        assertEquals("is saved", 1, prefs.getInt("active", 0))
+        assertEquals("on the same page", 1, onMain { field("page").getInt(a) })
+        val requests = onMain { field("validationRequest").getLong(a) }
+        click(a, "config:1:select")
+        assertEquals("Selecting the selected one does nothing", requests, onMain { field("validationRequest").getLong(a) })
     }
 
     @SdkSuppress(minSdkVersion = 29)
@@ -413,9 +918,9 @@ class TvDeviceTest {
         // A VPN state broadcast rebuilds Home.
         render(a, 0)
         focusOn(a, "home:config")
-        val before = onMain { root(a) }
+        val before = onMain { root(a).findViewWithTag<View>("home:config") }
         context.sendBroadcast(Intent(FreeTunnelVpnService.ACTION_STATE).setPackage(context.packageName))
-        eventually("The broadcast must rebuild Home") { onMain { root(a) } !== before }
+        eventually("The broadcast must rebuild Home") { onMain { root(a).findViewWithTag<View>("home:config") } !== before }
         eventually("The focus must stay") { focusedKey(a) == "home:config" }
     }
 

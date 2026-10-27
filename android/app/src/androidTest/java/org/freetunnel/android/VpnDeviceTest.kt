@@ -366,6 +366,37 @@ class VpnDeviceTest {
         assertNull(serviceOwner())
     }
 
+    // The time Home shows under the logo counts from when the connection last became connected: nothing before the first 2, a repeated 2 changes
+    // nothing, the next 2 after the core recovered starts again, as the desktop restarts its timer, and a stop clears it.
+    @Test fun theSessionStartIsWhenTheConnectionLastCameUp() = withSink { config ->
+        assertEquals("No session before a connection", 0L, FreeTunnelVpnService.sessionStart())
+        FreeTunnelVpnService.start(context, config)
+        eventually { network() != null && nativeClient() != null }
+        awaitWorker()
+        val first = nativeClient()!!
+        assertEquals("Connecting is no session", 0L, FreeTunnelVpnService.sessionStart())
+        val before = SystemClock.elapsedRealtime()
+        reportConnected(first)
+        val started = FreeTunnelVpnService.sessionStart()
+        assertTrue("A 2 starts it: $started after $before", started >= before && started <= SystemClock.elapsedRealtime())
+        // The same 2 again is not a new connection.
+        SystemClock.sleep(50)
+        inject(first, 2)
+        awaitWorker()
+        assertEquals(started, FreeTunnelVpnService.sessionStart())
+        // The core recovering is not connected; its next 2 is a new connection.
+        inject(first, 3)
+        awaitWorker()
+        assertEquals("Recovering is not a session", 0L, FreeTunnelVpnService.sessionStart())
+        SystemClock.sleep(20)
+        inject(first, 2)
+        awaitWorker()
+        assertTrue("A new 2 starts it again", FreeTunnelVpnService.sessionStart() > started)
+        FreeTunnelVpnService.stop(context)
+        eventually { FreeTunnelVpnService.state(context) == 0 }
+        assertEquals("A stop clears it", 0L, FreeTunnelVpnService.sessionStart())
+    }
+
     @Test fun fatalDisconnectReconnectsAutomaticallyOnTheKeptTun() = withSink { config ->
         prefs.edit().putBoolean("logging", true).commit()
         log.delete()
