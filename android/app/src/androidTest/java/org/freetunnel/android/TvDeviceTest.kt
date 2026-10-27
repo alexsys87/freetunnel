@@ -785,6 +785,37 @@ class TvDeviceTest {
         catch (_: java.io.IOException) { false }
     }
 
+    // A TOML with a server of its own and no name, as a phone pastes one: it is named for where it came from.
+    private fun tomlFor(server: String) = source.replace("vpn.invalid", server)
+    private fun sendText(url: String, text: String): String = http(url) { h, path -> formPost(h, path, text) }
+    // The page that says a text was sent, which is the form again for the next.
+    private fun assertSent(answer: String) {
+        assertTrue(answer, answer.startsWith("HTTP/1.1 200 ") &&
+            answer.contains(LinkReceiver.escape(context.getString(R.string.receive_page_sent))) && answer.contains("<form"))
+    }
+    // A send to a wrong code, one letter off.
+    private fun sendWrongCode(url: String): String = http(url) { h, path -> formPost(h, path.dropLast(1) + (if (path.endsWith("Z")) "Y" else "Z"), link) }
+    // The texts the receiver took that the TV has not answered, which the receiver turns sends away by, and those that wait for their turn.
+    private fun placesHeld(a: MainActivity): Int = onMain { (field("receivedTexts").get(a) as ReceivedQueue).waiting().get() }
+    private fun waitingForTheirTurn(a: MainActivity): Int = onMain { (field("receivedTexts").get(a) as ReceivedQueue).queued() }
+    private fun keepScreenOn(a: MainActivity) = onMain { a.window.attributes.flags and WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON != 0 }
+    private fun receivedLine(a: MainActivity): String? = onMain { root(a).findViewWithTag<TextView?>("receive:count")?.text?.toString() }
+    private fun openReceiveCard(a: MainActivity): LinkReceiver {
+        onMain { method("receiveFromPhone").invoke(a) }
+        instrumentation.waitForIdleSync()
+        val opened = receiver(a)
+        assertNotNull("The emulator must have a private-network IPv4 address on Wi-Fi or Ethernet", opened)
+        return opened!!
+    }
+    // The question about the text from this server is up, whatever number of validations came before it.
+    private fun askedAbout(a: MainActivity, server: String, timeoutMs: Long = 30_000) =
+        eventually("The confirmation must be about $server", timeoutMs) { confirmMessage(a)?.contains(server) == true }
+    // Cancels the question that is up, and waits for it to go or for the next one to take its place.
+    private fun cancelQuestion(a: MainActivity, about: String) {
+        click(a, "confirm:cancel")
+        eventually("The question about $about must go") { confirmMessage(a)?.contains(about) != true }
+    }
+
     // The add menu under the + has the desktop's rows, in its order and its words, with Receive from phone first on a TV
     // and only there; each row runs its action.
     @Test fun receiveFromPhoneIsOfferedFirstOnATvAndNowhereElse() {
@@ -819,17 +850,15 @@ class TvDeviceTest {
         eventually("and stopping it closes the card") { overlayTag(a, "receive") == null }
     }
 
-    // Both legs: what a phone's browser does, end to end, through the emulator's own
-    // network address.
+    // Both legs: what a phone's browser does, end to end, through the emulator's own network address. Several texts
+    // in one session: the port and the card stay open while the TV asks about each, which it does in turn, and nothing is
+    // added before it says yes.
     @SdkSuppress(minSdkVersion = 29)
     @Test fun aLinkFromAPhoneIsAddedOnlyOnceTheTvConfirmsIt() {
         val a = open()
         render(a, 1)
-        onMain { method("receiveFromPhone").invoke(a) }
-        instrumentation.waitForIdleSync()
-        val opened = receiver(a)
-        assertNotNull("The emulator must have a private-network IPv4 address on Wi-Fi or Ethernet", opened)
-        val url = opened!!.url()
+        val opened = openReceiveCard(a)
+        val url = opened.url()
         val host = URI(url).host
         assertTrue("$url must be on the network a phone is on", Regex("http://(10|172|192)\\.[0-9.]+:[0-9]+/[0-9A-Z]{4}-[0-9A-Z]{4}").matches(url))
         onMain {
@@ -850,20 +879,20 @@ class TvDeviceTest {
             assertEquals(Color.WHITE, qr.getPixel(0, 0))
             assertEquals(Color.BLACK, qr.getPixel(4 * scale, 4 * scale))
         }
+        assertEquals("Nothing has come yet, so the card has no count", "", receivedLine(a))
         // Any path shows the page, in the TV's language.
         val page = http(url) { h, _ -> "GET /favicon.ico HTTP/1.1\r\nHost: $h\r\n\r\n" }
         assertTrue(page, page.startsWith("HTTP/1.1 200 ") && page.contains(context.getString(R.string.receive_page_send)))
         // A wrong code is turned away, and the TV goes on waiting.
-        val wrong = http(url) { h, path -> formPost(h, path.dropLast(1) + (if (path.endsWith("Z")) "Y" else "Z"), link) }
+        val wrong = sendWrongCode(url)
         assertTrue(wrong, wrong.startsWith("HTTP/1.1 404 "))
         assertSame(opened, receiver(a))
-        val sent = http(url) { h, path -> formPost(h, path, link) }
-        assertTrue(sent, sent.startsWith("HTTP/1.1 200 ") && sent.contains(context.getString(R.string.receive_page_sent)))
-        // One text, and the port closes, and the card with it.
-        eventually("The receiver must stop") { receiver(a) == null }
-        assertClosed(url)
-        assertNull("The card closes with the port", overlayTag(a, "receive"))
-        assertFalse("and the screen may go off again", onMain { a.window.attributes.flags and WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON != 0 })
+        assertSent(http(url) { h, path -> formPost(h, path, link) })
+        // And it goes on: the port stays open, and the card with it, and the screen stays on, while the TV asks.
+        assertSame(opened, receiver(a))
+        assertNotNull("The card stays up under the question", overlayTag(a, "receive"))
+        assertTrue(keepScreenOn(a))
+        assertEquals(context.getString(R.string.text_receive_received, 1), receivedLine(a))
         // The TV shows the server and the sender's address, and asks: the desktop's question, the server on its second line
         // and where it was sent from on its third.
         val from = context.getString(R.string.text_nsent_from_s, host).trim()
@@ -875,13 +904,144 @@ class TvDeviceTest {
         assertEquals(context.getString(R.string.import_server, "vpn.example.com"), lines[1])
         assertEquals(from, lines[2])
         assertEquals("Nothing is added before the TV confirms", 2, saved().size)
+        // A second text comes while the first is asked about: its page says it was sent, the question on the screen is still
+        // the first, and still nothing is added.
+        assertSent(sendText(url, tomlFor("second.example.com")))
+        eventually("The card counts both") { receivedLine(a) == context.getString(R.string.text_receive_received, 2) }
+        assertEquals(2, placesHeld(a))
+        assertEquals("The second waits for its turn", 1, waitingForTheirTurn(a))
+        assertTrue(confirmMessage(a)!!.contains("vpn.example.com") && !confirmMessage(a)!!.contains("second.example.com"))
+        assertEquals("Nothing is added before the TV confirms", 2, saved().size)
         answerYes(a)
-        eventually("Import must save it") { saved().size == 3 }
+        eventually("Import must save the first") { saved().size == 3 }
         assertEquals("vpn.example.com", saved().last().getString("name"))
         assertTrue(saved().last().getString("toml").contains("hostname = \"vpn.example.com\""))
+        // The second is asked about in turn, named for where it came from, and cancelled it is not added.
+        val named = context.getString(R.string.text_from_another_device)
+        eventually("The second must be asked about, as $named from \"$from\"", 30_000) {
+            confirmMessage(a)?.let { it.contains("second.example.com") && it.contains(named) && it.contains(from) } == true
+        }
+        assertEquals(3, saved().size)
+        cancelQuestion(a, "second.example.com")
+        assertEquals("Cancelled, it is not added", 3, saved().size)
+        eventually("Both are answered, so no place is held") { placesHeld(a) == 0 }
+        assertSame("Cancelling a question does not close the port", opened, receiver(a))
+        // The same page takes a third, the form it was sent from, and it is added once confirmed. Its toast is the last one.
+        assertSent(sendText(url, tomlFor("third.example.com")))
+        askedAbout(a, "third.example.com")
+        answerYes(a)
+        eventually("Import must save the third") { saved().size == 4 }
+        assertEquals(named, saved().last().getString("name"))
+        assertTrue(saved().last().getString("toml").contains("hostname = \"third.example.com\""))
         // The toast says what was added; the page stays where it was.
-        assertEquals(listOf(context.getString(R.string.config_added, "vpn.example.com")), toastTexts(a))
+        assertEquals(listOf(context.getString(R.string.config_added, named)), toastTexts(a))
         assertEquals("An import does not change the page", 1, onMain { field("page").getInt(a) })
+        assertEquals(0, placesHeld(a))
+        // Close ends it: the port, the card and the screen's staying on.
+        click(a, "receive:close")
+        eventually("Close must close the card") { overlayTag(a, "receive") == null }
+        assertNull(receiver(a))
+        assertClosed(url)
+        assertFalse("and the screen may go off again", keepScreenOn(a))
+    }
+
+    // Both legs: ten waiting is the most. The eleventh send, and any after it, gets the page that says to wait, which is no
+    // strike; the texts come to the TV in the order they were sent; and a text answered makes room for the next.
+    @SdkSuppress(minSdkVersion = 29)
+    @Test fun tenWaitingIsTheMostAndAnAnswerMakesRoomForAnother() {
+        val a = open()
+        render(a, 1)
+        val opened = openReceiveCard(a)
+        val url = opened.url()
+        for (i in 0 until LinkReceiver.MAX_WAITING) assertSent(sendText(url, tomlFor("host$i.example.com")))
+        askedAbout(a, "host0.example.com")
+        assertEquals(LinkReceiver.MAX_WAITING, placesHeld(a))
+        assertEquals(context.getString(R.string.text_receive_received, LinkReceiver.MAX_WAITING), receivedLine(a))
+        // More turned away than there are wrong codes to stop it: the TV still listens, and takes nothing.
+        repeat(LinkReceiver.MAX_WRONG_CODES + 1) {
+            val busy = sendText(url, tomlFor("late.example.com"))
+            assertTrue(busy, busy.startsWith("HTTP/1.1 503 ") && busy.contains(LinkReceiver.escape(context.getString(R.string.receive_page_busy))) &&
+                busy.contains("<form"))
+        }
+        assertSame(opened, receiver(a))
+        assertEquals(LinkReceiver.MAX_WAITING, placesHeld(a))
+        assertEquals(context.getString(R.string.text_receive_received, LinkReceiver.MAX_WAITING), receivedLine(a))
+        assertEquals("Nothing is added", 2, saved().size)
+        // One answered, one place: the next text is taken, and the one after is turned away again.
+        cancelQuestion(a, "host0.example.com")
+        eventually("The next is asked about", 30_000) { confirmMessage(a)?.contains("host1.example.com") == true }
+        eventually("A place is free") { placesHeld(a) == LinkReceiver.MAX_WAITING - 1 }
+        assertSent(sendText(url, tomlFor("late.example.com")))
+        assertTrue(sendText(url, tomlFor("later.example.com")).startsWith("HTTP/1.1 503 "))
+        // In turn, in the order they came.
+        for (i in 1..3) {
+            askedAbout(a, "host$i.example.com")
+            cancelQuestion(a, "host$i.example.com")
+        }
+        assertEquals("Not one was added", 2, saved().size)
+    }
+
+    // Both legs: closing the card closes the port, but what came is still the TV's to answer; leaving the app drops what waits for
+    // its turn, and the question that is up stays. A wrong code counts against all the sends of the session.
+    @SdkSuppress(minSdkVersion = 29)
+    @Test fun closingTheCardKeepsWhatCameAndLeavingTheAppDropsWhatWaits() {
+        val a = open()
+        render(a, 1)
+        val first = openReceiveCard(a).url()
+        for (i in 1..3) assertSent(sendText(first, tomlFor("kept$i.example.com")))
+        askedAbout(a, "kept1.example.com")
+        assertEquals(3, placesHeld(a))
+        click(a, "receive:close")
+        eventually("Close must close the card") { overlayTag(a, "receive") == null }
+        assertNull("and the port", receiver(a))
+        assertClosed(first)
+        assertEquals("What came is still the TV's to answer", 3, placesHeld(a))
+        assertTrue(confirmMessage(a)!!.contains("kept1.example.com"))
+        cancelQuestion(a, "kept1.example.com")
+        askedAbout(a, "kept2.example.com")
+        cancelQuestion(a, "kept2.example.com")
+        askedAbout(a, "kept3.example.com")
+        assertEquals(1, placesHeld(a))
+        // A new session, while the last question is up: two more come and wait.
+        val second = openReceiveCard(a).url()
+        assertSent(sendText(second, tomlFor("left1.example.com")))
+        assertSent(sendText(second, tomlFor("left2.example.com")))
+        eventually("Two wait for their turn") { waitingForTheirTurn(a) == 2 }
+        assertEquals(3, placesHeld(a))
+        // Leaving the app, as a screensaver does, closes the port and drops them; the question stays.
+        shell("input keyevent KEYCODE_HOME")
+        eventually("Leaving the app must stop the receiver") { receiver(a) == null }
+        assertClosed(second)
+        eventually("What waited is dropped") { waitingForTheirTurn(a) == 0 && placesHeld(a) == 1 }
+        assertTrue("The question that was up is still up", confirmMessage(a)!!.contains("kept3.example.com"))
+        cancelQuestion(a, "kept3.example.com")
+        eventually("and nothing follows it") { placesHeld(a) == 0 }
+        SystemClock.sleep(1_000)
+        assertNull("The dropped texts are not asked about", confirmMessage(a))
+        assertEquals("Not one was added", 2, saved().size)
+    }
+
+    // Both legs: three wrong codes stop it, however many right ones came between them, and what came before is still asked about.
+    @SdkSuppress(minSdkVersion = 29)
+    @Test fun threeWrongCodesStopItAndWhatCameIsStillAskedAbout() {
+        val a = open()
+        render(a, 1)
+        val opened = openReceiveCard(a)
+        val url = opened.url()
+        assertTrue(sendWrongCode(url).startsWith("HTTP/1.1 404 "))
+        assertSent(sendText(url, tomlFor("before.example.com")))
+        askedAbout(a, "before.example.com")
+        assertTrue(sendWrongCode(url).startsWith("HTTP/1.1 404 "))
+        assertSame("Two wrong codes: still open", opened, receiver(a))
+        assertTrue(sendWrongCode(url).contains(LinkReceiver.escape(context.getString(R.string.receive_page_locked_out))))
+        eventually("Three wrong codes must stop the receiver") { receiver(a) == null }
+        assertClosed(url)
+        assertNull("and close the card", overlayTag(a, "receive"))
+        assertEquals(listOf(context.getString(R.string.text_receive_locked_out)), toastTexts(a))
+        assertTrue("What came is still asked about", confirmMessage(a)!!.contains("before.example.com"))
+        assertEquals(1, placesHeld(a))
+        cancelQuestion(a, "before.example.com")
+        assertEquals(2, saved().size)
     }
 
     // Both legs: a file chosen on the phone instead of pasted. A send with nothing
@@ -917,8 +1077,8 @@ class TvDeviceTest {
         val toml = "\uFEFF" + source.replace("vpn.invalid", "file.example.com").replace("\n", "\r\n") + "\r\n"
         val sent = httpBytes(url) { h, path -> filePost(h, path, "Home\\Office %22TV%22\u202E VPN.toml", toml.toByteArray()) }
         assertTrue(sent, sent.startsWith("HTTP/1.1 200 ") && sent.contains(context.getString(R.string.receive_page_sent)))
-        eventually("The receiver must stop") { receiver(a) == null }
-        assertClosed(url)
+        // The receiver goes on after a file, as after any text.
+        assertSame(opened, receiver(a))
         // Shown without what would reverse the rest; saved as the file has it, as one
         // picked on the TV is. It is a file, not a link, that is asked about.
         val name = "Home\\Office \"TV\" VPN.toml"
@@ -932,6 +1092,9 @@ class TvDeviceTest {
         eventually("Import must save it") { saved().size == 3 }
         assertEquals("Home\\Office \"TV\"\u202E VPN.toml", saved().last().getString("name"))
         assertTrue(saved().last().getString("toml").contains("hostname = \"file.example.com\""))
+        click(a, "receive:close")
+        eventually("Close must stop the receiver") { receiver(a) == null }
+        assertClosed(url)
     }
 
     // Both legs: a TOML file with no name of its own and no file's name to go by,
@@ -953,7 +1116,6 @@ class TvDeviceTest {
                 if (fileName == null) filePost(h, path, "", ByteArray(0), text = toml) else filePost(h, path, fileName, toml.toByteArray())
             }
             assertTrue(sent, sent.startsWith("HTTP/1.1 200 ") && sent.contains(context.getString(R.string.receive_page_sent)))
-            eventually("The receiver must stop") { receiver(a) == null }
             val from = context.getString(R.string.text_nsent_from_s, URI(url).host).trim()
             eventually("The confirmation must say \"$named\", $server and \"$from\"", 30_000) {
                 confirmMessage(a)?.let { it.contains(named) && it.contains(server) && it.contains(from) } == true
@@ -963,6 +1125,8 @@ class TvDeviceTest {
             eventually("Import must save it") { saved().size == before + 1 }
             assertEquals(named, saved().last().getString("name"))
             assertTrue(saved().last().getString("toml").contains("hostname = \"$server\""))
+            click(a, "receive:close")
+            eventually("Close must stop the receiver") { receiver(a) == null }
         }
     }
 
