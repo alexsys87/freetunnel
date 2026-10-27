@@ -1,7 +1,6 @@
 package org.freetunnel.android;
 
 import android.app.Activity;
-import android.app.AlertDialog;
 import android.content.ActivityNotFoundException;
 import android.content.ClipData;
 import android.content.ClipboardManager;
@@ -23,7 +22,6 @@ import android.graphics.Rect;
 import android.graphics.Typeface;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.GradientDrawable;
-import android.graphics.drawable.StateListDrawable;
 import android.net.ConnectivityManager;
 import android.net.LinkAddress;
 import android.net.LinkProperties;
@@ -36,7 +34,9 @@ import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
+import android.text.Editable;
 import android.text.InputType;
+import android.text.TextWatcher;
 import android.text.Layout;
 import android.text.TextUtils;
 import android.util.TypedValue;
@@ -49,15 +49,14 @@ import android.view.ViewTreeObserver;
 import android.view.WindowInsets;
 import android.view.animation.DecelerateInterpolator;
 import android.view.inputmethod.EditorInfo;
+import android.view.inputmethod.InputMethodManager;
 import android.widget.Button;
-import android.widget.CheckBox;
 import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
-import android.widget.Toast;
 import androidx.core.content.ContextCompat;
 import android.text.method.PasswordTransformationMethod;
 import android.view.WindowManager;
@@ -79,8 +78,11 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.IdentityHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -130,13 +132,16 @@ public final class MainActivity extends Activity {
     private String pendingConfig;
     private boolean receiverRegistered;
     private boolean storageFailed;
+    // What to tell the user while storage is failed: the amber banner on Configs and Settings, and a toast.
+    private String storageProblem;
     private TextView updateStatus;
     private TextView updateAction;
-    // Receive from phone: the open port and its dialog, both closed by stopReceiver().
+    // Receive from phone: the open port and its card, both closed by stopReceiver().
     private LinkReceiver linkReceiver;
-    private AlertDialog receiveDialog;
     private long validationRequest;
-    private final java.util.concurrent.ExecutorService validationWorker = java.util.concurrent.Executors.newSingleThreadExecutor();
+    private final ExecutorService validationWorker = Executors.newSingleThreadExecutor();
+    // The installed applications are listed here, so that the app picker never waits on a scan.
+    private final ExecutorService scanWorker = Executors.newSingleThreadExecutor();
     private final BroadcastReceiver vpnReceiver = new BroadcastReceiver() {
         @Override public void onReceive(Context context, Intent intent) {
             vpnState = FreeTunnelVpnService.state(context);
@@ -206,10 +211,19 @@ public final class MainActivity extends Activity {
     }
 
     // Home, a screensaver or a recreation closes the port: it is open only while its
-    // dialog is on the screen.
+    // card is on the screen.
     @Override protected void onStop() {
         stopReceiver();
         super.onStop();
+    }
+
+    // The manifest keeps the activity through a turn of the screen, a resize and a keyboard coming or going
+    // (configChanges), so that an open card, and what is typed in the editor, are not lost to them. The
+    // page is laid out for the new size; the overlays lay themselves out. A change of theme or of language
+    // still recreates the activity, which the colours and the words need.
+    @Override public void onConfigurationChanged(Configuration config) {
+        super.onConfigurationChanged(config);
+        render();
     }
 
     @Override protected void onNewIntent(Intent intent) {
@@ -244,7 +258,9 @@ public final class MainActivity extends Activity {
         if (p.getChildCount() > 0) ui.section(p, title);
         else p.addView(ui.sectionLabel(title), lp(-1, -2));
     }
-    private void toast(String text) { Toast.makeText(this, text, Toast.LENGTH_LONG).show(); }
+    // Every notice is the desktop's toast, in the window; the system's Toast is used only where no
+    // window of ours can show one (the tile, the VPN consent screen).
+    private void toast(String text) { showToast(text); }
     // Android TV, Google TV and Fire TV: driven by a remote, seen from across the room.
     private boolean isTv() {
         return (getResources().getConfiguration().uiMode & Configuration.UI_MODE_TYPE_MASK) == Configuration.UI_MODE_TYPE_TELEVISION;
@@ -255,32 +271,6 @@ public final class MainActivity extends Activity {
     private boolean isRemote() {
         View decor = getWindow().getDecorView();
         return isTv() || decor.isAttachedToWindow() && !decor.isInTouchMode();
-    }
-    // The system dialogs that remain until the in-app overlays replace them take the app's
-    // theme, light or dark, so that what is put in them reads in either. Their buttons and
-    // check boxes show the focus with dialogFocus.
-    private AlertDialog.Builder builder() {
-        return new AlertDialog.Builder(this, dark ? android.R.style.Theme_Material_Dialog_Alert : android.R.style.Theme_Material_Light_Dialog_Alert);
-    }
-    // The focus of a control in a system dialog: a ring over it, in the text's colour. The
-    // only ring left: everything of the app's own shows the desktop's focus (Ui.focus).
-    private void dialogFocus(View view) {
-        int ring = dark ? Color.WHITE : t().text;
-        GradientDrawable stroke = ui.shape(Theme.withAlpha(ring, 0x1A), 10);
-        stroke.setStroke(dp(2), ring);
-        StateListDrawable states = new StateListDrawable();
-        states.addState(new int[]{android.R.attr.state_focused}, stroke);
-        states.addState(new int[]{}, new ColorDrawable(Color.TRANSPARENT));
-        view.setForeground(states);
-    }
-    // Every dialog is shown through here, so that its buttons get a ring.
-    private void show(AlertDialog.Builder builder) { show(builder.create()); }
-    private void show(AlertDialog dialog) {
-        dialog.show();
-        for (int which : new int[]{AlertDialog.BUTTON_POSITIVE, AlertDialog.BUTTON_NEGATIVE, AlertDialog.BUTTON_NEUTRAL}) {
-            Button button = dialog.getButton(which);
-            if (button != null) dialogFocus(button);
-        }
     }
     // TVs often leave out screens that phones have, such as the file picker or the VPN
     // consent dialog, and starting one that is missing throws. False when it is missing.
@@ -311,7 +301,9 @@ public final class MainActivity extends Activity {
         host.setOnApplyWindowInsetsListener((view, insets) -> {
             if (Build.VERSION.SDK_INT >= 30) {
                 android.graphics.Insets bars = insets.getInsets(WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout());
-                setHostPadding(sides, bars.top + ends, sides, bars.bottom + ends);
+                // The keyboard, when it is up, covers the bottom bar too: its inset is the larger.
+                android.graphics.Insets keyboard = insets.getInsets(WindowInsets.Type.ime());
+                setHostPadding(sides, bars.top + ends, sides, Math.max(bars.bottom, keyboard.bottom) + ends);
             } else {
                 setHostPadding(sides, insets.getSystemWindowInsetTop() + ends, sides, insets.getSystemWindowInsetBottom() + ends);
             }
@@ -489,6 +481,8 @@ public final class MainActivity extends Activity {
         Theme t = t();
         View focused = getCurrentFocus();
         String opener = focused != null && focused.getTag() instanceof String ? (String) focused.getTag() : null;
+        // A question asked over a form puts the keyboard away: it would cover it.
+        if (kind == OverlayLayer.Kind.CONFIRM && focused instanceof EditText) hideKeyboard();
         final Overlay overlay = new Overlay(name, kind, anchorKey, onClose, opener);
         FrameLayout panel = new FrameLayout(this);
         panel.setBackground(ui.outlined(t.bg, t.border, kind == OverlayLayer.Kind.CARD ? 14 : kind == OverlayLayer.Kind.CONFIRM ? 12 : 10));
@@ -541,13 +535,29 @@ public final class MainActivity extends Activity {
     private void closeOverlay(Overlay overlay) {
         if (overlay.closed) return;
         overlay.closed = true;
+        // A field of it that had the keyboard takes it away: left up, it would cover the page.
+        View focused = getCurrentFocus();
+        boolean typing = focused instanceof EditText && isInside(focused, overlay.layer);
         overlays.remove(overlay);
         retag(overlay.layer);
         overlay.layer.setDescendantFocusability(ViewGroup.FOCUS_BLOCK_DESCENDANTS);
         updateOverlayState();
         returnFocus(overlay);
-        overlay.layer.animate().alpha(0f).setDuration(130).withEndAction(() -> overlayLayer.removeView(overlay.layer)).start();
+        if (typing) hideKeyboard();
+        // The fade ends in taking the view away. Not left to the animation alone: with the activity stopped, as
+        // Receive from phone's card is when the app is left, it may never run, and the card would be there,
+        // invisible and in the way, when the app comes back.
+        Runnable remove = () -> overlayLayer.removeView(overlay.layer);
+        overlay.layer.animate().alpha(0f).setDuration(130).withEndAction(remove).start();
+        host.postDelayed(remove, 400);
         if (overlay.onClose != null) overlay.onClose.run();
+    }
+    private static boolean isInside(View view, View ancestor) {
+        for (View up = view; up != null; ) {
+            if (up == ancestor) return true;
+            up = up.getParent() instanceof View ? (View) up.getParent() : null;
+        }
+        return false;
     }
     private void retag(View view) {
         if (view.getTag() instanceof String) view.setTag(null);
@@ -606,9 +616,9 @@ public final class MainActivity extends Activity {
     // one, and the confirmation, always red and always last. Escape, Back and a tap on the
     // backdrop cancel. The confirmation ignores a click, and OK, for its first 400 ms, so
     // that an OK held or repeated on a remote cannot answer what a phone or a web page
-    // asked. Confirmations queue: one asked for while another is up waits its turn, and
-    // never takes its place. Cancel has the focus first. Keys: confirm:message,
-    // confirm:cancel, confirm:alt and confirm:ok.
+    // asked; the alternate is as much a yes, and waits too. Confirmations queue: one asked
+    // for while another is up waits its turn, and never takes its place. Cancel has the focus
+    // first. Keys: confirm:message, confirm:cancel, confirm:alt and confirm:ok.
     private static final class ConfirmRequest {
         final CharSequence message;
         final CharSequence confirm;
@@ -657,17 +667,18 @@ public final class MainActivity extends Activity {
         Button cancel = ui.button(getString(R.string.text_cancel), Ui.Kind.NEUTRAL, 76, "confirm:cancel");
         cancel.setOnClickListener(v -> escape(shown[0]));
         buttons.addView(cancel, lp(-2, 32));
+        final long armedAt = SystemClock.uptimeMillis() + CONFIRM_ARMED_MS;
         if (request.alternate != null) {
             ui.gapH(buttons, 8);
             Button alternate = ui.button(request.alternate, Ui.Kind.NEUTRAL, 76, "confirm:alt");
             alternate.setOnClickListener(v -> {
+                if (SystemClock.uptimeMillis() < armedAt) return;
                 closeOverlay(shown[0]);
                 if (request.onAlternate != null) request.onAlternate.run();
             });
             buttons.addView(alternate, lp(-2, 32));
         }
         ui.gapH(buttons, 8);
-        final long armedAt = SystemClock.uptimeMillis() + CONFIRM_ARMED_MS;
         Button ok = ui.button(request.confirm, Ui.Kind.DESTRUCTIVE, 76, "confirm:ok");
         ok.setOnClickListener(v -> {
             if (SystemClock.uptimeMillis() < armedAt) return;
@@ -797,9 +808,7 @@ public final class MainActivity extends Activity {
     // at least 40 high; 26 above the bottom, or at the top, 48 down, while an overlay is
     // open, where it would be behind it. It fades in over 180 ms and stays for 55 ms a
     // character, at least 3.2 s and at most 10; a tap dismisses it. It is announced to
-    // accessibility. The system's Toast is used only where no window of ours can show one
-    // (the tile, the VPN consent screen) and, until the dialogs it would be behind are
-    // overlays too, by toast().
+    // accessibility.
     private final Handler toastHandler = new Handler(Looper.getMainLooper());
     private Runnable toastHide;
     private TextView toastView;
@@ -1050,6 +1059,7 @@ public final class MainActivity extends Activity {
 
     private void configs(LinearLayout body) {
         Theme t = t();
+        storageBanner(body);
         // The header's buttons are 40 by 32, 16 apart, resting on the page.
         LinearLayout header = row(); header.setGravity(Gravity.CENTER);
         FrameLayout add = ui.iconButton(R.drawable.ic_add, 22, getString(R.string.text_add_configuration), "configs:add");
@@ -1127,17 +1137,18 @@ public final class MainActivity extends Activity {
             return (SystemClock.elapsedRealtime() - start) + getString(R.string.text_ms);
         } catch (Exception e) { return getString(R.string.text_unreachable); }
     }
+    // The Configs page's menu under its +: no title. A TV has no camera for a link's QR code and a remote
+    // is no way to type one, so there a phone's way in comes first; then the desktop's items, in its
+    // order and its words, and a separator before the last.
     private void addMenu() {
         if (storageFailed) { toast(getString(R.string.text_storage_is_unavailable_saved_data_has_been_preserved)); return; }
-        List<String> labels = new ArrayList<>();
-        List<Runnable> actions = new ArrayList<>();
-        // A TV has no camera for a link's QR code, and a remote is no way to type one.
-        if (isTv()) { labels.add(getString(R.string.text_receive_from_phone)); actions.add(this::receiveFromPhone); }
-        labels.add(getString(R.string.text_import_toml_file)); actions.add(this::pickFile);
-        labels.add(getString(R.string.text_paste_from_clipboard)); actions.add(this::pasteFromClipboard);
-        labels.add(getString(R.string.text_create_manually)); actions.add(() -> editConfig(-1));
-        show(builder().setTitle(getString(R.string.text_add_configuration))
-                .setItems(labels.toArray(new String[0]), (d, which) -> actions.get(which).run()));
+        List<MenuEntry> items = new ArrayList<>();
+        if (isTv()) items.add(new MenuEntry(getString(R.string.text_receive_from_phone), "add:receive", this::receiveFromPhone));
+        items.add(new MenuEntry(getString(R.string.text_paste_from_clipboard), "add:paste", this::pasteFromClipboard));
+        items.add(new MenuEntry(getString(R.string.add_from_file), "add:file", this::pickFile));
+        items.add(MenuEntry.SEPARATOR);
+        items.add(new MenuEntry(getString(R.string.add_create_new), "add:create", () -> editConfig(-1)));
+        showMenu("addmenu", "configs:add", items);
     }
     private void pasteFromClipboard() {
         ClipboardManager cm = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
@@ -1168,19 +1179,25 @@ public final class MainActivity extends Activity {
         // The text is the app's own, and the subscription and whatever in the
         // certificate is not a certificate were left out as the link was read.
         validateAsync(imported.toml, false, checked -> showImportConfirmation(imported.name, false,
-                new RoutingConfig.Import(checked.getToml(), imported.subscriptionNotKept, imported.certificateIgnored), origin), () -> {});
+                new RoutingConfig.Import(checked.getToml(), imported.subscriptionNotKept, imported.certificateIgnored), origin, true), () -> {});
     }
     // Named after its file or where the text came from, unless it is an endpoint's
     // export that names its server.
     private void importToml(String name, String toml, String origin) {
         validateAsync(stripBom(toml), true, checked -> showImportConfirmation(
-                checked.getName() != null ? checked.getName() : name, checked.getName() == null, checked, origin), () -> {});
+                checked.getName() != null ? checked.getName() : name, checked.getName() == null, checked, origin, false), () -> {});
     }
 
     // Receive from phone: a phone on the same network opens the page the QR code or
     // the address leads to, and sends a link or a TOML file from there, pasted or as
     // a file (LinkReceiver). What arrives goes through the same checks and
     // confirmation as any import.
+    //
+    // A card like the app picker's: ←, the title, the QR code on its own white tile (black on
+    // white in both themes, so that a phone can read it), the address in monospace 16 to type on a
+    // laptop, the hint, and Close, which has the focus first. The screen stays on while it is open:
+    // a screensaver would stop the activity, and the receiver with it. Close, Back, ←, leaving the
+    // app and what arrives all stop the port. Keys: receive:back and receive:close.
     private void receiveFromPhone() {
         stopReceiver();
         InetAddress address = lanAddress();
@@ -1189,32 +1206,54 @@ public final class MainActivity extends Activity {
         try { r = new LinkReceiver(address, LinkReceiver.newCode(new SecureRandom()), receivePages()); }
         catch (IOException e) { toast(getString(R.string.text_receive_failed)); return; }
         linkReceiver = r;
-        LinearLayout box = column(); box.setGravity(Gravity.CENTER_HORIZONTAL); box.setPadding(dp(20), dp(8), dp(20), 0);
-        // Drawn at its own size, a whole number of pixels a module, so it is never blurred.
-        LinkReceiver.Qr qr = LinkReceiver.qr(r.url(), dp(220));
+        Theme t = t();
+        final Overlay[] shown = new Overlay[1];
+        LinearLayout card = column();
+        card.addView(ui.cardHeader(getString(R.string.text_receive_from_phone), "receive:back", getString(R.string.text_back),
+                v -> closeOverlay(shown[0])), lp(-1, -2));
+        LinearLayout box = column(); box.setGravity(Gravity.CENTER_HORIZONTAL); box.setPadding(dp(18), dp(4), dp(18), dp(4));
+        // Drawn at its own size, a whole number of pixels a module, so it is never blurred. The most
+        // that fits: a TV only 540 dp high has the card's other lines to make room for.
+        float density = getResources().getDisplayMetrics().density;
+        int room = host.getHeight() > 0 ? Math.round((host.getHeight() - host.getPaddingTop() - host.getPaddingBottom()) / density) - 52 - 280 : 220;
+        LinkReceiver.Qr qr = LinkReceiver.qr(r.url(), dp(Math.max(130, Math.min(220, room))));
         ImageView code = new ImageView(this);
         code.setImageBitmap(Bitmap.createBitmap(qr.pixels, qr.side, qr.side, Bitmap.Config.ARGB_8888));
         code.setContentDescription(r.url());
-        box.addView(code, lp(-2, -2));
+        // Its own tile: the code's quiet zone is white, whatever the theme.
+        FrameLayout tile = new FrameLayout(this);
+        tile.setBackground(ui.shape(Color.WHITE, 10));
+        tile.setClipToOutline(true);
+        tile.addView(code, new FrameLayout.LayoutParams(-2, -2));
+        box.addView(tile, lp(-2, -2));
         gap(box, 10);
         // For typing on a laptop.
-        TextView url = ui.mono(r.url(), 16, t().text);
+        TextView url = ui.mono(r.url(), 16, t.text);
         url.setGravity(Gravity.CENTER); box.addView(url, lp(-1, -2));
         gap(box, 10);
-        box.addView(label(getString(R.string.text_receive_hint), 13, t().textDim), lp(-1, -2));
-        ScrollView scroll = new ScrollView(this); scroll.addView(box);
-        AlertDialog dialog = builder().setTitle(getString(R.string.text_receive_from_phone))
-                .setView(scroll).setNegativeButton(getString(R.string.text_cancel), null).create();
-        dialog.setOnDismissListener(d -> { if (linkReceiver == r) stopReceiver(); });
-        receiveDialog = dialog;
-        show(dialog);
-        // No screensaver while the phone is used instead of the remote: it would stop the activity, and the receiver with it.
-        dialog.getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-        // A remote starts on Cancel. Left to itself, the focus would go to the scroll
-        // view around the code, which has no ring and does nothing on OK. As in the
-        // editor, Cancel is the view focused by default rather than asked about touch
-        // mode here, before the dialog is attached.
-        dialog.getButton(AlertDialog.BUTTON_NEGATIVE).setFocusedByDefault(true);
+        box.addView(label(getString(R.string.text_receive_hint), 13, t.textDim), lp(-1, -2));
+        ScrollView scroll = new ScrollView(this);
+        scroll.setVerticalScrollBarEnabled(false);
+        // Nothing in it to take the focus: left focusable, it would be a stop with no sign of it.
+        scroll.setFocusable(false);
+        scroll.addView(box);
+        card.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
+        Button close = ui.button(getString(R.string.text_close), Ui.Kind.NEUTRAL, 88, "receive:close");
+        close.setOnClickListener(v -> closeOverlay(shown[0]));
+        LinearLayout buttons = row(); buttons.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
+        buttons.setPadding(dp(18), dp(6), dp(18), dp(12));
+        buttons.addView(close, lp(-2, 32));
+        card.addView(buttons, lp(-1, -2));
+        // No screensaver while the phone is used instead of the remote.
+        getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        Overlay overlay = showOverlay("receive", OverlayLayer.Kind.CARD, card, null, () -> {
+            getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+            if (linkReceiver == r) stopReceiver();
+        });
+        shown[0] = overlay;
+        overlay.width(dp(460));
+        // A remote starts on Close, not on the back arrow above the code.
+        overlay.defaultKey = "receive:close";
         // These arrive on the receiver's thread, and count only for the receiver still open.
         r.start(new LinkReceiver.Listener() {
             @Override public void received(String text, String fileName, String sender) {
@@ -1229,17 +1268,19 @@ public final class MainActivity extends Activity {
                 runOnUiThread(() -> {
                     if (isDestroyed() || linkReceiver != r) return;
                     stopReceiver();
-                    if (reason == LinkReceiver.Stop.LOCKED_OUT)
-                        show(builder().setTitle(getString(R.string.text_receive_from_phone))
-                                .setMessage(getString(R.string.text_receive_locked_out)).setPositiveButton(getString(R.string.text_ok), null));
-                    else toast(getString(reason == LinkReceiver.Stop.TIMEOUT ? R.string.text_receive_timed_out : R.string.text_receive_failed));
+                    toast(getString(reason == LinkReceiver.Stop.LOCKED_OUT ? R.string.text_receive_locked_out
+                            : reason == LinkReceiver.Stop.TIMEOUT ? R.string.text_receive_timed_out : R.string.text_receive_failed));
                 });
             }
         });
     }
+    // Closes the port and its card: its card's closing finds the port gone and leaves it be.
     private void stopReceiver() {
-        if (linkReceiver != null) { linkReceiver.stop(); linkReceiver = null; }
-        if (receiveDialog != null) { AlertDialog dialog = receiveDialog; receiveDialog = null; dialog.dismiss(); }
+        LinkReceiver r = linkReceiver;
+        linkReceiver = null;
+        if (r != null) r.stop();
+        Overlay open = overlay("receive");
+        if (open != null) closeOverlay(open);
     }
     // The address a phone on the same Wi-Fi or Ethernet reaches this device at: the
     // active network's first, and never a VPN's. FreeTunnel is left out of its own VPN,
@@ -1270,42 +1311,43 @@ public final class MainActivity extends Activity {
                 getString(R.string.receive_page_too_large), getString(R.string.receive_page_wrong_code),
                 getString(R.string.receive_page_locked_out));
     }
-    // These two refusals are about what this version cannot do yet, and say what to
-    // do instead. That is more than the two lines a toast shows, so they get a dialog.
+    // A refusal is the desktop's kind of notice, a toast, however long: up to 6 lines, 10 seconds.
     private void refuseImport(int messageResource) {
-        if (messageResource == R.string.text_subscription_links_are_not_supported_yet
-                || messageResource == R.string.text_this_server_needs_a_newer_trusttunnel_core)
-            show(builder().setTitle(getString(R.string.text_import_trusttunnel))
-                    .setMessage(getString(messageResource)).setPositiveButton(getString(R.string.text_ok), null));
-        else toast(getString(messageResource));
+        toast(getString(messageResource));
     }
-    // What an import left out, a line for each, each line starting with a line break.
+    // What an import left out, a line for each.
     private String importNotes(RoutingConfig.Import checked) {
-        String notes = "";
-        if (checked.getSubscriptionNotKept()) notes += getString(R.string.text_nsubscriptions_are_not_supported_yet_the_server_wont);
-        if (checked.getCertificateIgnored()) notes += getString(R.string.text_nextra_data_in_the_certificate_was_ignored);
-        return notes;
+        List<String> notes = new ArrayList<>();
+        if (checked.getSubscriptionNotKept()) notes.add(getString(R.string.import_subscription_note));
+        if (checked.getCertificateIgnored()) notes.add(getString(R.string.import_certificate_note));
+        return TextUtils.join("\n", notes);
     }
-    // origin is the address the text was sent from, shown so that a text someone
-    // else on the network sent first can be told apart; null when it came from here.
-    // The name and the server are shown as ShownText shows them, so that whatever
-    // sent them, the lines after them stay in sight. namedAfterFile is true when name
-    // is the one the text was imported under, its file's name or the app's words for
-    // where it came from, and false when it is a link's or an export's own.
-    private void showImportConfirmation(String name, boolean namedAfterFile, RoutingConfig.Import checked, String origin) {
+    // The question before anything is added, as the desktop asks it (Backend::askToImport): whether it
+    // is a link or a file, the server it would connect to, and what is wrong with it. The lines are
+    // those, with the first, the second and the third in this order whatever they say:
+    //   Add a VPN server from this link? “Name”        (or, for a name already in the list: “Name” already exists…)
+    //   Server: host
+    //   Sent from 192.168.1.5                           (Android only: where a phone sent it from)
+    // then the rest. origin is the address the text was sent from, shown so that a text someone
+    // else on the network sent first can be told apart; null when it came from here. The name and the
+    // server are shown as ShownText shows them, so that whatever sent them, the lines after them stay
+    // in sight. namedAfterFile is true when name is the one the text was imported under, its file's name
+    // or the app's words for where it came from, and false when it is a link's or an export's own; link
+    // is true for a tt:// link. Cancel has the focus, and Import is red and waits for 400 ms. A name
+    // already in the list, or the same file, is the desktop's collision: Replace puts it where that one
+    // is, Add copy adds it as another.
+    private void showImportConfirmation(String name, boolean namedAfterFile, RoutingConfig.Import checked, String origin, boolean link) {
         String source = checked.getToml();
         org.tomlj.TomlTable parsed = RoutingConfig.validate(source);
-        String message = getString(R.string.text_add_configuration_36) + ShownText.of(name) + getString(R.string.text_nserver)
-                + ShownText.of(parsed.getString("endpoint.hostname"));
-        if (origin != null) message += getString(R.string.text_nsent_from_s, origin);
-        if (Boolean.TRUE.equals(parsed.getBoolean("endpoint.skip_verification")))
-            message += getString(R.string.text_nserver_certificate_verification_is_disabled);
-        message += importNotes(checked);
+        Config clash = null;
         for (Config config : configs) {
-            if (config.name.equals(name) || config.toml.equals(source)) {
-                message += getString(R.string.text_nthis_configuration_or_name_already_exists_a_separat); break;
-            }
+            if (config.name.equals(name) || config.toml.equals(source)) { clash = config; break; }
         }
+        StringBuilder message = new StringBuilder(clash == null
+                ? getString(link ? R.string.import_question_link : R.string.import_question_file) + " “" + ShownText.of(name) + "”"
+                : getString(R.string.import_exists, ShownText.of(clash.name)));
+        message.append('\n').append(getString(R.string.import_server, ShownText.of(parsed.getString("endpoint.hostname"))));
+        if (origin != null) message.append(getString(R.string.text_nsent_from_s, origin));
         // A file's extension is not counted: a configuration named after "Дом.toml"
         // would otherwise always be said to mix alphabets. Only a file's: a link's or
         // an export's name, or the server a link is named after, such as "раураӏ.com",
@@ -1314,28 +1356,59 @@ public final class MainActivity extends Activity {
         if (word.codePoints().mapToObj(Character.UnicodeScript::of)
                 .filter(script -> script != Character.UnicodeScript.COMMON && script != Character.UnicodeScript.INHERITED
                         && script != Character.UnicodeScript.UNKNOWN).distinct().count() > 1)
-            message += getString(R.string.text_nthe_name_mixes_similar_characters_from_different_al);
-        show(builder().setTitle(getString(R.string.text_import_trusttunnel)).setMessage(message)
-                .setNegativeButton(getString(R.string.text_cancel), null).setPositiveButton(getString(R.string.text_add), (dialog, which) -> {
-                    configs.add(new Config(name, source));
-                    if (configs.size() == 1) activeIndex = 0;
-                    saveConfigs(); page = 1; render();
-                }));
+            message.append('\n').append(getString(R.string.import_mixed_name));
+        if (Boolean.TRUE.equals(parsed.getBoolean("endpoint.skip_verification")))
+            message.append('\n').append(getString(link ? R.string.import_skips_link : R.string.import_skips_file));
+        String notes = importNotes(checked);
+        if (!notes.isEmpty()) message.append('\n').append(notes);
+        final Config existing = clash;
+        if (existing == null) {
+            showConfirm(message, getString(R.string.import_confirm), () -> addImported(name, source));
+        } else {
+            showConfirm(message, getString(R.string.import_replace), getString(R.string.import_add_copy),
+                    () -> replaceImported(existing, name, source), () -> addImported(name, source), null);
+        }
+    }
+    // After an import the page stays as it is, and the toast says what was added, as the desktop's does.
+    private void addImported(String name, String source) {
+        configs.add(new Config(name, source));
+        if (configs.size() == 1) activeIndex = 0;
+        if (!saveConfigs()) return;
+        render();
+        toast(getString(R.string.config_added, ShownText.of(name)));
+    }
+    // Replace: the config goes where the one it replaces was, and if that one is the one the VPN runs,
+    // the VPN reconnects to this. If that one is gone by now, it is added.
+    private void replaceImported(Config existing, String name, String source) {
+        int at = configs.indexOf(existing);
+        if (at < 0) { addImported(name, source); return; }
+        configs.set(at, new Config(name, source));
+        if (!saveConfigs()) return;
+        if (at == activeIndex) applyCurrentRules();
+        render();
+        toast(getString(R.string.config_added, ShownText.of(name)));
     }
     private static String stripBom(String toml) {
         return toml.startsWith("\uFEFF") ? toml.substring(1) : toml;
     }
+    // The editor: the desktop's card (qml/CreateConfigOverlay.qml), with ← and the title, a Name field, the
+    // TOML in a text area of its own, Show TOML and password as a toggle row, and Cancel and Save at the
+    // bottom right. It opens on the name, and a remote never lands on the toggle by itself, first or after a
+    // Save that is refused, where an OK would show the password to the room. The TOML holds the password,
+    // so while the card is up the window is FLAG_SECURE. Back, ←, Cancel and a tap outside ask before they
+    // drop what was typed. Keys: editor:back, editor:name, editor:toml, editor:show, editor:cancel and
+    // editor:save.
     private void editConfig(int index) {
         if (storageFailed) { toast(getString(R.string.text_storage_is_unavailable_data_has_not_been_changed)); return; }
+        if (overlay("editor") != null) return;
         final Config editing = index < 0 ? null : configs.get(index);
-        getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);
-        LinearLayout form = column(); form.setPadding(dp(20), dp(5), dp(20), 0);
-        EditText name = new EditText(this); name.setSingleLine(true); name.setTextColor(t().text);
-        name.setHint(getString(R.string.text_configuration_name)); name.setHintTextColor(t().textDim);
-        EditText raw = new EditText(this); raw.setTextColor(t().text); raw.setHintTextColor(t().textDim);
-        raw.setHint(getString(R.string.text_paste_complete_trusttunnel_toml)); raw.setMinLines(8); raw.setGravity(Gravity.TOP);
-        // The TOML is monospace, as the log is.
-        raw.setTypeface(Typeface.MONOSPACE); raw.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        final Overlay[] shown = new Overlay[1];
+        EditText name = new EditText(this);
+        name.setSingleLine(true);
+        name.setHint(getString(R.string.editor_name_placeholder));
+        name.setImeOptions(EditorInfo.IME_ACTION_NEXT);
+        EditText raw = new EditText(this);
+        raw.setHint(getString(R.string.text_paste_complete_trusttunnel_toml));
         raw.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
         // In landscape a keyboard can fill the screen with its own copy of the text. Ask it
         // not to go full screen, and not to copy the text if it does anyway: the copy has no
@@ -1344,78 +1417,120 @@ public final class MainActivity extends Activity {
         raw.setImeOptions(raw.getImeOptions() | EditorInfo.IME_FLAG_NO_FULLSCREEN | EditorInfo.IME_FLAG_NO_EXTRACT_UI
                 | EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING);
         raw.setTransformationMethod(PasswordTransformationMethod.getInstance());
-        CheckBox show = new CheckBox(this); show.setText(getString(R.string.text_show_toml_and_password)); show.setTextColor(t().text);
-        dialogFocus(show);
-        show.setOnCheckedChangeListener((b, checked) -> raw.setTransformationMethod(checked ? null : PasswordTransformationMethod.getInstance()));
-        form.addView(show, lp(-1, 48));
-        if (index >= 0) { name.setText(configs.get(index).name); raw.setText(configs.get(index).toml); }
-        form.addView(name, lp(-1, 54)); form.addView(raw, lp(-1, 230));
-        ScrollView scroll = new ScrollView(this); scroll.addView(form);
-        AlertDialog editor = builder().setTitle(index < 0 ? getString(R.string.text_new_configuration) : getString(R.string.text_edit_configuration))
-                .setView(scroll).setNegativeButton(getString(R.string.text_cancel), null)
-                .setPositiveButton(getString(R.string.text_save), null).create();
-        editor.setOnDismissListener(d -> {
+        if (editing != null) { name.setText(editing.name); raw.setText(editing.toml); }
+        // What was there when it opened. Joined on a character no text holds, so that moving a boundary
+        // between the two is a change.
+        final String opened = name.getText() + "\u001f" + raw.getText();
+        ToggleView show = ui.toggle(false, false, "editor:show");
+        show.setContentDescription(getString(R.string.text_show_toml_and_password));
+        show.setListener((v, checked) -> raw.setTransformationMethod(checked ? null : PasswordTransformationMethod.getInstance()));
+
+        final boolean[] asking = {false};
+        final Runnable tryClose = () -> {
+            Overlay editor = shown[0];
+            if (editor == null || editor.closed) return;
+            if ((name.getText() + "\u001f" + raw.getText()).equals(opened)) { closeOverlay(editor); return; }
+            // A second Cancel, or a Back, while the question is up or waits is no second question.
+            if (asking[0]) return;
+            asking[0] = true;
+            showConfirm(getString(R.string.editor_discard_question), getString(R.string.editor_discard), null,
+                    () -> closeOverlay(editor), null, () -> asking[0] = false);
+        };
+
+        LinearLayout card = column();
+        card.addView(ui.cardHeader(getString(index < 0 ? R.string.text_new_configuration : R.string.text_edit_configuration),
+                "editor:back", getString(R.string.text_back), v -> tryClose.run()), lp(-1, -2));
+        LinearLayout form = column();
+        form.setPadding(dp(18), 0, dp(18), 0);
+        form.addView(ui.field(getString(R.string.editor_name), name, "editor:name"), lp(-1, -2));
+        gap(form, 10);
+        form.addView(ui.fieldArea(getString(R.string.editor_toml), raw, "editor:toml", 150), lp(-1, -2));
+        gap(form, 10);
+        form.addView(ui.editorToggleRow(getString(R.string.text_show_toml_and_password), show), lp(-1, -2));
+        ScrollView scroll = new ScrollView(this);
+        scroll.setVerticalScrollBarEnabled(false);
+        // The fields are its stops, not it.
+        scroll.setFocusable(false);
+        scroll.addView(form);
+        card.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
+        Button cancel = ui.button(getString(R.string.text_cancel), Ui.Kind.SECONDARY, 88, "editor:cancel");
+        cancel.setOnClickListener(v -> tryClose.run());
+        Button save = ui.button(getString(R.string.text_save), Ui.Kind.PRIMARY, 88, "editor:save");
+        LinearLayout buttons = row();
+        buttons.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
+        buttons.setPadding(dp(18), dp(6), dp(18), dp(12));
+        buttons.addView(cancel, lp(-2, 32));
+        ui.gapH(buttons, 8);
+        buttons.addView(save, lp(-2, 32));
+        card.addView(buttons, lp(-1, -2));
+
+        getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);
+        Overlay overlay = showOverlay("editor", OverlayLayer.Kind.CARD, card, null, () -> {
             validationRequest++;
             getWindow().clearFlags(WindowManager.LayoutParams.FLAG_SECURE);
         });
-        show(editor);
-        editor.getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);
-        // A dialog shown to a remote focuses its first control, here the check box that
-        // shows the TOML and password, where the first OK would show them to the room.
-        // Android gives a window its first focus only out of touch mode, and then to the
-        // view focused by default. Asking the dialog here whether it is in touch mode is
-        // too early: until its first frame it is not attached and answers for no window.
-        name.setFocusedByDefault(true);
-        Button save = editor.getButton(AlertDialog.BUTTON_POSITIVE);
+        shown[0] = overlay;
+        overlay.width(dp(372));
+        overlay.escape = tryClose;
+        // A remote starts on the name: left to itself, on the first control, which could be the toggle.
+        overlay.defaultKey = "editor:name";
         // One check at a time. Only a phone greys Save out meanwhile: disabling the view
-        // that has a remote's focus moves the focus to that check box as well.
+        // that has a remote's focus moves the focus to the toggle as well.
         boolean[] checking = {false};
         save.setOnClickListener(v -> {
-                    if (checking[0]) return;
-                    String n = name.getText().toString().trim();
-                    String t = stripBom(raw.getText().toString().trim());
-                    if (n.isEmpty()) { toast(getString(R.string.text_enter_a_configuration_name)); return; }
-                    // A link pasted here is read as the link it is. On a TV, a phone's
-                    // keyboard, such as the Google TV app's, can paste one where a whole
-                    // file is a lot to get across.
-                    final DeepLinkImport.Imported link;
-                    try { link = DeepLinkImport.looksLikeLink(t) ? DeepLinkImport.parse(t) : null; }
-                    catch (DeepLinkImport.ParseException e) { refuseImport(e.messageResource); return; }
-                    checking[0] = true;
-                    if (save.isInTouchMode()) save.setEnabled(false);
-                    // Checked as an import: the hint asks for a whole TrustTunnel file, and
-                    // one pasted here, or saved by an earlier version, can carry a
-                    // subscription address, an auth key or a private key with its
-                    // certificate just as an imported one can. An endpoint's export is
-                    // turned into a whole file, and the name stays the one typed here,
-                    // as it does for a link, which is checked as importDeepLink() checks it.
-                    validateAsync(link != null ? link.toml : t, link == null, result -> {
-                        RoutingConfig.Import checked = link == null ? result
-                                : new RoutingConfig.Import(result.getToml(), link.subscriptionNotKept, link.certificateIgnored);
-                        if (!editor.isShowing()) return;
-                        if (editing == null) configs.add(new Config(n, checked.getToml()));
-                        else {
-                            int current = configs.indexOf(editing);
-                            if (current < 0) return;
-                            configs.set(current, new Config(n, checked.getToml()));
-                        }
-                        saveConfigs(); editor.dismiss(); applyCurrentRules(); render();
-                        String notes = importNotes(checked).trim();
-                        if (!notes.isEmpty()) show(builder().setMessage(notes)
-                                .setPositiveButton(getString(R.string.text_ok), null));
-                    }, () -> { checking[0] = false; save.setEnabled(true); });
-                });
+            if (checking[0]) return;
+            String n = name.getText().toString().trim();
+            String text = stripBom(raw.getText().toString().trim());
+            if (n.isEmpty()) { toast(getString(R.string.text_enter_a_configuration_name)); return; }
+            // A link pasted here is read as the link it is. On a TV, a phone's
+            // keyboard, such as the Google TV app's, can paste one where a whole
+            // file is a lot to get across.
+            final DeepLinkImport.Imported link;
+            try { link = DeepLinkImport.looksLikeLink(text) ? DeepLinkImport.parse(text) : null; }
+            catch (DeepLinkImport.ParseException e) { refuseImport(e.messageResource); return; }
+            checking[0] = true;
+            if (save.isInTouchMode()) save.setEnabled(false);
+            // Checked as an import: the hint asks for a whole TrustTunnel file, and
+            // one pasted here, or saved by an earlier version, can carry a
+            // subscription address, an auth key or a private key with its
+            // certificate just as an imported one can. An endpoint's export is
+            // turned into a whole file, and the name stays the one typed here,
+            // as it does for a link, which is checked as importDeepLink() checks it.
+            validateAsync(link != null ? link.toml : text, link == null, result -> {
+                RoutingConfig.Import checked = link == null ? result
+                        : new RoutingConfig.Import(result.getToml(), link.subscriptionNotKept, link.certificateIgnored);
+                if (overlay.closed) return;
+                if (editing == null) configs.add(new Config(n, checked.getToml()));
+                else {
+                    int current = configs.indexOf(editing);
+                    if (current < 0) { checking[0] = false; save.setEnabled(true); return; }
+                    configs.set(current, new Config(n, checked.getToml()));
+                }
+                boolean saved = saveConfigs();
+                closeOverlay(overlay);
+                if (!saved) return;
+                applyCurrentRules(); render();
+                // What was left out of it, as a toast.
+                String notes = importNotes(checked);
+                if (!notes.isEmpty()) toast(notes);
+            }, () -> { checking[0] = false; save.setEnabled(true); });
+        });
     }
+    // The name is cut in the middle to 36, as the desktop cuts it, and shown as ShownText shows names.
     private void confirmRemove(int index) {
         if (storageFailed) return;
-        show(builder().setTitle(getString(R.string.text_delete_configuration)).setMessage(configs.get(index).name)
-                .setNegativeButton(getString(R.string.text_cancel), null).setPositiveButton(getString(R.string.text_delete), (d, w) -> {
-                    boolean activeRemoved = index == activeIndex;
-                    configs.remove(index);
-                    if (index < activeIndex) activeIndex--;
+        Config config = configs.get(index);
+        showConfirm(getString(R.string.delete_config_question, ShownText.elideMiddle(ShownText.oneLine(config.name), 36)),
+                getString(R.string.text_delete), () -> {
+                    // Where it is now: the list may have changed while this was asked.
+                    int at = configs.indexOf(config);
+                    if (at < 0) return;
+                    boolean activeRemoved = at == activeIndex;
+                    configs.remove(at);
+                    if (at < activeIndex) activeIndex--;
                     activeIndex = Math.max(0, Math.min(activeIndex, configs.size() - 1));
                     saveConfigs(); if (activeRemoved) applyCurrentRules(); render();
-                }));
+                });
     }
     @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
@@ -1454,10 +1569,10 @@ public final class MainActivity extends Activity {
         boolean through = prefs.getBoolean("through", false);
         // Only the value and its ▾ are the control: the label is plain text.
         body.addView(ui.dropdown(getString(R.string.text_mode), through ? getString(R.string.text_through_vpn_62) : getString(R.string.text_bypass_vpn_61),
-                "split:mode", v -> show(builder().setTitle(getString(R.string.text_mode))
-                .setItems(new String[]{getString(R.string.text_bypass_vpn_61), getString(R.string.text_through_vpn_62)}, (dialog, which) -> {
+                "split:mode", v -> showSelect("split:mode",
+                new String[]{getString(R.string.text_bypass_vpn_61), getString(R.string.text_through_vpn_62)}, through ? 1 : 0, which -> {
                     prefs.edit().putBoolean("through", which == 1).apply(); applyCurrentRules(); render();
-                }))), lp(-1, -2));
+                })), lp(-1, -2));
         TextView explanation = ui.paragraph(getString(R.string.text_for_through_vpn_choose_applications_or_addresses_sel), 12, t.textDim, 0);
         body.addView(explanation, lp(-1, -2));
         for (Config config : configs) {
@@ -1539,30 +1654,172 @@ public final class MainActivity extends Activity {
         prefs.edit().putStringSet("domains", rules).apply(); applyCurrentRules(); render();
     }
     private List<String> sorted(Set<String> set) { List<String> list = new ArrayList<>(set); Collections.sort(list); return list; }
+    // The app picker (qml/AppPickerOverlay.qml): a card with ← and the title, a search box, and the installed
+    // applications, a row each with the name over its package. One application to a visit: a tap adds it and
+    // the card closes, as does Enter, which adds the first match. They are listed on a worker, and the card
+    // says so meanwhile. On a phone the search box has the focus first, and the keyboard comes up; on a TV
+    // the first row has it, once the list is in. No checkboxes, no icons and no Done, and no file to
+    // choose instead, which Android has no such thing as. Keys: picker:back, picker:search, picker:0, ...
+    private static final class AppEntry {
+        final String label;
+        final String pkg;
+        AppEntry(String label, String pkg) { this.label = label; this.pkg = pkg; }
+    }
+
     private void appPicker() {
+        if (overlay("picker") != null) return;
+        new AppPicker().open();
+    }
+
+    private final class AppPicker {
+        private final List<AppEntry> apps = new ArrayList<>();
+        private boolean scanning = true;
+        private boolean focusedOnce;
+        private Overlay overlay;
+        private EditText search;
+        private LinearLayout list;
+
+        void open() {
+            LinearLayout card = column();
+            // As tall as the desktop's card, 460, or as the window leaves room for.
+            card.setMinimumHeight(dp(460));
+            card.addView(ui.cardHeader(getString(R.string.picker_title), "picker:back", getString(R.string.text_back),
+                    v -> closeOverlay(overlay)), lp(-1, -2));
+            search = ui.pageInput(getString(R.string.picker_search), "picker:search");
+            search.setImeOptions(EditorInfo.IME_ACTION_DONE);
+            search.addTextChangedListener(new TextWatcher() {
+                @Override public void beforeTextChanged(CharSequence text, int start, int count, int after) { }
+                @Override public void onTextChanged(CharSequence text, int start, int before, int count) { }
+                @Override public void afterTextChanged(Editable text) { fill(); }
+            });
+            // Enter adds the first match.
+            search.setOnEditorActionListener((field, action, event) -> {
+                List<AppEntry> matches = matches();
+                if (!matches.isEmpty()) choose(matches.get(0));
+                return true;
+            });
+            LinearLayout.LayoutParams searchLp = lp(-1, 34);
+            searchLp.setMargins(dp(14), 0, dp(14), dp(10));
+            card.addView(search, searchLp);
+            list = column();
+            list.setPadding(dp(14), 0, dp(14), dp(14));
+            ScrollView scroll = new ScrollView(MainActivity.this);
+            scroll.setVerticalScrollBarEnabled(false);
+            // The rows are its stops, not it: with none, it would be one with no sign of the focus.
+            scroll.setFocusable(false);
+            scroll.addView(list);
+            card.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
+            overlay = showOverlay("picker", OverlayLayer.Kind.CARD, card, null, null);
+            overlay.width(dp(420));
+            fill();
+            if (!isTv()) {
+                overlay.defaultKey = "picker:search";
+                search.post(() -> {
+                    if (overlay.closed) return;
+                    search.requestFocus();
+                    showKeyboard(search);
+                });
+            }
+            scanWorker.execute(() -> {
+                List<AppEntry> found = installedApps();
+                runOnUiThread(() -> {
+                    if (isDestroyed() || overlay.closed) return;
+                    apps.addAll(found);
+                    scanning = false;
+                    fill();
+                });
+            });
+        }
+
+        // Name or package, as it is typed.
+        private List<AppEntry> matches() {
+            String query = search.getText().toString().trim().toLowerCase(Locale.ROOT);
+            List<AppEntry> matching = new ArrayList<>();
+            for (AppEntry app : apps) {
+                if (query.isEmpty() || app.label.toLowerCase(Locale.ROOT).contains(query) || app.pkg.toLowerCase(Locale.ROOT).contains(query))
+                    matching.add(app);
+            }
+            return matching;
+        }
+
+        private void fill() {
+            Theme t = t();
+            list.removeAllViews();
+            List<AppEntry> matching = matches();
+            if (matching.isEmpty()) {
+                TextView status = label(getString(scanning ? R.string.picker_scanning : apps.isEmpty() ? R.string.picker_none : R.string.picker_nothing),
+                        12, t.textFaint);
+                status.setGravity(Gravity.START);
+                status.setTag("picker:status");
+                list.addView(status, lp(-1, -2));
+                return;
+            }
+            View first = null;
+            for (int i = 0; i < matching.size(); i++) {
+                AppEntry app = matching.get(i);
+                LinearLayout row = column();
+                row.setGravity(Gravity.CENTER_VERTICAL);
+                row.setPadding(dp(10), 0, dp(10), 0);
+                TextView name = ui.follow(label(app.label, 13, t.text), t.text, t.text, t.accentText);
+                name.setSingleLine(true);
+                name.setEllipsize(TextUtils.TruncateAt.END);
+                // The package, which tells two apps of one name apart, is cut at its left, where the end is what matters.
+                TextView pkg = ui.follow(label(app.pkg, 11, t.textFaint), t.textFaint, t.textFaint, t.accentText);
+                pkg.setSingleLine(true);
+                pkg.setEllipsize(TextUtils.TruncateAt.START);
+                row.addView(name, lp(-1, -2));
+                row.addView(pkg, lp(-1, -2));
+                ui.focus(row, "picker:" + i, Ui.Look.ROW).setOnClickListener(v -> choose(app));
+                LinearLayout.LayoutParams rowLp = lp(-1, 42);
+                rowLp.bottomMargin = dp(2);
+                list.addView(row, rowLp);
+                if (first == null) first = row;
+            }
+            // A TV's remote starts on the first row, when the list first arrives, or when the row it was on is gone.
+            if (isTv() && first != null && !getWindow().getDecorView().isInTouchMode()) {
+                View focused = getCurrentFocus();
+                boolean unmoved = focused == null || "picker:back".equals(focused.getTag());
+                if (unmoved || !focusedOnce) first.requestFocus();
+                focusedOnce = true;
+            }
+        }
+
+        // The application goes in the list of those the VPN does not carry, or carries alone; and the card goes.
+        private void choose(AppEntry app) {
+            if (overlay.closed) return;
+            Set<String> next = new HashSet<>(prefs.getStringSet("apps", Collections.emptySet()));
+            next.add(app.pkg);
+            closeOverlay(overlay);
+            prefs.edit().putStringSet("apps", next).apply();
+            applyCurrentRules();
+            render();
+        }
+    }
+
+    // The apps the launcher shows, and a TV's, named, once each, in alphabetical order. This app's own is left out.
+    // On the scan worker: loadLabel() for every one of them takes long on a TV.
+    private List<AppEntry> installedApps() {
         PackageManager pm = getPackageManager();
-        Intent launcher = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER);
-        List<ResolveInfo> found = new ArrayList<>(pm.queryIntentActivities(launcher, 0));
+        List<ResolveInfo> found = new ArrayList<>(pm.queryIntentActivities(new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER), 0));
         // Apps made for TVs may have a TV launcher entry only. "seen" drops those with both.
         found.addAll(pm.queryIntentActivities(new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LEANBACK_LAUNCHER), 0));
-        found.sort((a, b) -> String.CASE_INSENSITIVE_ORDER.compare(a.loadLabel(pm).toString(), b.loadLabel(pm).toString()));
-        Set<String> chosen = new HashSet<>(prefs.getStringSet("apps", Collections.emptySet()));
-        LinearLayout list = column(); list.setPadding(dp(16), 0, dp(16), 0);
+        List<AppEntry> entries = new ArrayList<>();
         Set<String> seen = new HashSet<>();
         for (ResolveInfo app : found) {
             String pkg = app.activityInfo.packageName;
             if (pkg.equals(getPackageName()) || !seen.add(pkg)) continue;
-            CheckBox box = new CheckBox(this); box.setText(app.loadLabel(pm)); box.setTextColor(t().text);
-            box.setButtonTintList(android.content.res.ColorStateList.valueOf(t().success));
-            box.setChecked(chosen.contains(pkg)); box.setPadding(dp(4), dp(6), dp(4), dp(6)); dialogFocus(box);
-            box.setOnCheckedChangeListener((b, checked) -> { if (checked) chosen.add(pkg); else chosen.remove(pkg); });
-            list.addView(box, lp(-1, 52));
+            entries.add(new AppEntry(app.loadLabel(pm).toString(), pkg));
         }
-        ScrollView scroll = new ScrollView(this); scroll.addView(list);
-        show(builder().setTitle(getString(R.string.text_choose_applications)).setView(scroll)
-                .setNegativeButton(getString(R.string.text_cancel), null).setPositiveButton(getString(R.string.text_done), (d, w) -> {
-                    prefs.edit().putStringSet("apps", chosen).apply(); applyCurrentRules(); render();
-                }));
+        entries.sort((a, b) -> String.CASE_INSENSITIVE_ORDER.compare(a.label, b.label));
+        return entries;
+    }
+    private void showKeyboard(View view) {
+        InputMethodManager input = getSystemService(InputMethodManager.class);
+        if (input != null) input.showSoftInput(view, InputMethodManager.SHOW_IMPLICIT);
+    }
+    private void hideKeyboard() {
+        InputMethodManager input = getSystemService(InputMethodManager.class);
+        if (input != null) input.hideSoftInputFromWindow(getWindow().getDecorView().getWindowToken(), 0);
     }
 
     private void settings(LinearLayout body) {
@@ -1573,13 +1830,15 @@ public final class MainActivity extends Activity {
         String[] names = {getString(R.string.text_theme_system), getString(R.string.text_light_78), getString(R.string.text_dark_79)};
         int shownMode = 0;
         for (int i = 0; i < modes.length; i++) if (modes[i].equals(themeMode)) shownMode = i;
+        final int shownModeIndex = shownMode;
         body.addView(ui.dropdown(getString(R.string.text_theme), names[shownMode], "settings:theme",
-                v -> show(builder().setTitle(getString(R.string.text_theme)).setItems(names, (d, which) -> {
+                v -> showSelect("settings:theme", names, shownModeIndex, which -> {
                     themeMode = modes[which]; prefs.edit().putString("theme_mode", themeMode).apply(); render();
-                }))), lp(-1, -2));
+                })), lp(-1, -2));
         body.addView(ui.sep(), lp(-1, 1));
         addSwitch(body, getString(R.string.text_connect_on_launch), "", "auto_connect", false);
         section(body, getString(R.string.text_security));
+        storageBanner(body);
         addSwitch(body, "Kill switch", getString(R.string.text_blocks_traffic_while_reconnecting), "killswitch", true);
         // Most TVs have no Always-on VPN, and no screen for it. The manifest's queries
         // keep package visibility from hiding the screen on a phone.
@@ -1637,64 +1896,121 @@ public final class MainActivity extends Activity {
         body.addView(licenses, lp(-1, -2));
     }
     // The third-party notices and the license texts, as app/build.gradle copies them
-    // from the repository into the APK's assets.
+    // from the repository into the APK's assets, in one card: the files as rows, and a file's
+    // text in a box like the log's, which a remote scrolls with the arrows because it has the
+    // focus first. ← and Back go from the text to the list, and from the list out. Keys:
+    // licenses:back, licenses:0, licenses:1, ... for the rows and licenses:text.
     private void openSourceLicenses() {
-        List<String> files = new ArrayList<>();
-        files.add("THIRD_PARTY_NOTICES.md");
-        files.add("LICENSE");
-        for (String group : new String[]{"licenses/common", "licenses/android"}) {
-            List<String> texts = new ArrayList<>();
-            try {
-                String[] names = getAssets().list(group);
-                if (names != null) for (String name : names) texts.add(group + "/" + name);
-            } catch (IOException e) {
-                // Listed as far as it goes: a text that is missing says so when opened.
-            }
-            Collections.sort(texts, String.CASE_INSENSITIVE_ORDER);
-            files.addAll(texts);
-        }
-        show(builder().setTitle(getString(R.string.text_open_source_licenses))
-                .setItems(files.toArray(new String[0]), (d, which) -> showLicenseText(files.get(which)))
-                .setNegativeButton(getString(R.string.text_done), null));
+        if (overlay("licenses") != null) return;
+        new Licenses().open();
     }
-    // One of them. A remote scrolls it with the arrows: the scroll view takes the
-    // focus, and the frame around it, which takes on the scroll view's states, shows
-    // the ring while it has it. Back returns to the list.
-    private void showLicenseText(String asset) {
-        String text;
-        try (InputStream input = getAssets().open(asset); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
-            byte[] buffer = new byte[8192];
-            for (int n; (n = input.read(buffer)) > 0; ) out.write(buffer, 0, n);
-            text = new String(out.toByteArray(), StandardCharsets.UTF_8);
-        } catch (IOException e) {
-            toast(getString(R.string.text_licenses_unavailable));
-            return;
+
+    private final class Licenses {
+        private final List<String> files = new ArrayList<>();
+        private Overlay overlay;
+        private TextView title;
+        private FrameLayout body;
+        // The file whose text is up, or -1 while the list is.
+        private int showing = -1;
+
+        void open() {
+            files.add("THIRD_PARTY_NOTICES.md");
+            files.add("LICENSE");
+            for (String group : new String[]{"licenses/common", "licenses/android"}) {
+                List<String> texts = new ArrayList<>();
+                try {
+                    String[] names = getAssets().list(group);
+                    if (names != null) for (String name : names) texts.add(group + "/" + name);
+                } catch (IOException e) {
+                    // Listed as far as it goes: a text that is missing says so when opened.
+                }
+                Collections.sort(texts, String.CASE_INSENSITIVE_ORDER);
+                files.addAll(texts);
+            }
+            LinearLayout card = column();
+            card.setMinimumHeight(dp(460));
+            LinearLayout header = ui.cardHeader(getString(R.string.text_open_source_licenses), "licenses:back", getString(R.string.text_back),
+                    v -> escape(overlay));
+            title = (TextView) header.getChildAt(1);
+            card.addView(header, lp(-1, -2));
+            body = new FrameLayout(MainActivity.this);
+            card.addView(body, new LinearLayout.LayoutParams(-1, 0, 1));
+            overlay = showOverlay("licenses", OverlayLayer.Kind.CARD, card, null, null);
+            overlay.width(dp(420));
+            overlay.escape = () -> { if (showing >= 0) list(showing); else closeOverlay(overlay); };
+            list(-1);
+            overlay.defaultKey = "licenses:0";
         }
-        TextView body = label(text, 12, t().text);
-        body.setGravity(Gravity.START);
-        body.setPadding(dp(20), dp(8), dp(20), dp(8));
-        ScrollView scroll = new ScrollView(this);
-        scroll.addView(body);
-        scroll.setFocusedByDefault(true);
-        FrameLayout frame = new FrameLayout(this);
-        frame.setAddStatesFromChildren(true);
-        frame.addView(scroll);
-        dialogFocus(frame);
-        show(builder().setTitle(asset).setView(frame)
-                .setPositiveButton(getString(R.string.text_done), null)
-                .setOnCancelListener(d -> openSourceLicenses()));
+
+        // The files; with the focus on the one whose text was just up, if any.
+        private void list(int focusRow) {
+            Theme t = t();
+            showing = -1;
+            title.setText(getString(R.string.text_open_source_licenses));
+            body.removeAllViews();
+            LinearLayout rows = column();
+            rows.setPadding(dp(14), 0, dp(14), dp(14));
+            for (int i = 0; i < files.size(); i++) {
+                final int index = i;
+                TextView row = label(files.get(i), 13, t.text);
+                row.setPadding(dp(10), 0, dp(10), 0);
+                row.setSingleLine(true);
+                row.setEllipsize(TextUtils.TruncateAt.MIDDLE);
+                row.setTextColor(Ui.colors(t.text, t.text, t.accentText));
+                ui.focus(row, "licenses:" + i, Ui.Look.ROW).setOnClickListener(v -> text(index));
+                LinearLayout.LayoutParams rowLp = lp(-1, 42);
+                rowLp.bottomMargin = dp(2);
+                rows.addView(row, rowLp);
+            }
+            ScrollView scroll = new ScrollView(MainActivity.this);
+            scroll.setVerticalScrollBarEnabled(false);
+            scroll.setFocusable(false);
+            scroll.addView(rows);
+            body.addView(scroll, new FrameLayout.LayoutParams(-1, -1));
+            if (focusRow >= 0 && !getWindow().getDecorView().isInTouchMode()) {
+                View row = body.findViewWithTag("licenses:" + focusRow);
+                if (row != null) row.requestFocus();
+            }
+        }
+
+        // One of them. The box has the focus, so the arrows scroll it.
+        private void text(int index) {
+            Theme t = t();
+            String asset = files.get(index);
+            String contents;
+            try (InputStream input = getAssets().open(asset); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+                byte[] buffer = new byte[8192];
+                for (int n; (n = input.read(buffer)) > 0; ) out.write(buffer, 0, n);
+                contents = new String(out.toByteArray(), StandardCharsets.UTF_8);
+            } catch (IOException e) {
+                toast(getString(R.string.text_licenses_unavailable));
+                return;
+            }
+            showing = index;
+            title.setText(asset);
+            body.removeAllViews();
+            TextView text = ui.mono(contents, 11, t.text);
+            text.setGravity(Gravity.TOP | Gravity.START);
+            text.setPadding(dp(12), dp(12), dp(12), dp(12));
+            ScrollView scroll = new ScrollView(MainActivity.this);
+            scroll.setVerticalScrollBarEnabled(false);
+            scroll.addView(text);
+            ui.focus(scroll, "licenses:text", Ui.Look.BOX);
+            FrameLayout.LayoutParams boxLp = new FrameLayout.LayoutParams(-1, -1);
+            boxLp.setMargins(dp(14), 0, dp(14), dp(14));
+            body.addView(scroll, boxLp);
+            if (!getWindow().getDecorView().isInTouchMode()) scroll.requestFocus();
+        }
     }
     // Installing replaces the app, and Android stops the VPN with it, so say so
     // first. Without the install permission, install() opens its settings screen.
     private void installUpdate() {
         vpnState = FreeTunnelVpnService.state(this);
         if (getPackageManager().canRequestPackageInstalls() && isVpnActive()) {
-            show(builder().setTitle(getString(R.string.update_install))
-                    .setMessage(getString(R.string.update_disconnect_warning))
-                    .setNegativeButton(getString(R.string.text_cancel), null)
-                    .setPositiveButton(getString(R.string.update_install), (d, w) -> AndroidUpdater.INSTANCE.install(this)));
+            showConfirm(getString(R.string.update_disconnect_warning), getString(R.string.update_install),
+                    () -> AndroidUpdater.INSTANCE.install(this, id -> toast(getString(id))));
         } else {
-            AndroidUpdater.INSTANCE.install(this);
+            AndroidUpdater.INSTANCE.install(this, id -> toast(getString(id)));
         }
     }
     private void refreshUpdateControls() {
@@ -1787,6 +2103,7 @@ public final class MainActivity extends Activity {
         stopReceiver();
         validationRequest++;
         validationWorker.shutdown();
+        scanWorker.shutdown();
         super.onDestroy();
     }
     private void loadConfigs() {
@@ -1803,22 +2120,34 @@ public final class MainActivity extends Activity {
         activeIndex = Math.max(0, Math.min(activeIndex, configs.size() - 1));
     }
     private void rootStorageWarning() {
-        show(builder().setTitle(getString(R.string.text_configurations_are_unavailable))
-                .setMessage(getString(R.string.text_android_could_not_read_storage_saved_data_is_unchang))
-                .setPositiveButton(getString(R.string.text_ok), null));
+        storageProblem = getString(R.string.text_configurations_are_unavailable) + ". "
+                + getString(R.string.text_android_could_not_read_storage_saved_data_is_unchang);
+        toast(storageProblem);
     }
-    private void saveConfigs() {
+    // The desktop's credential-storage banner (SettingsPage): amber, at the top of a page while storage fails.
+    private void storageBanner(LinearLayout body) {
+        if (!storageFailed || storageProblem == null) return;
+        TextView banner = ui.banner(storageProblem);
+        banner.setTag("storage:banner");
+        body.addView(banner, lp(-1, -2));
+        gap(body, 10);
+    }
+    // True when they were saved. When they could not be, nothing is changed, and the user is told.
+    private boolean saveConfigs() {
         validationRequest++;
-        if (storageFailed) { toast(getString(R.string.text_storage_is_unavailable_data_has_not_been_changed)); return; }
+        if (storageFailed) { toast(getString(R.string.text_storage_is_unavailable_data_has_not_been_changed)); return false; }
         JSONArray array = new JSONArray();
         for (Config config : configs) {
             JSONObject o = new JSONObject();
             try { o.put("name", config.name); o.put("toml", config.toml); array.put(o); } catch (Exception ignored) { }
         }
         if (!ConfigStore.write(prefs, array.toString())) {
-            storageFailed = true; toast(getString(R.string.text_could_not_save_configurations_data_on_disk_is_unchan));
-            configs.clear(); loadConfigs(); render(); return;
+            storageFailed = true;
+            storageProblem = getString(R.string.text_could_not_save_configurations_data_on_disk_is_unchan);
+            toast(storageProblem);
+            configs.clear(); loadConfigs(); render(); return false;
         }
         prefs.edit().putInt("active", activeIndex).apply();
+        return true;
     }
 }

@@ -27,7 +27,12 @@
         <!-- Translucent: it only forwards the installer's result and closes, so nothing flashes. -->
         <activity android:name=".InstallResultActivity" android:exported="false" android:excludeFromRecents="true" android:theme="@android:style/Theme.Translucent.NoTitleBar" />
         <activity android:name=".VpnPermissionActivity" android:exported="false" android:excludeFromRecents="true" />
-        <activity android:name=".MainActivity" android:exported="true" android:launchMode="singleTop">
+        <!-- A turn of the screen, a resize and a keyboard coming or going do not recreate it: an open card, and what is
+             typed in the editor, would be lost. Theme and language changes still do. adjustResize makes room for the
+             keyboard before Android 15; from there the window is edge to edge and MainActivity does it from the insets. -->
+        <activity android:name=".MainActivity" android:exported="true" android:launchMode="singleTop"
+            android:windowSoftInputMode="adjustResize"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden|navigation">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
