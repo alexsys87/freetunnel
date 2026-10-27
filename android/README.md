@@ -44,7 +44,9 @@ certificate is not an official release or an update compatibility contract.
 - Replacement TUN established before releasing the previous one. Unsupported
   IPv6 is blocked; supported IPv6 imported from links uses global `2000::/3`.
   VPN is unmetered on Android 10+; fatal errors show a separate notification.
-- Russian and English UI. TCP ping measures reachability of the first endpoint
+- Russian and English UI, chosen under Settings → General → Language (English or
+  Русский, each named in itself); until one is chosen the app speaks the device's.
+  TCP ping measures reachability of the first endpoint
   address, not VPN throughput or tunnel latency: every config at once, with
   3 seconds each, "…" until it answers, then the time or "—" for any failure.
 - The desktop's look: its colours, which `tests/test_android_theme_matches_desktop.sh`
@@ -92,6 +94,61 @@ Both are the desktop's pages ([HomePage.qml](../qml/pages/HomePage.qml),
   On a phone a row is moved by pressing and holding it and then dragging; a TV
   has no way to, as the desktop has no keys for it. The selection stays on the
   same config.
+
+## Settings and Logs
+
+Settings and Logs are the desktop's pages ([SettingsPage.qml](../qml/pages/SettingsPage.qml),
+[LogsPage.qml](../qml/pages/LogsPage.qml)), with what only the desktop has left out (Launch at system
+startup, Hotkeys, the Windows-only ports row, Verbose logs, the log's path) and a few rows that only Android
+has. Their words are the desktop's English and its Russian wherever the control is the same:
+`tests/test_android_strings_match_desktop.sh` holds every string to `i18n/freetunnel_ru.ts`, through a
+table of the strings the desktop has too, and fails for one that is neither in it nor on its
+Android-only list.
+
+**Settings**, top to bottom:
+
+- **General**: *Language* (English or Русский; it recreates the activity, which comes back on Settings;
+  Android 13 and up keeps the choice itself, with its own per-app language setting listing the same two,
+  and before that the app wraps its contexts, the VPN service's notifications and the tile's words
+  too, in the saved one), *Theme* (System, Light or Dark) and *Connect on startup*, with a line between the rows.
+- **Security**: *Kill switch*, with its subtitle, and the amber banner while storage fails. Android's own
+  row, *Android VPN settings* with an **Open** link, is only there where Android has that screen; the link
+  is the only focus stop in it. Without Always-on a note says the kill switch protects only while FreeTunnel runs.
+- **Excluded routes**: subnets that bypass the tunnel at the routing level, whatever the split rules say, as
+  chips (the **×** takes one out at once) and a field that takes several at once, separated by spaces, commas
+  or semicolons. What is no subnet is named, and a **/0**, which is every address and would take all its
+  traffic out of the tunnel, is refused and says why. *Restore defaults* and *Clear all* each ask first. The
+  list is the preference `excluded_routes` (JSON); where none is saved it is the defaults in
+  `data/split/default-excluded-routes.txt`, one file for this app and the desktop, copied into the APK's
+  assets and compiled into the desktop (`scripts/check-apk-data.sh` checks the APK has it). A cleared list is
+  `[]`, which is not absent. `RoutingConfig.prepare` adds the routes to the config's own
+  `listener.tun.excluded_routes`: subnets only, never a /0, none twice, IPv6 ones only where the session has
+  IPv6, and the result is checked as the config is, so routes that together cover an address family are
+  refused. A change builds a running VPN again. **A bare address is kept as a /32 (or /128)**: the core's TOML needs the prefix.
+- **Logging**: *Enable logging*.
+- **Maintenance**: *Android's* **Check for updates on launch** (off by default), and the one row of the desktop:
+  the update line, a link over its words alone, with its picture at the right. Idle it says **Check for updates**
+  with the version; up to date adds a ✓; checking shows three hopping dots and does nothing when clicked, while
+  keeping a remote's focus; an offer says **Version X is available** with an arrow down that bends into ↻ under
+  the focus or pointer and a click downloads; a download says **Downloading… N%** beside a turning ↻ and a click
+  cancels it; a downloaded update says so in Android's own words and a click installs it (after the question, with the
+  VPN on); an error says why, worded as the desktop words a failed check, beside a ↻ that tries again. Outside the
+  official build the section says it doesn't come from the official channel.
+- The footer, **FreeTunnel 1.0.0 · TrustTunnel core 1.1.7**, each name a link to its page (a toast where there is no
+  browser, as on most TVs; the core's version is read from the AAR's name by the build), and Android's own
+  **Open-source licenses**.
+
+**Logs**: **Clear** and **Copy** as links as wide as their words (Copy says *Log copied*, and asks the
+clipboard not to show what it copied, as the log lists where connections went); *Logging is off.* with **Turn on**;
+the log in a box that fills the page and scrolls in itself, *Logs will appear after connecting* in the middle of
+it while it is empty; and **Auto-scroll** at the foot. The box follows the file once a second, by changing its text
+alone, and holds off while text is selected. On a TV the text is not selectable, so the arrows scroll the box.
+
+The log is the file the VPN service writes, one entry to a line, `yyyy-MM-dd HH:mm:ss<TAB>LEVEL<TAB>message`
+as the desktop writes it, and the page shows `HH:mm:ss LEVEL message`; a line written by an earlier version is shown
+as it was. The service logs its own events at INFO, WARN or ERROR and every connection the core reports
+(`onConnectionInfo`) at INFO, one line each, so with logging on the log lists where the traffic went. The file is kept to its last 128 KiB
+when it passes 256 KiB and the page shows its last 1000 lines. Turn logging off in Settings to write nothing.
 
 ## Split tunnelling
 
@@ -499,8 +556,8 @@ FreeTunnel and TrustTunnel are Apache-2.0. See [LICENSE](../LICENSE) and
 The APK also contains the libraries in the Android section of
 [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md), under their own
 licenses. `app/build.gradle` copies the notices, `LICENSE` and the texts under
-`licenses/common` and `licenses/android` into the APK's assets, Settings → About
-→ Open-source licenses shows them, and `scripts/check-apk-notices.sh` checks a
+`licenses/common` and `licenses/android` into the APK's assets, the Open-source
+licenses link at the foot of Settings shows them, and `scripts/check-apk-notices.sh` checks a
 built APK for them. A new or bumped dependency in `app/build.gradle`, or a new
 AAR, needs its entry there, or `scripts/check-third-party-notices.sh` fails.
 
@@ -550,7 +607,8 @@ one certificate, the pinned one. Any other build (debug, CI, a fork, the 0.9.0
 preview) says in Settings that it doesn't come from the official channel and
 never checks or downloads, since Android would refuse its update anyway.
 
-Settings offers **Check for updates**. The check on launch is off by default and
+Settings' Maintenance row offers **Check for updates**, and then what each state of
+the update calls for (see Settings and Logs). The check on launch is off by default and
 can be turned on in Settings; it never runs while a verified update waits to be
 installed. The client reads the original repository's paginated Releases API,
 accepts only stable `android-X.Y.Z` tags newer than its installed version, and
