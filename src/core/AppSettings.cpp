@@ -20,12 +20,12 @@ static QString legacyTmpLogPath() {
 
 QStringList defaultExcludedRoutes() {
     // Private / special-use IPv4 ranges that should never be tunnelled
-    // (RFC1918 / CGNAT / link-local / etc.).
+    // (RFC1918 / CGNAT / link-local / etc.). They are in
+    // data/split/default-excluded-routes.txt, one file for this and the Android
+    // app, and cmake/SharedData.cmake turns that into the include file below.
     return {
-        QStringLiteral("10.0.0.0/8"),       QStringLiteral("100.64.0.0/10"),
-        QStringLiteral("169.254.0.0/16"),   QStringLiteral("172.16.0.0/12"),
-        QStringLiteral("192.0.0.0/24"),     QStringLiteral("192.168.0.0/16"),
-        QStringLiteral("255.255.255.255/32")};
+#include "default_excluded_routes.inc"
+    };
 }
 
 // A route of every address of its kind, such as 0.0.0.0/0 or ::/0. Excluded, it

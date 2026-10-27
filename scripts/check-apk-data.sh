@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 # Fail unless an APK carries the data the desktop and the app share, as this commit has it:
-# data/split/recommended-russia.txt, at assets/split/recommended-russia.txt with the same
-# bytes. android/app/build.gradle copies it in (copySharedData), and RussiaList reads it:
-# without it a new installation's Default would be empty and Recommended for Russia would
-# do nothing, and no test of the app would say so but a device test.
+# data/split/recommended-russia.txt and data/split/default-excluded-routes.txt, each at
+# assets/split/<name> with the same bytes. android/app/build.gradle copies them in
+# (copySharedData), and RussiaList and ExcludedRoutes read them: without the first a new
+# installation's Default would be empty and Recommended for Russia would do nothing, without
+# the second the VPN would exclude no private range and Restore defaults would empty the
+# list, and no test of the app would say so but a device test.
 #
 # usage: check-apk-data.sh <apk>
 set -euo pipefail
@@ -29,6 +31,7 @@ check() {
 }
 
 check split/recommended-russia.txt
+check split/default-excluded-routes.txt
 
 [ "$fail" -eq 0 ] || exit 1
 echo "$apk carries the shared data ($checked files)"

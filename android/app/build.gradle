@@ -115,13 +115,16 @@ def copyThirdPartyNotices = tasks.register('copyThirdPartyNotices', CopyThirdPar
     outputDir.set(layout.buildDirectory.dir('generated/thirdPartyNotices'))
 }
 
-// What the desktop app has compiled in and this one reads: the lists under data/, into the APK's assets
-// (split/recommended-russia.txt), so that "Recommended for Russia" is one file for both apps. The
-// desktop's cmake/SharedData.cmake reads the same file; RussiaListTest checks that every line of it is
-// a rule this app takes.
+// What the desktop app has compiled in and this one reads: the lists under data/split, into the APK's assets, so that
+// each is one file for both apps. recommended-russia.txt is "Recommended for Russia" (split/recommended-russia.txt);
+// default-excluded-routes.txt is the excluded routes a new installation starts with and that Settings' "Restore
+// defaults" puts back (split/default-excluded-routes.txt). The desktop's cmake/SharedData.cmake reads the same files;
+// RussiaListTest and ExcludedRoutesTest check that every line of them is one this app takes.
 abstract class CopySharedData extends DefaultTask {
     @InputFile @PathSensitive(PathSensitivity.NAME_ONLY)
     abstract RegularFileProperty getRecommendedRussia()
+    @InputFile @PathSensitive(PathSensitivity.NAME_ONLY)
+    abstract RegularFileProperty getDefaultExcludedRoutes()
     @OutputDirectory
     abstract DirectoryProperty getOutputDir()
 
@@ -132,10 +135,12 @@ abstract class CopySharedData extends DefaultTask {
         def split = new File(out, 'split')
         split.mkdirs()
         java.nio.file.Files.copy(recommendedRussia.get().asFile.toPath(), new File(split, 'recommended-russia.txt').toPath())
+        java.nio.file.Files.copy(defaultExcludedRoutes.get().asFile.toPath(), new File(split, 'default-excluded-routes.txt').toPath())
     }
 }
 def copySharedData = tasks.register('copySharedData', CopySharedData) {
     recommendedRussia.set(rootProject.file('../data/split/recommended-russia.txt'))
+    defaultExcludedRoutes.set(rootProject.file('../data/split/default-excluded-routes.txt'))
     outputDir.set(layout.buildDirectory.dir('generated/sharedData'))
 }
 androidComponents {
