@@ -696,6 +696,9 @@ public final class MainActivity extends Activity {
     private interface Pick { void picked(int index); }
 
     private Overlay showSelect(String anchorKey, String[] options, int current, Pick pick) {
+        // One at a time: a choice asked for while another is up replaces it.
+        Overlay previous = overlay("select");
+        if (previous != null) closeOverlay(previous);
         Theme t = t();
         CappedScrollView scroll = new CappedScrollView(this);
         scroll.setMaxHeight(dp(8 * 36 + 12));
@@ -740,6 +743,8 @@ public final class MainActivity extends Activity {
     }
 
     private Overlay showMenu(String name, String anchorKey, List<MenuEntry> items) {
+        Overlay previous = overlay(name);
+        if (previous != null) closeOverlay(previous);
         Theme t = t();
         LinearLayout list = column();
         list.setPadding(dp(5), dp(6), dp(5), dp(6));
@@ -856,7 +861,8 @@ public final class MainActivity extends Activity {
     private void nav() {
         Theme t = t();
         LinearLayout bar = row(); bar.setGravity(Gravity.CENTER);
-        bar.setPadding(0, dp(9), 0, dp(4));
+        // 6 below the tiles, as on the desktop; the room above them is the status bar's and the overscan's.
+        bar.setPadding(0, dp(9), 0, dp(6));
         settingsDot = null;
         for (int i = 0; i < tabNames.length; i++) {
             final int next = i;
@@ -888,7 +894,7 @@ public final class MainActivity extends Activity {
             item.setContentDescription(tabNames[i]);
             ui.focus(item, "tab:" + i, Ui.Look.TILE, current ? Ui.F_CURRENT : 0).setOnClickListener(v -> { page = next; render(); });
         }
-        pageRoot.addView(bar, lp(-1, 56));
+        pageRoot.addView(bar, lp(-1, -2));
     }
     private boolean updateWaiting() {
         AndroidUpdater.State update = AndroidUpdater.INSTANCE.getState();
