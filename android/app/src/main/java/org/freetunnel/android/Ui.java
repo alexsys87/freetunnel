@@ -9,6 +9,7 @@ import android.graphics.Typeface;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
 import android.graphics.drawable.StateListDrawable;
+import android.graphics.text.LineBreaker;
 import android.os.Build;
 import android.text.Layout;
 import android.text.TextUtils;
@@ -695,8 +696,9 @@ final class Ui {
         input.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
         // As the desktop's text area wraps (TextEdit.WrapAnywhere): greedy, and with no hyphens. Set outright, not left to the theme's style,
         // since a layout that weighs the breaks of a whole paragraph or looks for hyphens costs most where a file brings a paragraph of
-        // hundreds of thousands of characters with no line break in it.
-        input.setBreakStrategy(Layout.BREAK_STRATEGY_SIMPLE);
+        // hundreds of thousands of characters with no line break in it. LineBreaker's constant is what API 35's annotation lists; it is a
+        // compile-time int (0, as Layout.BREAK_STRATEGY_SIMPLE), so javac inlines it and LineBreaker, which is API 29, is not loaded on 26-28.
+        input.setBreakStrategy(LineBreaker.BREAK_STRATEGY_SIMPLE);
         input.setHyphenationFrequency(Layout.HYPHENATION_FREQUENCY_NONE);
         input.setTextColor(t.text);
         input.setHintTextColor(t.textFaint);

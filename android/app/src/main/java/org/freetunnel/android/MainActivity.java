@@ -24,6 +24,7 @@ import android.graphics.Rect;
 import android.graphics.Typeface;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.GradientDrawable;
+import android.graphics.text.LineBreaker;
 import android.net.ConnectivityManager;
 import android.net.LinkAddress;
 import android.net.LinkProperties;
@@ -960,7 +961,7 @@ public final class MainActivity extends Activity {
         message.setGravity(Gravity.CENTER);
         // Wraps anywhere: a long host name has no space to break at. Lines are broken as the width of the card was worked out from.
         message.setHyphenationFrequency(Layout.HYPHENATION_FREQUENCY_NONE);
-        message.setBreakStrategy(Layout.BREAK_STRATEGY_SIMPLE);
+        message.setBreakStrategy(LineBreaker.BREAK_STRATEGY_SIMPLE); // inlined (0), as in Ui.java: nothing of API 29 is loaded on 26-28
         message.setTag("confirm:message");
         scroll.addView(message, new FrameLayout.LayoutParams(-1, -2));
         box.addView(scroll, lp(-1, -2));
@@ -1018,7 +1019,7 @@ public final class MainActivity extends Activity {
         TextPaint paint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
         paint.setTextSize(TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, sp, getResources().getDisplayMetrics()));
         StaticLayout lines = StaticLayout.Builder.obtain(text, 0, text.length(), paint, Math.max(1, width))
-                .setBreakStrategy(Layout.BREAK_STRATEGY_SIMPLE).setHyphenationFrequency(Layout.HYPHENATION_FREQUENCY_NONE).build();
+                .setBreakStrategy(LineBreaker.BREAK_STRATEGY_SIMPLE).setHyphenationFrequency(Layout.HYPHENATION_FREQUENCY_NONE).build();
         float widest = 0;
         for (int i = 0; i < lines.getLineCount(); i++) widest = Math.max(widest, lines.getLineWidth(i));
         return (int) Math.ceil(widest);
