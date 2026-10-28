@@ -208,6 +208,8 @@ class UiTourDeviceTest {
         instrumentation.waitForIdleSync()
     }
 
+    private val SYSTEM_PANEL_MS = 5_000L
+
     private fun act(): MainActivity = activity!!
     private fun root(): ViewGroup = field("host").get(act()) as ViewGroup
     private fun descendants(view: View): Sequence<View> = sequence {
@@ -392,7 +394,22 @@ class UiTourDeviceTest {
     private fun png(bitmap: Bitmap): ByteArray =
         ByteArrayOutputStream().also { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }.toByteArray()
 
+    // Android TV's own panel says "VPN is connected" or "VPN is disconnected" over the top right of the screen, for a few seconds after the VPN comes
+    // up or goes down: it is the system's, the app cannot suppress it, and it is over the app's screens in the pictures taken then. So on a TV a picture
+    // taken after the VPN changed waits until the panel has gone, and the pictures show the app alone.
+    private var vpnSeen: String? = null
+    private var vpnChangedAt = 0L
+    private fun waitForTheSystemPanel() {
+        if (!isTv) return
+        val now = SystemClock.elapsedRealtime()
+        val seen = "${FreeTunnelVpnService.state(context)}/${vpnNetwork() != null}"
+        if (seen != vpnSeen) { vpnSeen = seen; vpnChangedAt = now }
+        val remaining = SYSTEM_PANEL_MS - (now - vpnChangedAt)
+        if (remaining > 0) SystemClock.sleep(remaining)
+    }
+
     private fun shot(name: String, what: String) {
+        waitForTheSystemPanel()
         settle()
         assertScreen(name)
         val secure = onMain { act().window.attributes.flags and WindowManager.LayoutParams.FLAG_SECURE != 0 }
@@ -445,6 +462,18 @@ class UiTourDeviceTest {
         // The control with the focus holds its words, not the width of the screen.
         val wide = onMain { tooWide() }
         if (wide != null) violate(name, wide)
+        // A confirmation is a card that holds its question and its buttons. It once collapsed to a few pixels wide, the question cut to
+        // single characters and the buttons 2 px across, on every screen that asked one, and no check of the tour said so.
+        val shrunk = onMain {
+            val layer = root().findViewWithTag<View?>("overlay:confirm")
+            if (layer == null || !layer.isShown) null else {
+                val density = act().resources.displayMetrics.density
+                listOf("confirm:message", "confirm:cancel", "confirm:ok").map { it to layer.findViewWithTag<View?>(it) }
+                    .firstOrNull { (_, view) -> view == null || !view.isShown || view.width < 60 * density || view.height < 14 * density }
+                    ?.let { (key, view) -> "the confirmation's $key is ${view?.width}x${view?.height}: the card has collapsed" }
+            }
+        }
+        if (shrunk != null) violate(name, shrunk)
     }
 
     // What a view needs to show what it holds: its words and picture and padding, or what its children need.
@@ -472,7 +501,7 @@ class UiTourDeviceTest {
         return view.width
     }
     // The rows of a list, fields and boxes of text are as wide as their place by design, as the desktop's are; the Home logo is 132 across.
-    private val rowKeys = Regex("(config:\\d+:select|home:pick:\\d+|select:\\d+|add:[a-z]+|picker:\\d+|licenses:\\d+|licenses:text|log:box|home:toggle|editor:toml|editor:name|editor:profile)")
+    private val rowKeys = Regex("(config:\\d+:select|home:pick:\\d+|select:\\d+|add:[a-z]+|picker:\\d+|licenses:\\d+|licenses:text|log:box|home:toggle|editor:cert|editor:name|editor:profile|editor:protocol|editor:certfile)")
     private fun tooWide(): String? {
         val focused = act().currentFocus ?: return null
         val key = focused.tag as? String ?: return null
@@ -720,7 +749,7 @@ class UiTourDeviceTest {
             awaitOverlay("addmenu")
             activate("add:create")
             awaitOverlay("editor")
-            shot("editor-new", "New config: the name first, the TOML, Cancel and Save")
+            shot("editor-new", "New config: the desktop's form, the name first, the fields two to a line, the switches, the certificate, Cancel and Save at the end")
         }
         screen("editor-edit-focused") {
             goTo(1)

@@ -398,6 +398,25 @@ class VpnDeviceTest {
         assertNull(serviceOwner())
     }
 
+    // The desktop sends an error to its tray only while its window is not in view (Main.qml, errorsGoToTray) and never puts a system message
+    // over its own open window. The alert of a blocked connection is posted without a sound or a pop-over while the app is on the screen, whose
+    // Home already says it and offers Reconnect, and alerts as before when it is not.
+    @Test fun theBlockedAlertDoesNotPopOverTheOpenApp() {
+        FreeTunnelVpnService.setAppVisible(true)
+        try {
+            FreeTunnelVpnService.start(context, source)
+            eventually { network() != null && nativeClient() != null }
+            inject(nativeClient()!!, 0)
+            eventually { FreeTunnelVpnService.state(context) == 6 && alert(49) != null }
+            assertEquals("Silent while the app is on the screen", "silent", alertKind())
+        } finally {
+            FreeTunnelVpnService.setAppVisible(false)
+            FreeTunnelVpnService.stop(context)
+            eventually { network() == null && FreeTunnelVpnService.state(context) == 0 }
+            eventually { alert(49) == null && serviceOwner() == null }
+        }
+    }
+
     // The time Home shows under the logo counts from when the connection last became connected: nothing before the first 2, a repeated 2 changes
     // nothing, the next 2 after the core recovered starts again, as the desktop restarts its timer, and a stop clears it.
     @Test fun theSessionStartIsWhenTheConnectionLastCameUp() = withSink { config ->
@@ -778,21 +797,26 @@ class VpnDeviceTest {
         onMain { assertNull("Back must close the $name", activity.window.decorView.findViewWithTag<android.view.View?>("overlay:$name")) }
     }
 
+    // The editor holds the password, and the server and the user name with it: a keyboard is asked not to go full screen in landscape (its
+    // own copy of the text would be outside FLAG_SECURE), not to copy the text into one if it does, and not to learn from it.
     @androidx.test.filters.SdkSuppress(minSdkVersion = 29)
-    @Test fun editorKeepsTheTomlOutOfTheKeyboardsFullScreenView() {
+    @Test fun editorKeepsItsFieldsOutOfTheKeyboardsFullScreenView() {
         withMainActivity { activity ->
             inOverlay(activity, "editor", { privateMethod("editConfig", Int::class.javaPrimitiveType).invoke(activity, -1) }) { content ->
-                val toml = descendants(content).filterIsInstance<android.widget.EditText>()
-                    .single { it.inputType and android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE != 0 }
-                // What a keyboard is given when the field takes focus.
-                val info = android.view.inputmethod.EditorInfo()
-                assertNotNull(toml.onCreateInputConnection(info))
-                assertTrue("The keyboard must be asked not to go full screen",
-                    info.imeOptions and android.view.inputmethod.EditorInfo.IME_FLAG_NO_FULLSCREEN != 0)
-                assertTrue("The TOML must not be copied into a full-screen keyboard",
-                    info.imeOptions and android.view.inputmethod.EditorInfo.IME_FLAG_NO_EXTRACT_UI != 0)
-                assertTrue("The keyboard must be asked not to learn from the TOML",
-                    info.imeOptions and android.view.inputmethod.EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING != 0)
+                val fields = descendants(content).filterIsInstance<android.widget.EditText>().toList()
+                assertTrue("The editor's fields: ${fields.map { it.tag }}", fields.size >= 9)
+                assertTrue("including the password", fields.any { it.tag == "editor:password" })
+                for (field in fields) {
+                    // What a keyboard is given when the field takes focus.
+                    val info = android.view.inputmethod.EditorInfo()
+                    assertNotNull(field.onCreateInputConnection(info))
+                    assertTrue("${field.tag}: the keyboard must be asked not to go full screen",
+                        info.imeOptions and android.view.inputmethod.EditorInfo.IME_FLAG_NO_FULLSCREEN != 0)
+                    assertTrue("${field.tag}: the text must not be copied into a full-screen keyboard",
+                        info.imeOptions and android.view.inputmethod.EditorInfo.IME_FLAG_NO_EXTRACT_UI != 0)
+                    assertTrue("${field.tag}: the keyboard must be asked not to learn from it",
+                        info.imeOptions and android.view.inputmethod.EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING != 0)
+                }
             }
         }
     }

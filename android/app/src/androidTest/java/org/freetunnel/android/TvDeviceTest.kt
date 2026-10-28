@@ -248,7 +248,7 @@ class TvDeviceTest {
     }
     // A control shows its focus as the desktop shows the pointer on it, and no stronger: a background that changes with the state, no
     // foreground, and never the accent as a fill (the selected things are accent, and a focus is not a selection). By kind:
-    //  - a text field and a box of text a remote scrolls: the border turns accent, on the fill it rests on;
+    //  - a text field: the border turns accent, on the fill it rests on; a box of text a remote scrolls: surfaceHover, with no border;
     //  - a select box (the editor's): the same, its border accent under the pointer;
     //  - a button or a chip: its hover colour, which is a fill the control rests on already or the next one to it;
     //  - a link, a dropdown's value, a back arrow, a ChipX, a toggle, a row's icon and the logo: no fill of their own;
@@ -263,13 +263,15 @@ class TvDeviceTest {
                 assertEquals("$name: the border of a field at rest", theme.inputBorder, look.restEdge)
                 assertEquals("$name: its fill stays", look.restFill, look.focusedFill)
             }
-            // A box of text a remote scrolls, such as a license or the log: the surface, with the field's accent border.
+            // A box of text a remote scrolls, such as a license or the log: the surface, which goes to surfaceHover as any control that rests on
+            // it does, with no border (the desktop's log box never draws one).
             key == "licenses:text" || key == "log:box" -> {
-                assertEquals("$name: the border of a focused box of text", theme.accent, look.focusedEdge)
+                assertEquals("$name: a focused box of text is surfaceHover", theme.surfaceHover, look.focusedFill)
+                assertEquals("$name: with no border", theme.surfaceHover, look.focusedEdge)
                 assertEquals("$name: a box of text at rest", theme.surface, look.restEdge)
             }
-            // The editor's select box is a field that opens a choice.
-            key == "editor:profile" -> {
+            // The editor's select boxes are fields that open a choice.
+            key == "editor:profile" || key == "editor:protocol" -> {
                 assertEquals("$name: the border of a focused select box", theme.accent, look.focusedEdge)
                 assertEquals("$name: the border of a select box at rest", theme.inputBorder, look.restEdge)
                 assertEquals("$name: its fill stays", look.restFill, look.focusedFill)
@@ -284,7 +286,7 @@ class TvDeviceTest {
                 assertTrue("$name: a chip takes its hover colour, not a strong fill: ${Integer.toHexString(look.focusedFill)}",
                     look.focusedFill == theme.surfaceHover || look.focusedFill == theme.primaryHover && look.restFill == theme.accent)
             // Content that changes colour and no fill: links, values, arrows, ChipXs, row icons, toggles and the logo.
-            key == "home:toggle" || key.startsWith("switch:") || key.startsWith("logs:autoscroll") || key == "split:enabled" || key == "editor:show" ||
+            key == "home:toggle" || key.startsWith("switch:") || key.startsWith("logs:autoscroll") || key == "split:enabled" || key == "editor:ipv6" || key == "editor:skip" || key == "editor:antidpi" ||
                 Regex("(domain|app|route):\\d+|profile:\\d+:remove|config:\\d+:(export|edit|remove)").matches(key) ||
                 view is Ui.LinkText || key.endsWith(":back") || key == "settings:theme" || key == "settings:language" || key == "split:mode" ->
                 assertEquals("$name: no fill of its own", Color.TRANSPARENT, look.focusedFill)
@@ -689,8 +691,10 @@ class TvDeviceTest {
                     assertEquals("116 by 44", Math.round(dp(a, 116f)), box.width)
                     assertEquals(Math.round(dp(a, 44f)), box.height)
                 }
-                val arrows = descendants(pageRoot(a)).filterIsInstance<TextView>().filter { it.text.toString() == "↓" || it.text.toString() == "↑" }.toList()
-                assertEquals(listOf(theme(a).success, theme(a).textDim), arrows.sortedByDescending { it.text.toString() }.map { it.currentTextColor })
+                // ↓ and ↑ are drawn, at the size the desktop's font gives them (6 by 11), in the colour of the speed: success and textDim.
+                val arrows = tiles.map { (it.parent as ViewGroup).getChildAt(0) as ImageView }
+                assertEquals(listOf(theme(a).success, theme(a).textDim), arrows.map { it.imageTintList!!.defaultColor })
+                for (arrow in arrows) assertEquals(Math.round(dp(a, 6f)), arrow.drawable.intrinsicWidth)
             }
         } finally {
             started.setLong(null, 0L)
@@ -760,17 +764,26 @@ class TvDeviceTest {
         instrumentation.waitForIdleSync()
         onMain {
             val layer = root(a).findViewWithTag<ViewGroup>("overlay:homepicker")
-            val panel = layer.getChildAt(1)
-            val selector = root(a).findViewWithTag<View>("home:config")
+            // The panel is the layer's last child (its shadow is the one before it).
+            val panel = layer.getChildAt(layer.childCount - 1)
+            // Under and centred on the whole row, the + included, which is 24 high; the selector alone is the name and its ▾.
+            val selector = root(a).findViewWithTag<View>("home:selection")
+            assertTrue("The row is 24 high: ${selector.height}", Math.abs(selector.height - dp(a, 24f)) <= 1.5f)
             val rows = descendants(panel).filter { (it.tag as? String)?.startsWith("home:pick:") == true }.toList()
             assertEquals("A row for each config", 5, rows.size)
             for (row in rows) assertTrue("A row is 40 high", Math.abs(row.height - dp(a, 40f)) <= 1.5f)
-            assertTrue("Three rows show: ${panel.height}", Math.abs(panel.height - dp(a, 3 * 40f + 10f)) <= 3f)
+            // 5 above the rows and 7 under them: 12 more than the list, as the desktop's card is.
+            assertTrue("Three rows show: ${panel.height}", Math.abs(panel.height - dp(a, 3 * 40f + 12f)) <= 3f)
             assertTrue("140 across for short names: ${panel.width}", Math.abs(panel.width - dp(a, 140f)) <= 3f)
             assertTrue("Under the selector, 6 down", Math.abs((topOf(panel) - (topOf(selector) + selector.height)) - dp(a, 6f)) <= 3f)
             val panelAt = IntArray(2).also { panel.getLocationInWindow(it) }
             val selectorAt = IntArray(2).also { selector.getLocationInWindow(it) }
             assertTrue("Centred on it", Math.abs((panelAt[0] + panel.width / 2f) - (selectorAt[0] + selector.width / 2f)) <= 3f)
+            // Not on the name alone: the selector's centre is 14 left of the row's.
+            val name = root(a).findViewWithTag<View>("home:config")
+            val nameAt = IntArray(2).also { name.getLocationInWindow(it) }
+            assertTrue("and not on the name and its arrow", Math.abs((panelAt[0] + panel.width / 2f) - (nameAt[0] + name.width / 2f)) > dp(a, 8f))
+            assertEquals("It casts a shadow of its own", true, layer.let { (it as OverlayLayer).shadow() != null })
             val colors = rows.map { ((it as ViewGroup).getChildAt(0) as TextView).textColors.defaultColor }
             assertEquals("The selected one is accent, the others the text colour", listOf(theme(a).accent) + List(4) { theme(a).text }, colors)
         }
@@ -1173,10 +1186,9 @@ class TvDeviceTest {
         }
     }
 
-    // With a remote, the focus must never land on "Show TOML and password" by itself,
-    // where an OK shows the password to the room: not as the editor opens, and not
-    // after a Save that the check refuses.
-    @Test fun aRemoteNeverLandsOnShowTomlAndPassword() {
+    // The editor opens on the name with a remote, and Save answers once while its check runs. A form the desktop's checks refuse is said so in a
+    // toast, in the desktop's words, with no check started and the focus where it was; one that passes is saved over the config it was opened on.
+    @Test fun aRemoteStartsOnTheNameAndSaveIsAnsweredOnceWhileItChecks() {
         val a = open()
         leaveTouchMode(a)
         onMain { method("editConfig", Int::class.javaPrimitiveType).invoke(a, 0) }
@@ -1188,42 +1200,218 @@ class TvDeviceTest {
         }
         fun requests() = onMain { field("validationRequest").getLong(a) }
         val name = byKey(a, "editor:name") as EditText
-        val raw = byKey(a, "editor:toml") as EditText
+        val host = byKey(a, "editor:host") as EditText
         val save = byKey(a, "editor:save")
-        val original = onMain { raw.text.toString() }
+        eventually("The editor must open on the name") { focusedKey(a) == "editor:name" }
+        assertEquals("Profile 0", onMain { name.text.toString() })
+        assertEquals("vpn.invalid", onMain { host.text.toString() })
+        val before = requests()
+        onMain {
+            host.setText("")
+            assertTrue("Save must take the focus", save.requestFocus())
+            save.performClick()
+        }
+        assertEquals("A form the check refuses starts no other", before, requests())
+        assertEquals(listOf(context.getString(R.string.editor_error_missing)), toastTexts(a))
+        onMain {
+            assertNotNull("and leaves the editor open", root(a).findViewWithTag<View?>("overlay:editor"))
+            assertSame("with the focus on Save", save, a.currentFocus)
+            assertTrue(save.isEnabled)
+        }
+        // A name typed and the host put back: the check, once, however many times OK is pressed while it runs.
+        onMain {
+            host.setText("vpn.invalid")
+            name.setText("Renamed")
+            save.performClick()
+            save.performClick()
+        }
+        assertEquals("A second OK while the check runs starts no other", before + 1, requests())
+        checked()
+        eventually("A form that passes is saved, and the editor closes") { overlayTag(a, "editor") == null }
+        assertEquals("Renamed", saved().first().getString("name"))
+        assertEquals("over the config it was opened on, and no other", listOf("Renamed", "Profile 1"), saved().map { it.getString("name") })
+    }
+
+    // On a phone a tap greys Save out until the check answers.
+    @Test fun aTapOnSaveGreysItOutWhileItChecks() {
+        val a = open()
+        onMain { method("editConfig", Int::class.javaPrimitiveType).invoke(a, 0) }
+        instrumentation.waitForIdleSync()
+        instrumentation.setInTouchMode(true)
+        eventually("The editor must be in touch mode") { inTouchMode(a) }
+        val name = byKey(a, "editor:name") as EditText
+        val save = byKey(a, "editor:save")
+        onMain {
+            name.setText("Tapped")
+            save.performClick()
+            assertFalse("Save must be greyed out during a check", save.isEnabled)
+        }
+        (field("validationWorker").get(a) as ExecutorService).submit {}.get(30, TimeUnit.SECONDS)
+        eventually("The check closes the editor") { overlayTag(a, "editor") == null }
+        assertEquals("Tapped", saved().first().getString("name"))
+    }
+
+    // The editor is the desktop's form, field by field and in its order (qml/CreateConfigOverlay.qml), with what the config holds in it: the
+    // password as dots, the protocol and the split profile as select boxes, the three switches, the certificate in a box 70 high, and
+    // Cancel and Save as the last row of what scrolls, not pinned under it. There is no box of TOML in it.
+    @Test fun theEditorIsTheDesktopsFormWithTheConfigsValuesInIt() {
+        val a = open()
+        onMain { method("editConfig", Int::class.javaPrimitiveType).invoke(a, 0) }
+        instrumentation.waitForIdleSync()
+        val keys = listOf("editor:name", "editor:host", "editor:addresses", "editor:username", "editor:password", "editor:protocol", "editor:dns",
+            "editor:sni", "editor:random", "editor:profile", "editor:ipv6", "editor:skip", "editor:antidpi", "editor:cert", "editor:certfile",
+            "editor:cancel", "editor:save")
+        onMain {
+            val layer = root(a).findViewWithTag<View>("overlay:editor")
+            assertNull("No box of TOML", root(a).findViewWithTag<View?>("editor:toml"))
+            assertNull("and no switch that shows it", root(a).findViewWithTag<View?>("editor:show"))
+            fun at(key: String) = IntArray(2).also { root(a).findViewWithTag<View>(key).getLocationInWindow(it) }
+            fun width(key: String) = root(a).findViewWithTag<View>(key).width
+            // Top to bottom as the desktop's: the name, the host, the addresses; then two to a line, the user name beside the password,
+            // the protocol beside DNS, SNI beside the client random; the profile; the switches; the certificate; the buttons.
+            for ((upper, lower) in listOf("editor:name" to "editor:host", "editor:host" to "editor:addresses", "editor:addresses" to "editor:username",
+                    "editor:username" to "editor:protocol", "editor:protocol" to "editor:sni", "editor:sni" to "editor:profile",
+                    "editor:profile" to "editor:ipv6", "editor:ipv6" to "editor:skip", "editor:skip" to "editor:antidpi", "editor:antidpi" to "editor:cert"))
+                assertTrue("$upper is above $lower", at(upper)[1] < at(lower)[1])
+            for ((left, right) in listOf("editor:username" to "editor:password", "editor:protocol" to "editor:dns", "editor:sni" to "editor:random")) {
+                assertTrue("$left is beside $right", Math.abs(at(left)[1] - at(right)[1]) <= 2 && at(left)[0] < at(right)[0])
+                assertTrue("and as wide as it, 10 apart", Math.abs(width(left) - width(right)) <= 2)
+                assertTrue("10 apart: ${at(right)[0] - (at(left)[0] + width(left))}",
+                    Math.abs(at(right)[0] - (at(left)[0] + width(left)) - Math.round(10 * a.resources.displayMetrics.density)) <= 2)
+            }
+            for (key in keys) assertNotNull("$key is in the editor", layer.findViewWithTag<View?>(key))
+            // Prefilled from the config.
+            fun text(key: String) = (root(a).findViewWithTag<View>(key) as EditText).text.toString()
+            assertEquals("Profile 0", text("editor:name"))
+            assertEquals("vpn.invalid", text("editor:host"))
+            assertEquals("192.0.2.1:443", text("editor:addresses"))
+            assertEquals("test", text("editor:username"))
+            assertEquals("test", text("editor:password"))
+            val password = root(a).findViewWithTag<EditText>("editor:password")
+            assertTrue("The password is dots", password.transformationMethod is android.text.method.PasswordTransformationMethod)
+            for (key in listOf("editor:dns", "editor:sni", "editor:random", "editor:cert")) assertEquals("$key is empty: the config has none", "", text(key))
+            assertFalse("IPv6 is off: the config says so", root(a).findViewWithTag<ToggleView>("editor:ipv6").isChecked)
+            assertFalse(root(a).findViewWithTag<ToggleView>("editor:skip").isChecked)
+            assertFalse(root(a).findViewWithTag<ToggleView>("editor:antidpi").isChecked)
+            val protocol = root(a).findViewWithTag<ViewGroup>("editor:protocol")
+            assertEquals("HTTP/2", (protocol.getChildAt(0) as TextView).text.toString())
+            // The certificate box is 70 high and monospace.
+            val cert = root(a).findViewWithTag<EditText>("editor:cert")
+            assertEquals(Math.round(70 * a.resources.displayMetrics.density), cert.height)
+            assertEquals(android.graphics.Typeface.MONOSPACE, cert.typeface)
+            // Cancel and Save scroll with the form: in the ScrollView, in the form's last row, not under it.
+            val save = root(a).findViewWithTag<View>("editor:save")
+            val scroll = generateSequence(save as View?) { it.parent as? View }.filterIsInstance<ScrollView>().first()
+            assertTrue("Save is in what scrolls", scroll.getChildAt(0).let { form -> generateSequence(save as View?) { it.parent as? View }.any { it === form } })
+            // The labels are the desktop's.
+            for (label in listOf(R.string.editor_name, R.string.editor_host, R.string.editor_addresses, R.string.editor_username, R.string.editor_password,
+                    R.string.editor_protocol, R.string.editor_dns, R.string.editor_sni, R.string.editor_random, R.string.editor_split_profile,
+                    R.string.editor_ipv6, R.string.editor_skip_verification, R.string.editor_anti_dpi, R.string.editor_certificate, R.string.editor_load_certificate))
+                assertTrue("The editor says \"${context.getString(label)}\"", descendants(layer).filterIsInstance<TextView>().any { it.text.toString() == context.getString(label) })
+            val placeholders = mapOf("editor:name" to context.getString(R.string.editor_name_placeholder), "editor:addresses" to "1.2.3.4:443", "editor:dns" to "1.1.1.1, 8.8.8.8")
+            for ((key, hint) in placeholders) assertEquals(hint, root(a).findViewWithTag<EditText>(key).hint.toString())
+        }
+    }
+
+    // A form that passes is written into the config, and what the form has no field for is left as the file had it: the tunnel's routes, the
+    // rules it brings, every other key (the desktop's keepWhatTheFormDoesNotShow). A new config is made of the form alone.
+    @Test fun theEditorWritesTheFormIntoTheConfigAndKeepsTheRest() {
+        val a = open()
+        onMain { method("editConfig", Int::class.javaPrimitiveType).invoke(a, 0) }
+        instrumentation.waitForIdleSync()
+        onMain {
+            fun put(key: String, text: String) = root(a).findViewWithTag<EditText>(key).setText(text)
+            put("editor:host", "new.example.com")
+            put("editor:addresses", "5.6.7.8:443, 9.9.9.9:8443")
+            put("editor:username", "alice")
+            put("editor:password", "p\"w\\d")
+            put("editor:dns", "1.1.1.1 tls://dns.example.com")
+            put("editor:sni", "front.example.com")
+            put("editor:random", "aabbcc/ff00ff")
+            root(a).findViewWithTag<ToggleView>("editor:ipv6").performClick()
+            root(a).findViewWithTag<ToggleView>("editor:antidpi").performClick()
+        }
+        click(a, "editor:save")
+        (field("validationWorker").get(a) as ExecutorService).submit {}.get(30, TimeUnit.SECONDS)
+        eventually("It is saved and the editor closes") { overlayTag(a, "editor") == null }
+        val toml = saved().first().getString("toml")
+        val parsed = org.tomlj.Toml.parse(toml)
+        assertFalse(toml, parsed.hasErrors())
+        assertEquals("new.example.com", parsed.getString("endpoint.hostname"))
+        assertEquals(listOf("5.6.7.8:443", "9.9.9.9:8443"), parsed.getArray("endpoint.addresses")!!.let { x -> (0 until x.size()).map { x.getString(it) } })
+        assertEquals("alice", parsed.getString("endpoint.username"))
+        assertEquals("p\"w\\d", parsed.getString("endpoint.password"))
+        assertEquals(listOf("1.1.1.1", "tls://dns.example.com"), parsed.getArray("endpoint.dns_upstreams")!!.let { x -> (0 until x.size()).map { x.getString(it) } })
+        assertEquals("front.example.com", parsed.getString("endpoint.custom_sni"))
+        assertEquals("aabbcc/ff00ff", parsed.getString("endpoint.client_random"))
+        assertEquals("IPv6 was off and is on", true, parsed.getBoolean("endpoint.has_ipv6"))
+        assertEquals(true, parsed.getBoolean("endpoint.anti_dpi"))
+        assertEquals(false, parsed.getBoolean("endpoint.skip_verification"))
+        assertEquals("The protocol is as it was", "http2", parsed.getString("endpoint.upstream_protocol"))
+        // What the form does not show is the file's: the routes of the tunnel, and the rules.
+        assertEquals(1350L, parsed.getLong("listener.tun.mtu_size"))
+        assertEquals("vpn_mode = \"general\"", toml.lines().first { it.startsWith("vpn_mode") })
+        assertTrue(toml, toml.contains("exclusions = []"))
+        assertEquals("The other config is as it was", source, saved()[1].getString("toml"))
+        assertEquals("and the name too", "Profile 0", saved().first().getString("name"))
+    }
+
+    @Test fun aNewConfigIsWhatTheFormHoldsAndTheDesktopsChecksRefuseWhatIsNot() {
+        val a = open()
+        onMain { method("editConfig", Int::class.javaPrimitiveType).invoke(a, -1) }
+        instrumentation.waitForIdleSync()
+        fun typeInto(key: String, text: String) = onMain { root(a).findViewWithTag<EditText>(key).setText(text) }
+        fun save() = click(a, "editor:save")
+        fun said(): List<String> = toastTexts(a)
+        val requestsBefore = onMain { field("validationRequest").getLong(a) }
+        save()
+        assertEquals("An empty form is missing what a server needs", listOf(context.getString(R.string.editor_error_missing)), said())
+        typeInto("editor:host", "vpn.example.com"); typeInto("editor:addresses", "1.2.3.4"); typeInto("editor:username", "u"); typeInto("editor:password", "p")
+        save()
+        assertEquals(listOf(context.getString(R.string.editor_error_address)), said())
+        typeInto("editor:addresses", "1.2.3.4:443"); typeInto("editor:dns", "dns.example.com")
+        save()
+        assertEquals(listOf(context.getString(R.string.editor_error_dns)), said())
+        typeInto("editor:dns", ""); typeInto("editor:random", "xyz")
+        save()
+        assertEquals(listOf(context.getString(R.string.editor_error_random)), said())
+        typeInto("editor:random", ""); typeInto("editor:cert", "not a certificate")
+        save()
+        assertEquals(listOf(context.getString(R.string.editor_error_certificate)), said())
+        assertEquals("A refusal starts no check", requestsBefore, onMain { field("validationRequest").getLong(a) })
+        assertNotNull("and the editor stays", overlayTag(a, "editor"))
+        typeInto("editor:cert", "")
+        // No name: the host's, as on the desktop.
+        save()
+        (field("validationWorker").get(a) as ExecutorService).submit {}.get(30, TimeUnit.SECONDS)
+        eventually("It is saved") { overlayTag(a, "editor") == null }
+        assertEquals(3, saved().size)
+        assertEquals("vpn.example.com", saved().last().getString("name"))
+        val parsed = org.tomlj.Toml.parse(saved().last().getString("toml"))
+        assertEquals("vpn.example.com", parsed.getString("endpoint.hostname"))
+        assertEquals("IPv6 is on by default, as on the desktop", true, parsed.getBoolean("endpoint.has_ipv6"))
+        assertEquals("p", parsed.getString("endpoint.password"))
+        assertNotNull("A tunnel to put it through", parsed.getTable("listener.tun"))
+    }
+
+    // "Load from file…" puts what a file holds in the certificate box; a file that is empty changes nothing.
+    @Test fun aCertificateFileFillsTheCertificateBoxAndAnEmptyOneChangesNothing() {
+        val a = open()
+        onMain { method("editConfig", Int::class.javaPrimitiveType).invoke(a, -1) }
+        instrumentation.waitForIdleSync()
+        val dir = java.io.File(context.cacheDir, "certificate-test").apply { mkdirs() }
+        val pem = "-----BEGIN CERTIFICATE-----\nAAAA\n-----END CERTIFICATE-----\n"
+        val full = java.io.File(dir, "full.pem").apply { writeText(pem) }
+        val empty = java.io.File(dir, "empty.pem").apply { writeText("  \n") }
+        val read = method("readCertificate", android.net.Uri::class.java, EditText::class.java)
+        val box = byKey(a, "editor:cert") as EditText
         try {
-            eventually("The editor must open on the name") { focusedKey(a) == "editor:name" }
-            assertEquals("Profile 0", onMain { name.text.toString() })
-            val before = requests()
-            onMain {
-                raw.setText("not a configuration")
-                assertTrue("Save must take the focus", save.requestFocus())
-                save.performClick()
-                save.performClick()
-            }
-            assertEquals("A second OK while the check runs starts no other", before + 1, requests())
-            checked()
-            onMain {
-                assertNotNull("A refused Save leaves the editor open", root(a).findViewWithTag<View?>("overlay:editor"))
-                assertSame("A refused Save keeps the focus", save, a.currentFocus)
-                assertNotEquals("and never moves it onto Show TOML and password", "editor:show", a.currentFocus?.tag)
-                assertTrue(save.isEnabled)
-                assertFalse((root(a).findViewWithTag<View>("editor:show") as ToggleView).isChecked)
-                save.performClick()
-            }
-            assertEquals("Once refused, Save checks again", before + 2, requests())
-            checked()
-            // A tap, as on a phone, greys Save out until the check answers.
-            instrumentation.setInTouchMode(true)
-            eventually("The editor must be in touch mode") { inTouchMode(a) }
-            onMain { save.performClick(); assertFalse("Save must be greyed out during a check", save.isEnabled) }
-            checked()
-            assertTrue(onMain { save.isEnabled })
+            onMain { read.invoke(a, android.net.Uri.fromFile(full), box) }
+            assertEquals(pem, onMain { box.text.toString() })
+            onMain { read.invoke(a, android.net.Uri.fromFile(empty), box) }
+            assertEquals("An empty file wipes nothing", pem, onMain { box.text.toString() })
         } finally {
-            // As it was when it opened, so that closing it asks nothing.
-            onMain { raw.setText(original) }
-            onMain { root(a).findViewWithTag<View?>("editor:cancel")?.performClick() }
-            instrumentation.waitForIdleSync()
+            dir.deleteRecursively()
         }
     }
 
@@ -1243,6 +1431,11 @@ class TvDeviceTest {
             instrumentation.waitForIdleSync()
             assertFalse("$state: the action must ignore OK", onMain { action.isClickable })
             assertEquals("$state: the focus must stay", "settings:update", focusedKey(a))
+            // While it does nothing it has no hover look, as on the desktop: plain in the text colour, not underlined, even with the focus.
+            onMain {
+                assertEquals("$state: not underlined", 0, action.paintFlags and android.graphics.Paint.UNDERLINE_TEXT_FLAG)
+                assertEquals("$state: in the text colour", theme(a).text, action.currentTextColor)
+            }
         }
         updater("state", AndroidUpdater.State.IDLE)
         onMain { method("refreshUpdateControls").invoke(a) }
@@ -1359,15 +1552,22 @@ class TvDeviceTest {
                 .map { (it as TextView).text.toString() }.toList()
         }
         assertEquals(listOf("THIRD_PARTY_NOTICES.md", "LICENSE"), items.take(2))
-        assertTrue("The core's license texts are listed", items.contains("licenses/common/nghttp2.txt"))
-        assertTrue("The app's license texts are listed", items.contains("licenses/android/EPL-1.0.txt"))
+        // By the file's name: the folder it is in was on every row from the core.
+        assertTrue("The core's license texts are listed", items.contains("nghttp2.txt"))
+        assertTrue("The app's license texts are listed", items.contains("EPL-1.0.txt"))
+        assertTrue("with no folder in a name", items.none { it.contains('/') })
         assertFalse("The desktop's license texts stay out of the APK", items.any { it.startsWith("licenses/desktop/") })
         eventually("A remote starts on the first row") { focusedKey(a) == "licenses:0" }
         click(a, "licenses:0")
         instrumentation.waitForIdleSync()
         val scroll = byKey(a, "licenses:text") as ScrollView
         onMain {
-            assertTrue((scroll.getChildAt(0) as TextView).text.startsWith("# Third-party notices"))
+            // The notices are Markdown written for 80 columns: shown without its marks (the # of the heading), a paragraph a line of its own for
+            // the box to wrap, and no source line broken in the middle of a sentence.
+            val shown = (scroll.getChildAt(0) as TextView).text.toString()
+            assertTrue(shown.take(60), shown.startsWith("Third-party notices\n\nFreeTunnel is licensed under the Apache License 2.0, given in full in LICENSE. Its downloads"))
+            assertFalse("No backticks", shown.contains('`'))
+            assertFalse("and no link syntax", shown.contains("](") )
             assertTrue("The card's title is the file",
                 descendants(root(a).findViewWithTag<View>("overlay:licenses")).filterIsInstance<TextView>().any { it.text.toString() == "THIRD_PARTY_NOTICES.md" })
             assertFocusLook(scroll, "the license text", theme(a))
@@ -1936,32 +2136,6 @@ class TvDeviceTest {
         }
     }
 
-    // "Create manually" reads a pasted link as the link, under the name typed there: on
-    // a TV, a phone's keyboard can paste one where a whole TOML file is too much.
-    @Test fun theEditorReadsAPastedLink() {
-        val a = open()
-        onMain { method("editConfig", Int::class.javaPrimitiveType).invoke(a, -1) }
-        instrumentation.waitForIdleSync()
-        val save = byKey(a, "editor:save")
-        val name = byKey(a, "editor:name") as EditText
-        val raw = byKey(a, "editor:toml") as EditText
-        fun requests() = onMain { field("validationRequest").getLong(a) }
-        val before = requests()
-        // A link with no server settings is refused as such a link is, before any check, and in a toast.
-        onMain { name.setText("Pasted"); raw.setText("tt://?AAEC"); save.performClick() }
-        instrumentation.waitForIdleSync()
-        assertEquals("A refused link starts no check", before, requests())
-        assertNotNull(overlayTag(a, "editor"))
-        assertEquals(listOf(context.getString(R.string.text_the_link_is_missing_required_server_settings)), toastTexts(a))
-        onMain { raw.setText(" $link\n"); save.performClick() }
-        (field("validationWorker").get(a) as ExecutorService).submit {}.get(30, TimeUnit.SECONDS)
-        instrumentation.waitForIdleSync()
-        eventually("Save must close the editor") { overlayTag(a, "editor") == null }
-        assertEquals(3, saved().size)
-        assertEquals("Pasted", saved().last().getString("name"))
-        assertTrue(saved().last().getString("toml").contains("hostname = \"vpn.example.com\""))
-    }
-
     // The in-app overlays (showOverlay): a confirmation, a select popup and a menu, the toast. Each
     // is a view in the window, found by its tag, so none of them is a system dialog.
 
@@ -2086,6 +2260,109 @@ class TvDeviceTest {
         assertEquals(listOf("first no", "second no"), answers.toList())
     }
 
+    // The card is as wide as the wider of its buttons' row and its question's widest wrapped line, each with 14 at the sides, and no wider than
+    // the window less 24 (qml/components/ConfirmDialog.qml); the buttons, which cannot wrap, give up their padding and minimum width, and elide,
+    // when their row is wider than the card can be. It once collapsed to a few pixels, the question cut to single characters and the buttons
+    // 2 px across: a spacer view between the message and the buttons was 1 wide, and a column with a child that does not fill takes that
+    // child's width.
+    @Test fun aConfirmationIsAsWideAsWhatItHoldsAndNoWiderThanTheWindowLess24() {
+        val a = open()
+        val density = onMain { a.resources.displayMetrics.density }
+        fun window() = onMain { root(a).width - root(a).paddingLeft - root(a).paddingRight }
+        fun panel() = onMain { (root(a).findViewWithTag<View>("overlay:confirm") as OverlayLayer).panel() }
+        fun sized(key: String) = onMain { root(a).findViewWithTag<View>(key).let { it.width to it.height } }
+        // A short question: the buttons decide, 76 at least each and 8 apart, and the card is that and 28.
+        showConfirm(a, "Delete?")
+        val (cancel, _) = sized("confirm:cancel")
+        val (ok, _) = sized("confirm:ok")
+        assertTrue("Cancel is 76 wide at least: $cancel", cancel >= Math.round(76 * density) - 1)
+        assertEquals("The card is its buttons and 28", cancel + ok + 8 * density + 28 * density, panel().width.toFloat(), 3f)
+        assertTrue("and the question is readable: ${sized("confirm:message")}", sized("confirm:message").let { it.first > 40 * density && it.second > 10 * density })
+        click(a, "confirm:cancel")
+        eventually("The card closes") { overlayTag(a, "confirm") == null }
+        // A long question wraps within the window less 84, and the card is that and 28: well short of the window, and no wider than it less 24.
+        showConfirm(a, "Delete this server and everything that was kept for it? ".repeat(8))
+        val wide = panel().width
+        assertTrue("It is wider than the buttons: $wide", wide > 200 * density)
+        assertTrue("and no wider than the window less 24: $wide of ${window()}", wide <= window() - 24 * density + 1)
+        assertTrue("with the question as wide as the card less 28: ${sized("confirm:message")}", Math.abs(sized("confirm:message").first - (wide - 28 * density)) <= 2)
+        click(a, "confirm:cancel")
+        eventually("The card closes again") { overlayTag(a, "confirm") == null }
+        // Three buttons whose labels are far wider than any window: they give up their padding and elide, and the row is the card's width less 28.
+        val label = "A label that is much longer than the window is wide ".repeat(3)
+        onMain {
+            method("showConfirm", CharSequence::class.java, CharSequence::class.java, CharSequence::class.java,
+                Runnable::class.java, Runnable::class.java, Runnable::class.java).invoke(a, "Which?", label, label, null, null, null)
+        }
+        instrumentation.waitForIdleSync()
+        val card = panel()
+        assertEquals("The card is as wide as the window less 24: ${card.width}", window() - 24 * density, card.width.toFloat(), 3f)
+        onMain {
+            for (key in listOf("confirm:cancel", "confirm:alt", "confirm:ok")) {
+                val button = root(a).findViewWithTag<TextView>(key)
+                assertTrue("$key is inside the card: ${button.right} of ${card.width}", button.width > 0 && IntArray(2).also { button.getLocationInWindow(it) }[0] + button.width <=
+                    IntArray(2).also { card.getLocationInWindow(it) }[0] + card.width)
+                assertEquals("$key has given up its padding", Math.round(4 * density), button.paddingLeft)
+            }
+            assertEquals(TextUtils.TruncateAt.END, root(a).findViewWithTag<TextView>("confirm:ok").ellipsize)
+        }
+        click(a, "confirm:cancel")
+        eventually("and closes") { overlayTag(a, "confirm") == null }
+    }
+
+    // The toast is over the cards (the editor, the picker) and under the popups and the confirmations, as the desktop's is: the desktop's toast
+    // is z 1000, its popups 1500 and its window-level confirmation 2500, its cards 0.
+    @Test fun theToastIsOverTheCardsAndUnderTheConfirmationsAndPopups() {
+        val a = open()
+        render(a, 1)
+        onMain {
+            val host = root(a)
+            val order = listOf("overlayLayer", "toastLayer", "popupLayer").map { host.indexOfChild(field(it).get(a) as View) }
+            assertEquals("The page, the cards, the toast, then popups and confirmations", order.sorted(), order)
+            assertTrue(order.first() > host.indexOfChild(pageRoot(a)))
+        }
+        onMain { method("editConfig", Int::class.javaPrimitiveType).invoke(a, 0) }
+        instrumentation.waitForIdleSync()
+        val editor = overlayTag(a, "editor")!!
+        assertSame("A card is in the layer under the toast", field("overlayLayer").get(a), editor.parent)
+        showConfirm(a, "Delete?")
+        val question = overlayTag(a, "confirm")!!
+        assertSame("A confirmation is in the layer over it", field("popupLayer").get(a), question.parent)
+        click(a, "confirm:cancel")
+        eventually("The question closes") { overlayTag(a, "confirm") == null }
+        onMain { method("showSelect", String::class.java, Array<String>::class.java, Int::class.javaPrimitiveType, Class.forName("org.freetunnel.android.MainActivity\$Pick"))
+            .invoke(a, "editor:profile", arrayOf("Default"), 0, null) }
+        val choices = overlayTag(a, "select")!!
+        assertSame("and so is a popup", field("popupLayer").get(a), choices.parent)
+    }
+
+    // The status and navigation bars take the backdrop's dim with the page while a card or a confirmation is open, as the desktop's backdrop
+    // dims its whole window, and are the page's again after: they were bright bands round a dimmed page.
+    @Test fun theSystemBarsDimWithACardAndComeBack() {
+        val a = open()
+        render(a, 1)
+        val t = theme(a)
+        val dimmed = Theme.over(t.backdrop, t.bg)
+        fun bars() = onMain { a.window.statusBarColor to a.window.navigationBarColor }
+        assertEquals(t.bg to t.bg, bars())
+        onMain { method("editConfig", Int::class.javaPrimitiveType).invoke(a, 0) }
+        eventually("The bars dim with the card") { bars() == (dimmed to dimmed) }
+        showConfirm(a, "Delete?")
+        assertEquals("and stay dim under a question over it", dimmed to dimmed, bars())
+        click(a, "confirm:cancel")
+        eventually("The question closes") { overlayTag(a, "confirm") == null }
+        assertEquals("a card's question closed, the card is still there", dimmed to dimmed, bars())
+        click(a, "editor:cancel")
+        eventually("The bars are the page's again") { bars() == (t.bg to t.bg) }
+        // A popup has no backdrop to dim with.
+        render(a, 3)
+        click(a, "settings:theme")
+        eventually("The popup is up") { overlayTag(a, "select") != null }
+        assertEquals("a popup dims nothing", t.bg to t.bg, bars())
+        instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
+        eventually("and goes") { overlayTag(a, "select") == null }
+    }
+
     // A select popup sits under the right edge of its control, 4 below it, and after a render it is put
     // back there; with its control gone it closes. The current choice is in the accent with a check mark.
     @Test fun aPopupGoesBackUnderItsControlAfterARebuildAndClosesWithoutIt() {
@@ -2102,20 +2379,28 @@ class TvDeviceTest {
         // Where the popup is against its anchor: how far its right edge is from the anchor's, and its gap below.
         fun placed(): List<Int> = onMain {
             val anchor = root(a).findViewWithTag<View>("settings:theme")
-            val panel = (root(a).findViewWithTag<View>("overlay:select") as ViewGroup).getChildAt(1)
+            val layer = root(a).findViewWithTag<ViewGroup>("overlay:select")
+            val panel = layer.getChildAt(layer.childCount - 1)
             val at = IntArray(2).also { anchor.getLocationInWindow(it) }
             val inWindow = IntArray(2).also { panel.getLocationInWindow(it) }
             listOf(at[0] + anchor.width - (inWindow[0] + panel.width), inWindow[1] - (at[1] + anchor.height))
         }
         val first = placed()
         val four = onMain { Math.round(4 * a.resources.displayMetrics.density) }
-        assertEquals("The popup's right edge is the control's", 0, first[0])
+        // Its right edge is where the dropdown's content ends, at the page's margin (the control's own padding goes past it), and it is 4 under
+        // the row, which the control is as high as: the desktop's ddVal is the 42 of the row.
+        assertEquals("The popup's right edge is the control's content's", onMain { root(a).findViewWithTag<View>("settings:theme").paddingRight }, first[0])
         assertEquals("The popup is 4 under the control", four, first[1])
+        assertEquals("and the control is as high as its row", onMain { Math.round(42 * a.resources.displayMetrics.density) },
+            onMain { root(a).findViewWithTag<View>("settings:theme").height })
         // The colour at rest, whichever row a remote starts on: a row's focus is its fill, and its words keep their colour.
         val texts = onMain { descendants(root(a).findViewWithTag<View>("overlay:select")).filterIsInstance<TextView>().map { it.text.toString() to it.textColors.defaultColor }.toList() }
-        assertEquals(listOf("System", "Light", "✓", "Dark"), texts.map { it.first })
+        assertEquals(listOf("System", "Light", "Dark"), texts.map { it.first })
         assertEquals("The current choice is in the accent", theme(a).accent, texts.single { it.first == "Light" }.second)
-        assertEquals("and so is its check mark", theme(a).accent, texts.single { it.first == "✓" }.second)
+        // Its check mark is drawn (7.5 by 7, as the desktop's font gives it), one, in the accent.
+        val checks = onMain { descendants(root(a).findViewWithTag<View>("overlay:select")).filterIsInstance<ImageView>().toList() }
+        assertEquals("and so is its check mark, which only it has", listOf(theme(a).accent), checks.map { it.imageTintList!!.defaultColor })
+        assertEquals(Math.round(8 * a.resources.displayMetrics.density), checks.single().drawable.intrinsicWidth)
         assertEquals("The others are in the text colour", theme(a).text, texts.single { it.first == "Dark" }.second)
         render(a, 3)
         instrumentation.waitForIdleSync()
@@ -2155,9 +2440,16 @@ class TvDeviceTest {
             val dp = a.resources.displayMetrics.density
             for (key in listOf("add:paste", "add:file", "add:create"))
                 assertEquals("$key is 40 high", Math.round(40 * dp), root(a).findViewWithTag<View>(key).height)
-            val panel = (root(a).findViewWithTag<View>("overlay:addmenu") as ViewGroup).getChildAt(1)
+            val panel = (root(a).findViewWithTag<View>("overlay:addmenu") as OverlayLayer).panel()
             val width = panel.width
             assertTrue("The menu is at least 140 wide", width >= Math.round(140 * dp))
+            // As wide as the widest label at 14 and 40 more, as the desktop sizes it (its 5 of margin at each side are in that).
+            val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { textSize = 14 * a.resources.displayMetrics.scaledDensity }
+            val widest = listOf("Paste from clipboard", "From file…", "Create new…").maxOf { Math.ceil(paint.measureText(it).toDouble()).toInt() }
+            assertEquals("The menu is its widest label and 40", Math.max(Math.round(140 * dp), widest + Math.round(40 * dp)).toFloat(), width.toFloat(), 3f)
+            // A popup casts the desktop's shadow, drawn by its layer; the platform's elevation, at a fifth of the colour it is given, is not used.
+            assertNotNull((root(a).findViewWithTag<View>("overlay:addmenu") as OverlayLayer).shadow())
+            assertEquals(0f, panel.elevation, 0f)
             assertTrue("The menu is centred in the window", Math.abs((panel.left + panel.right) / 2 - root(a).width / 2) <= 2)
             val file = root(a).findViewWithTag<View>("add:file")
             val create = root(a).findViewWithTag<View>("add:create")
@@ -2343,8 +2635,8 @@ class TvDeviceTest {
         assertEquals("Profile 0", saved().first().getString("name"))
     }
 
-    // The app picker is a card: a search box, rows of a name over a package, no checkboxes, no icons. A phone has the search box
-    // first; a TV the first row, once the apps are in. A row adds that one application and closes the picker. While it looks,
+    // The app picker is a card: a search box, rows of a name over a package, no checkboxes, no icons. The search box has the focus
+    // first, on a phone and on a TV. A row adds that one application and closes the picker. While it looks,
     // it says so; typed into the box, a name or a package narrows the list, and what matches nothing says that.
     @Test fun theAppPickerAddsOneApplicationAndCloses() {
         val a = open()
@@ -2361,8 +2653,14 @@ class TvDeviceTest {
             gate.countDown()
         }
         eventually("The installed apps must be listed") { onMain { root(a).findViewWithTag<View?>("picker:0") != null } }
-        if (isTv) eventually("A TV's remote starts on the first row") { focusedKey(a) == "picker:0" }
-        else eventually("A phone starts in the search box") { focusedKey(a) == "picker:search" }
+        // The search box has the focus first, on a phone and on a TV, as the desktop's has, and no row is highlighted; its placeholder stays
+        // while it has the focus, as the desktop's does. Down goes on to the rows.
+        eventually("The search box has the focus first") { focusedKey(a) == "picker:search" }
+        assertEquals(context.getString(R.string.picker_search), onMain { (root(a).findViewWithTag<View>("picker:search") as EditText).hint.toString() })
+        if (isTv) {
+            instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_DOWN)
+            eventually("Down goes on to the first row") { focusedKey(a) == "picker:0" }
+        }
         // A name over a package, and nothing else.
         val first = onMain {
             val layer = root(a).findViewWithTag<View>("overlay:picker")
@@ -2404,7 +2702,7 @@ class TvDeviceTest {
             descendants(root(a).findViewWithTag<View>("overlay:select")).filterIsInstance<TextView>().map { it.text.toString() }.toList()
         }
         val names = listOf(R.string.text_theme_system, R.string.text_light_78, R.string.text_dark_79).map { context.getString(it) }
-        assertEquals(listOf(names[0], "\u2713", names[1], names[2]), rows())
+        assertEquals(listOf(names[0], names[1], names[2]), rows())
         eventually("The current choice has the focus") { focusedKey(a) == "select:0" }
         click(a, "select:2")
         eventually("Dark is the theme") { prefs.getString("theme_mode", null) == "dark" }
@@ -2412,7 +2710,7 @@ class TvDeviceTest {
         eventually("The focus is back on the Theme row") { focusedKey(a) == "settings:theme" }
         render(a, 2)
         ok(a, "split:mode")
-        assertEquals(listOf(context.getString(R.string.text_bypass_vpn_61), "\u2713", context.getString(R.string.text_through_vpn_62)), rows())
+        assertEquals(listOf(context.getString(R.string.text_bypass_vpn_61), context.getString(R.string.text_through_vpn_62)), rows())
         click(a, "select:1")
         eventually("Through VPN is the mode") { prefs.getBoolean("through", false) }
         eventually("The popup closes") { overlayTag(a, "select") == null }
@@ -2577,7 +2875,7 @@ class TvDeviceTest {
         leaveTouchMode(a)
         render(a, 2)
         val expected = setOf("profile:0", "profile:1", "profile:1:remove", "profile:2", "profile:2:remove", "profile:add",
-            "domains:russia", "domains:clear", "domain:0", "domain:1", "domain:2", "domains:input", "apps:choose", "apps:clear", "app:0")
+            "domains:russia", "domains:clear", "domain:0", "domain:1", "domain:2", "domains:input", "apps:choose", "apps:clear", "app:0", "apps:input")
         assertTrue("These must be on the page: ${expected - pageKeys(a)}", pageKeys(a).containsAll(expected))
         val reached = reachable(a, "tab:2")
         assertEquals("Controls the arrows never reach", emptySet<String>(), expected - reached)
@@ -3056,7 +3354,8 @@ class TvDeviceTest {
         click(a, "editor:profile")
         eventually("The choices open under the box") { overlayTag(a, "select") != null }
         val rows = onMain { descendants(root(a).findViewWithTag<View>("overlay:select")).filterIsInstance<TextView>().map { it.text.toString() }.toList() }
-        assertEquals(listOf(context.getString(R.string.split_profile_default), "✓", "Work"), rows)
+        assertEquals(listOf(context.getString(R.string.split_profile_default), "Work"), rows)
+        assertTrue("The profile in use has the check mark", onMain { descendants(root(a).findViewWithTag<View>("select:0")).any { it is ImageView } })
         click(a, "select:1")
         eventually("Work is chosen") { shown() == "Work" }
         eventually("and the choices close") { overlayTag(a, "select") == null }
@@ -3108,6 +3407,65 @@ class TvDeviceTest {
         while (onMain { root(a).findViewWithTag<View?>("route:${labels.size}") } != null) labels.add(chipLabel(a, "route:${labels.size}"))
         return labels
     }
+    // The field under the applications (qml/pages/SplitPage.qml, apSuggest): what is typed lists the installed applications that match, above it,
+    // the name over its package, as wide as the field, and Enter or a tap adds the highlighted one. The list takes neither the focus nor the
+    // keyboard from the field; Up and Down move the highlight while it is up; Back puts it away before it does anything else.
+    @Test fun theApplicationFieldListsWhatMatchesAboveItAndAddsTheHighlightedOne() {
+        val a = open()
+        leaveTouchMode(a)
+        render(a, 2)
+        val entries = onMain { method("installedApps").invoke(a) as List<*> }
+        assumeTrue("This device shows no application to match", entries.size >= 2)
+        val entryClass = Class.forName("org.freetunnel.android.MainActivity\$AppEntry")
+        val pkgField = entryClass.getDeclaredField("pkg").apply { isAccessible = true }
+        val inProfile = profiles().apps(profiles().edited())
+        val target = entries.map { pkgField.get(it) as String }.first { it !in inProfile }
+        fun appField() = root(a).findViewWithTag<EditText>("apps:input")
+        assertEquals("The field has the desktop's place and Android's words", context.getString(R.string.split_apps_hint), onMain { appField().hint.toString() })
+        focusOn(a, "apps:input")
+        onMain { appField().setText(".") }
+        eventually("Every package has a dot: the suggestions open") { overlayTag(a, "appsuggest") != null && onMain { root(a).findViewWithTag<View?>("suggestion:1") != null } }
+        val theme = theme(a)
+        onMain {
+            val layer = root(a).findViewWithTag<OverlayLayer>("overlay:appsuggest")
+            val panel = layer.panel()
+            val input = appField()
+            val at = IntArray(2).also { input.getLocationInWindow(it) }
+            val panelAt = IntArray(2).also { panel.getLocationInWindow(it) }
+            assertTrue("Above the field, 4 clear of it: ${panelAt[1] + panel.height} against ${at[1]}", panelAt[1] + panel.height <= at[1])
+            assertEquals("as wide as the field", input.width.toFloat(), panel.width.toFloat(), 2f)
+            assertNull("It casts no shadow: the desktop's list has none", layer.shadow())
+            assertEquals("The field keeps the focus", input, a.currentFocus)
+            assertTrue("A name over a package", descendants(root(a).findViewWithTag<View>("suggestion:0")).filterIsInstance<TextView>().size == 2)
+            assertEquals("The first is highlighted: on surface", theme.surface, ((root(a).findViewWithTag<View>("suggestion:0")).background as GradientDrawable).color!!.defaultColor)
+            assertEquals("and the next is not: on the card's colour", theme.bg, ((root(a).findViewWithTag<View>("suggestion:1")).background as GradientDrawable).color!!.defaultColor)
+        }
+        instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_DOWN)
+        eventually("Down moves the highlight, and does not leave the field") {
+            onMain { ((root(a).findViewWithTag<View>("suggestion:1")).background as GradientDrawable).color!!.defaultColor } == theme.surface
+        }
+        assertEquals("the field has the focus still", "apps:input", focusedKey(a))
+        // Back puts the list away first, and leaves what was typed.
+        instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
+        eventually("Back puts the suggestions away") { overlayTag(a, "appsuggest") == null }
+        assertEquals("on the same page", 2, onMain { field("page").getInt(a) })
+        assertEquals("and keeps what was typed", ".", fieldText(a, "apps:input"))
+        // A package typed whole: Enter adds the first of what matches.
+        onMain { appField().setText(target) }
+        eventually("The suggestions are back") { overlayTag(a, "appsuggest") != null && onMain { root(a).findViewWithTag<View?>("suggestion:0") != null } }
+        val first = onMain { descendants(root(a).findViewWithTag<View>("suggestion:0")).filterIsInstance<TextView>().map { it.text.toString() }[1] }
+        onMain { appField().onEditorAction(EditorInfo.IME_ACTION_DONE) }
+        eventually("Enter adds the highlighted application") { profiles().apps(profiles().edited()).contains(first) }
+        eventually("The list is put away, the field is empty and has the cursor for the next") {
+            overlayTag(a, "appsuggest") == null && fieldText(a, "apps:input") == "" && focusedKey(a) == "apps:input"
+        }
+        // Words that match nothing say so on Enter, and add nothing.
+        val count = profiles().apps(profiles().edited()).size
+        onMain { appField().setText("zzzzzz-no-such-app"); appField().onEditorAction(EditorInfo.IME_ACTION_DONE) }
+        eventually("A word that names nothing is said so") { context.getString(R.string.picker_nothing) in toastTexts(a) }
+        assertEquals(count, profiles().apps(profiles().edited()).size)
+    }
+
     private fun textOf(a: MainActivity, key: String): String = onMain { root(a).findViewWithTag<TextView>(key).text.toString() }
     private fun visible(a: MainActivity, key: String): Boolean = onMain { root(a).findViewWithTag<View?>(key)?.visibility == View.VISIBLE }
     // The rows of the select popup that is open, as the texts it shows.
@@ -3222,7 +3580,10 @@ class TvDeviceTest {
         assertEquals("The row shows the language in use", shown, onMain { ((root(a).findViewWithTag<ViewGroup>("settings:language")).getChildAt(0) as TextView).text.toString() })
         ok(a, "settings:language")
         eventually("The choices open") { overlayTag(a, "select") != null }
-        assertEquals(if (speaking == "ru") listOf("English", "Русский", "✓") else listOf("English", "✓", "Русский"), selectRows(a))
+        assertEquals(listOf("English", "Русский"), selectRows(a))
+        assertTrue("and the one in use has the check mark", onMain {
+            descendants(root(a).findViewWithTag<View>("select:${if (speaking == "ru") 1 else 0}")).any { it is ImageView }
+        })
         eventually("The one in use has the focus") { focusedKey(a) == "select:${if (speaking == "ru") 1 else 0}" }
         // The one in use is no change: nothing is saved, and nothing is recreated.
         click(a, "select:${if (speaking == "ru") 1 else 0}")
@@ -3407,7 +3768,12 @@ class TvDeviceTest {
         updateShows(a, AndroidUpdater.State.CURRENT)
         assertEquals("the same words", context.getString(R.string.update_check), textOf(a, "settings:update"))
         assertTrue(visible(a, "update:tick"))
-        assertEquals("✓", textOf(a, "update:tick"))
+        // ✓ is drawn, in success, as the desktop's font draws it (8 by 7).
+        onMain {
+            val tick = root(a).findViewWithTag<ImageView>("update:tick")
+            assertEquals(theme(a).success, tick.imageTintList!!.defaultColor)
+            assertEquals(Math.round(8 * a.resources.displayMetrics.density), tick.drawable.intrinsicWidth)
+        }
         assertTrue(visible(a, "update:version"))
         // Checking: dots, and nothing to click.
         updateShows(a, AndroidUpdater.State.CHECKING)
@@ -3442,10 +3808,11 @@ class TvDeviceTest {
         eventually("and has come round to where it started") { onMain { arrowOf(a).spinAngle() == 0f } }
         // Installing: nothing to click, unless Android has the session and its window was lost.
         updateShows(a, AndroidUpdater.State.INSTALLING, committed = false)
-        assertEquals(context.getString(R.string.update_installing), textOf(a, "settings:update"))
+        assertEquals("and says nothing about starting it again while it cannot", context.getString(R.string.update_installing), textOf(a, "settings:update"))
         assertFalse(onMain { root(a).findViewWithTag<View>("settings:update").isClickable })
         updateShows(a, AndroidUpdater.State.INSTALLING, committed = true)
         assertTrue(onMain { root(a).findViewWithTag<View>("settings:update").isClickable })
+        assertEquals("It offers to start again only when it can", context.getString(R.string.update_installing_again), textOf(a, "settings:update"))
         // A failed check is worded as the desktop words it; a failed download or install says why as it is. Both offer to try again.
         updater("failure", UpdatePolicy.Failure.NETWORK)
         updater("failedCheck", true)
@@ -3461,8 +3828,9 @@ class TvDeviceTest {
         assertEquals(context.getString(R.string.update_error_verification), textOf(a, "settings:update"))
     }
 
-    // Under a remote's focus the arrow of an offer bends round, as the desktop's does under the pointer, and a retry arrow leans.
-    @Test fun aFocusOnTheUpdateLineBendsAnOfferedArrowAndLeansARetryArrow() {
+    // The desktop bends the arrow of an offer, and leans a retry arrow, only while the pointer is over the arrow (updIconMa): over the words it
+    // colours and underlines them, and the arrow stays as it is. So a remote's focus on the words leaves the arrow alone.
+    @Test fun aFocusOnTheUpdateWordsLeavesTheArrowAloneAndThePointerOnTheArrowBendsIt() {
         officialBuild()
         updater("release", release())
         val a = open()
@@ -3471,15 +3839,27 @@ class TvDeviceTest {
         updateShows(a, AndroidUpdater.State.AVAILABLE)
         assertEquals(0f, onMain { arrowOf(a).bend() }, 0f)
         focusOn(a, "settings:update")
-        eventually("the arrow bends into ↻") { onMain { arrowOf(a).bend() } == 1f }
-        focusOn(a, "tab:3")
-        eventually("and straightens when the focus goes") { onMain { arrowOf(a).bend() } == 0f }
+        SystemClock.sleep(500)
+        assertEquals("A focus on the words does not bend the arrow", 0f, onMain { arrowOf(a).bend() }, 0f)
+        onMain {
+            val words = root(a).findViewWithTag<TextView>("settings:update")
+            assertEquals("The words take their hover look: underlined", android.graphics.Paint.UNDERLINE_TEXT_FLAG, words.paintFlags and android.graphics.Paint.UNDERLINE_TEXT_FLAG)
+            assertEquals("and the colour the link has there", theme(a).accent, words.currentTextColor)
+        }
+        fun pointer(on: Boolean) = onMain { method("setUpdateHot", Boolean::class.javaPrimitiveType).invoke(a, on) }
+        pointer(true)
+        eventually("The pointer on the arrow bends it into ↻") { onMain { arrowOf(a).bend() } == 1f }
+        pointer(false)
+        eventually("and it straightens when the pointer goes") { onMain { arrowOf(a).bend() } == 0f }
         updater("failure", UpdatePolicy.Failure.NETWORK)
         updateShows(a, AndroidUpdater.State.ERROR)
         assertEquals(0f, onMain { arrowOf(a).turn() }, 0f)
         focusOn(a, "settings:update")
-        eventually("a retry leans 45 degrees") { onMain { arrowOf(a).turn() } == 45f }
-        focusOn(a, "tab:3")
+        SystemClock.sleep(500)
+        assertEquals("A focus on the words does not lean a retry arrow either", 0f, onMain { arrowOf(a).turn() }, 0f)
+        pointer(true)
+        eventually("a retry leans 45 degrees under the pointer") { onMain { arrowOf(a).turn() } == 45f }
+        pointer(false)
         eventually("and comes upright") { onMain { arrowOf(a).turn() } == 0f }
     }
 
@@ -3698,7 +4078,8 @@ class TvDeviceTest {
         eventually("On again, it goes to the end") { onMain { logBox(a).scrollY } == scrollEnd(a) && scrollEnd(a) > 0 }
     }
 
-    // On a TV the text is not selectable, so Down from Copy reaches the box, whose focus is the field's accent border, and Down scrolls it.
+    // On a TV the text is not selectable, so Down from Copy reaches the box, whose focus is surfaceHover (the desktop's log box draws no border),
+    // and Down scrolls it. Up at the top and Down at the end leave it, for the control above and the one below.
     @Test fun aRemoteReachesTheLogBoxAndScrollsIt() {
         assumeTrue("A remote drives a TV", isTv)
         prefs.edit().putBoolean("logging", true).commit()
@@ -3707,24 +4088,49 @@ class TvDeviceTest {
         leaveTouchMode(a)
         render(a, 4)
         assertFalse(onMain { root(a).findViewWithTag<TextView>("log:text").isTextSelectable })
+        // An arrow scrolls the box by an animation of a quarter of a second, which goes on after the key: what a test does to the box meanwhile, or
+        // the next key, finds it half way. Waited out before each step.
+        fun still() {
+            var last = -1
+            var steady = 0
+            eventually("The box stops scrolling") {
+                val now = onMain { logBox(a).scrollY }
+                if (now == last) steady++ else { steady = 0; last = now }
+                steady >= 6
+            }
+        }
         focusOn(a, "log:copy")
         instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_DOWN)
         eventually("Down from Copy lands on the box") { focusedKey(a) == "log:box" }
         onMain { logBox(a).scrollTo(0, 0) }
+        still()
         instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_DOWN)
         eventually("and the next Down scrolls it") { onMain { logBox(a).scrollY } > 0 }
+        still()
         val look = onMain { focusLook(logBox(a)) }
-        assertEquals("the focus is the field's accent border", theme(a).accent, look.focusedEdge)
+        assertEquals("the focus is surfaceHover", theme(a).surfaceHover, look.focusedFill)
+        assertEquals("and no border", theme(a).surfaceHover, look.focusedEdge)
         assertEquals(theme(a).surface, look.restEdge)
-        // Up from the top of the box goes back to the links, and Down at its end to the toggle.
+        // Up from the top goes back to the links, and Down at its end to the toggle.
         onMain { logBox(a).scrollTo(0, 0) }
+        still()
         instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_UP)
         eventually("Up from the top leaves the box") { focusedKey(a) != "log:box" }
+        assertTrue("for a link above it: ${focusedKey(a)}", focusedKey(a) in listOf("log:clear", "log:copy"))
         focusOn(a, "log:box")
         val end = scrollEnd(a)
         onMain { logBox(a).scrollTo(0, end) }
+        still()
         instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_DOWN)
         eventually("Down at the end reaches Auto-scroll") { focusedKey(a) == "logs:autoscroll" }
+        // Part of the way, the arrows scroll it and do not leave.
+        focusOn(a, "log:box")
+        onMain { logBox(a).scrollTo(0, end / 2) }
+        still()
+        instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_UP)
+        SystemClock.sleep(400)
+        assertEquals("In the middle an arrow scrolls the box", "log:box", focusedKey(a))
+        assertTrue(onMain { logBox(a).scrollY } < end / 2)
     }
 
     // The service writes the lines the page shows: date, time, level and message with tabs between, the level one of three.

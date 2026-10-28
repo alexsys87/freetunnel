@@ -104,6 +104,28 @@ class UiComponentsDeviceTest {
         }
     }
 
+    // Off, a toggle's track fills inside its 1 px border, as a Qt Rectangle's does, and the border is the translucent black of the desktop's over
+    // whatever is behind it: a rim a little darker than the page. Stroked over the fill it was lighter than the page in the dark theme.
+    @Test fun anOffToggleHasADarkRimOverThePageAndAFillInsideIt() {
+        onMain {
+            for (dark in listOf(true, false)) {
+                val theme = Theme.of(dark)
+                val toggle = measured(ui(dark).toggle(false, false, "t:rim")) as ToggleView
+                toggle.layout(0, 0, toggle.measuredWidth, toggle.measuredHeight)
+                val bitmap = Bitmap.createBitmap(toggle.width, toggle.height, Bitmap.Config.ARGB_8888)
+                toggle.draw(Canvas(bitmap))
+                val border = Math.max(1, Math.round(density))
+                val middle = toggle.height / 2
+                val rim = bitmap.getPixel(border / 2, middle)
+                assertNear("The rim is black at the desktop's 0.18, over nothing: the page shows through it", 0x2E, Color.alpha(rim), 3)
+                assertEquals("black", 0, Color.red(rim) + Color.green(rim) + Color.blue(rim))
+                val track = bitmap.getPixel(border + 3, middle)
+                assertEquals("The track is inside it, and opaque", 255, Color.alpha(track))
+                assertEquals(theme.toggleOff, track)
+            }
+        }
+    }
+
     // The desktop gives a toggle no hover, so a remote's focus on it is the nearest thing the desktop has: the row fills with surface, as
     // a config row does while one of its icons has the focus. The toggle itself draws nothing for it, in any state.
     @Test fun aToggleHasNoLookOfItsOwnAndItsRowFillsWithItsFocus() {
@@ -134,7 +156,7 @@ class UiComponentsDeviceTest {
                 assertFalse(row.isActivated)
                 assertNull("A ring is a foreground", row.foreground)
                 // The editor's row and Logs' small one are the same.
-                val editor = ui.editorToggleRow("Show TOML and password", ui.toggle(false, false, "editor:show"))
+                val editor = ui.editorToggleRow("Allow IPv6", ui.toggle(true, false, "editor:ipv6"))
                 assertEquals(theme.surface, fill(looks(editor)["activated"]!!))
                 val group = ui.toggleGroup("Auto-scroll", 12f, theme.textDim, ui.toggle(true, true, "logs:autoscroll"))
                 assertEquals(theme.surface, fill(looks(group)["activated"]!!))
@@ -296,7 +318,10 @@ class UiComponentsDeviceTest {
                 assertEquals("and as wide as the field", dp(300), box.measuredWidth)
                 assertEquals("Default", shown[0]!!.text.toString())
                 assertEquals(theme.text, shown[0]!!.textColors.defaultColor)
-                assertEquals("\u25be", (box.getChildAt(1) as TextView).text.toString())
+                // ▾, drawn at the size the desktop's font gives it (8 by 7), in textDim.
+                val arrow = box.getChildAt(1) as android.widget.ImageView
+                assertEquals(dp(8), arrow.drawable.intrinsicWidth)
+                assertEquals(theme.textDim, arrow.imageTintList!!.defaultColor)
                 val look = looks(box)
                 assertEquals(theme.inputBg, fill(look["rest"]!!))
                 assertEquals(theme.inputBorder, edge(look["rest"]!!))
@@ -325,6 +350,10 @@ class UiComponentsDeviceTest {
             measured(row, dp(360))
             assertTrue("The row is 42 high at least", row.measuredHeight >= dp(42))
             assertTrue("The control hugs its value and its arrow", group.measuredWidth < dp(150))
+            // As high as the row, as the desktop's value column is, and what a popup for its choices opens under (MainActivity.anchorRect).
+            assertTrue(group is Ui.DropdownValue)
+            assertEquals("and as high as the row", row.measuredHeight, group.measuredHeight)
+            assertEquals("Its ▾ is drawn, 8 across", dp(8), (group as android.view.ViewGroup).getChildAt(2).let { (it as android.widget.ImageView).drawable.intrinsicWidth })
         }
     }
 
@@ -360,12 +389,14 @@ class UiComponentsDeviceTest {
                 val row = ui.dropdown("Theme", "System", "settings:theme") {}
                 val group = row.findViewWithTag<android.view.ViewGroup>("settings:theme")
                 for (state in listOf("rest", "pressed", "focused")) assertEquals("A value has no fill ($state)", Color.TRANSPARENT, fill(looks(group)[state]!!))
-                for (part in 0..1) {
-                    val shown = group.getChildAt(if (part == 0) 0 else 2) as TextView
-                    assertEquals(theme.textDim, shown.textColors.defaultColor)
-                    assertEquals(theme.text, shown.textColors.getColorForState(intArrayOf(android.R.attr.state_focused), 0))
-                    assertEquals(theme.text, shown.textColors.getColorForState(intArrayOf(android.R.attr.state_pressed), 0))
-                }
+                val shown = group.getChildAt(0) as TextView
+                assertEquals(theme.textDim, shown.textColors.defaultColor)
+                assertEquals(theme.text, shown.textColors.getColorForState(intArrayOf(android.R.attr.state_focused), 0))
+                assertEquals(theme.text, shown.textColors.getColorForState(intArrayOf(android.R.attr.state_pressed), 0))
+                val arrow = (group.getChildAt(2) as android.widget.ImageView).imageTintList!!
+                assertEquals(theme.textDim, arrow.getColorForState(intArrayOf(), 0))
+                assertEquals(theme.text, arrow.getColorForState(intArrayOf(android.R.attr.state_focused), 0))
+                assertEquals(theme.text, arrow.getColorForState(intArrayOf(android.R.attr.state_pressed), 0))
             }
         }
     }
@@ -438,6 +469,37 @@ class UiComponentsDeviceTest {
         }
     }
 
+    // The desktop hides a field's placeholder while the field has the focus, and shows it again when the focus is gone with nothing
+    // typed (Field.qml: visible: text.length === 0 && !activeFocus). The new profile's name and the picker's search keep theirs.
+    // And the cursor is the text colour, a dp wide: the system's teal is in no palette of the app.
+    @Test fun aPlaceholderGoesWithTheFocusAndTheCursorIsTheTextColour() {
+        onMain {
+            for (dark in listOf(true, false)) {
+                val theme = Theme.of(dark)
+                val ui = ui(dark)
+                val domains = ui.pageInput("domains, comma-separated, then Enter", "domains:input")
+                assertEquals("domains, comma-separated, then Enter", domains.hint.toString())
+                domains.onFocusChangeListener.onFocusChange(domains, true)
+                assertNull("No placeholder with the focus", domains.hint)
+                domains.onFocusChangeListener.onFocusChange(domains, false)
+                assertEquals("and it is back without it", "domains, comma-separated, then Enter", domains.hint.toString())
+                val name = ui.pageInput("profile name, then Enter", "profile:name", true)
+                assertNull("A field that keeps its placeholder has no listener to take it", name.onFocusChangeListener)
+                val editor = ui.field("Name", ui.lineEdit().also { it.hint = "Germany · Frankfurt" }, "editor:name").findViewWithTag<EditText>("editor:name")
+                editor.onFocusChangeListener.onFocusChange(editor, true)
+                assertNull(editor.hint)
+                editor.onFocusChangeListener.onFocusChange(editor, false)
+                assertEquals("Germany · Frankfurt", editor.hint.toString())
+                assertTrue("A field of one line leaves with Up and Down", domains is Ui.LineEdit && editor is Ui.LineEdit)
+                if (android.os.Build.VERSION.SDK_INT >= 29) {
+                    val caret = domains.textCursorDrawable as GradientDrawable
+                    assertEquals("The cursor is the text colour", theme.text, caret.color!!.defaultColor)
+                    assertEquals("a dp wide", Math.max(1, dp(1)), caret.intrinsicWidth)
+                }
+            }
+        }
+    }
+
     // A link is its words, wrap_content, and its focus is its hover: the other colour and an underline, with no fill, as the desktop's
     // link is under the pointer. A danger link goes to its lighter.
     @Test fun aLinkHugsItsWordsAndItsFocusIsItsHoverColourUnderlined() {
@@ -472,23 +534,43 @@ class UiComponentsDeviceTest {
             assertEquals(0, hot.paintFlags and underline)
             hot.isHovered = true
             assertTrue("hovered", hot.paintFlags and underline != 0)
+            // A line that does nothing at the moment (the update row while it checks) has no hover look: plain in the text colour, not underlined.
+            val dormant = ui.link("Checking…", 14f, Ui.LinkKind.TEXT, "settings:update") as Ui.LinkText
+            dormant.setDormant(true)
+            assertEquals("A dormant link stays in the colour it rests in", theme.text, dormant.textColors.getColorForState(focused, 0))
+            dormant.isPressed = true
+            assertEquals("and is not underlined", 0, dormant.paintFlags and underline)
+            dormant.isPressed = false
+            dormant.setDormant(false)
+            assertEquals("Awake it is the link it was", theme.accent, dormant.textColors.getColorForState(focused, 0))
+            dormant.isPressed = true
+            assertTrue(dormant.paintFlags and underline != 0)
+            // The link in a row of a page adds nothing to the row's height: its padding hangs outside it.
+            val place = ui.linkLp(true)
+            assertEquals(-dp(4), place.topMargin)
+            assertEquals(-dp(4), place.bottomMargin)
+            assertEquals(-dp(6), place.rightMargin)
+            assertEquals(0, ui.linkLp(false).rightMargin)
         }
     }
 
     // The parts of a card (the editor, the app picker, Receive from phone, the licenses): the header is 48 high with the arrow in a cell
     // of its own and the title in Medium; the editor's text area has a Field's look in monospace 12 and grows from its minimum; its
-    // toggle row is 32 high; and a box of text that a remote scrolls rests on surface and takes the field's accent border.
+    // toggle row is 32 high; and a box of text that a remote scrolls rests on surface and goes to surfaceHover, with no border.
     @Test fun aCardsHeaderTextAreaToggleRowAndBoxOfTextAreAsTheDesktopDrawsThem() {
         onMain {
             val theme = Theme.DARK
             val ui = ui()
             val header = measured(ui.cardHeader("New config", "editor:back", "Back") {}, dp(372)) as android.view.ViewGroup
             assertEquals("A card's header is 48 high", dp(48), header.measuredHeight)
-            val arrow = header.findViewWithTag<TextView>("editor:back")
-            assertEquals("\u2190", arrow.text.toString())
-            assertEquals("The arrow is textDim", theme.textDim, arrow.textColors.defaultColor)
-            assertEquals("and the text colour under the pointer", theme.text, arrow.textColors.getColorForState(intArrayOf(android.R.attr.state_pressed), 0))
-            assertEquals("and with a remote's focus", theme.text, arrow.textColors.getColorForState(intArrayOf(android.R.attr.state_focused), 0))
+            // ←, drawn 15 across (its font's is a short arrow, low, in a fallback font), in a cell 6 larger all round.
+            val arrow = header.findViewWithTag<android.widget.ImageView>("editor:back")
+            assertEquals(dp(15), arrow.drawable.intrinsicWidth)
+            assertEquals(dp(6), arrow.paddingLeft)
+            val tint = arrow.imageTintList!!
+            assertEquals("The arrow is textDim", theme.textDim, tint.defaultColor)
+            assertEquals("and the text colour under the pointer", theme.text, tint.getColorForState(intArrayOf(android.R.attr.state_pressed), 0))
+            assertEquals("and with a remote's focus", theme.text, tint.getColorForState(intArrayOf(android.R.attr.state_focused), 0))
             for (state in listOf("rest", "pressed", "focused")) assertEquals("The arrow has no fill ($state): it only tints", Color.TRANSPARENT, fill(looks(arrow)[state]!!))
             assertEquals("Back", arrow.contentDescription.toString())
             val title = header.getChildAt(1) as TextView
@@ -496,15 +578,18 @@ class UiComponentsDeviceTest {
             assertEquals("New config", title.text.toString())
 
             val area = EditText(context)
-            val field = ui.fieldArea("TOML", area, "editor:toml", 150)
+            // The certificate: a label with "Load from file…" at its right, over a box 70 high whose text scrolls.
+            val load = ui.link("Load from file…", 12f, Ui.LinkKind.ACCENT, "editor:certfile")
+            val field = ui.fieldArea("Certificate (PEM) · optional", load, area, "editor:cert", 70)
             measured(field, dp(300))
-            assertTrue("The text area is at least 150 high", area.measuredHeight >= dp(150))
+            assertEquals("The text area is 70 high", dp(70), area.measuredHeight)
+            assertEquals("and the link's padding adds nothing to its label's line", -dp(4), (load.layoutParams as android.view.ViewGroup.MarginLayoutParams).topMargin)
             assertEquals(android.graphics.Typeface.MONOSPACE, area.typeface)
             val areaLooks = looks(area)
             assertEquals("It is a Field: inputBg with an inputBorder", theme.inputBg, fill(areaLooks["rest"]!!))
             assertEquals(theme.accent, edge(areaLooks["focused"]!!))
 
-            val row = measured(ui.editorToggleRow("Show TOML and password", ui.toggle(false, false, "editor:show")), dp(300))
+            val row = measured(ui.editorToggleRow("Skip certificate check", ui.toggle(false, false, "editor:skip")), dp(300))
             assertTrue("A toggle row of the editor is 32 high at least", row.measuredHeight >= dp(32))
             assertEquals("It fills with surface while the toggle has the focus", theme.surface, fill(looks(row)["activated"]!!))
 
@@ -513,8 +598,9 @@ class UiComponentsDeviceTest {
             val boxLooks = looks(box)
             assertEquals("A box of text rests on surface", theme.surface, fill(boxLooks["rest"]!!))
             assertEquals("without a border", theme.surface, edge(boxLooks["rest"]!!))
-            assertEquals("and takes the field's accent border with the focus", theme.accent, edge(boxLooks["focused"]!!))
-            assertEquals(theme.surface, fill(boxLooks["focused"]!!))
+            // The desktop's log box has no border under the pointer or with the focus: like any control that rests on surface, it goes to surfaceHover.
+            assertEquals("and with the focus is surfaceHover", theme.surfaceHover, fill(boxLooks["focused"]!!))
+            assertEquals("still with no border", theme.surfaceHover, edge(boxLooks["focused"]!!))
         }
     }
 
@@ -522,7 +608,10 @@ class UiComponentsDeviceTest {
     @Test fun everyVectorDrawableLoads() {
         for ((id, size) in listOf(R.drawable.ic_connection to 24, R.drawable.ic_network to 24, R.drawable.ic_settings to 24,
                 R.drawable.ic_log to 24, R.drawable.ic_ping to 24, R.drawable.ic_export to 24, R.drawable.ic_edit to 24,
-                R.drawable.ic_close to 24, R.drawable.ic_logo to 100, R.drawable.ic_add to 22, R.drawable.ic_add_home to 14)) {
+                R.drawable.ic_close to 24, R.drawable.ic_logo to 100, R.drawable.ic_add to 22, R.drawable.ic_add_home to 14,
+                // The characters the desktop draws as text (▾ ✓ ↓ ↑ ←), at the size its font gives them.
+                R.drawable.ic_dropdown to 8, R.drawable.ic_check to 8, R.drawable.ic_arrow_down to 6, R.drawable.ic_arrow_up to 6,
+                R.drawable.ic_back to 15)) {
             val drawable = context.getDrawable(id)
             assertNotNull(drawable)
             // Its own size, in dp: a pixel either way is the rounding.
@@ -557,15 +646,18 @@ class UiComponentsDeviceTest {
             val ui = ui()
             val selector = measured(ui.selector("DE \u00b7 Frankfurt", true, 0, "home:config"), dp(400)) as android.view.ViewGroup
             val name = selector.getChildAt(0) as TextView
-            val arrow = selector.getChildAt(1) as TextView
-            assertEquals("\u25be", arrow.text.toString())
+            val arrow = selector.getChildAt(1) as android.widget.ImageView
+            assertEquals("The ▾ is drawn, 8 across", dp(8), arrow.drawable.intrinsicWidth)
             assertEquals("The name is Medium, never bold", Ui.MEDIUM, name.typeface)
             assertEquals(theme.text, name.textColors.defaultColor)
             assertEquals("and the accent under the pointer", theme.accent, name.textColors.getColorForState(intArrayOf(android.R.attr.state_hovered), 0))
-            assertEquals("The arrow follows it", theme.accent, arrow.textColors.getColorForState(intArrayOf(android.R.attr.state_hovered), 0))
+            assertEquals("The arrow follows it", theme.accent, arrow.imageTintList!!.getColorForState(intArrayOf(android.R.attr.state_hovered), 0))
             assertEquals("and with the focus", theme.accent, name.textColors.getColorForState(intArrayOf(android.R.attr.state_focused), 0))
-            assertEquals(theme.accent, arrow.textColors.getColorForState(intArrayOf(android.R.attr.state_focused), 0))
-            assertNear("As wide as the name, 6, the arrow and its own padding", name.measuredWidth + dp(6) + arrow.measuredWidth + dp(12), selector.measuredWidth, 2)
+            assertEquals(theme.accent, arrow.imageTintList!!.getColorForState(intArrayOf(android.R.attr.state_focused), 0))
+            // No padding: the desktop's selector is its name, 6 and the arrow, and 24 high, so that the + is 12 from the arrow (6 and its own 6).
+            assertNear("As wide as the name, 6 and the arrow", name.measuredWidth + dp(6) + arrow.measuredWidth, selector.measuredWidth, 2)
+            assertEquals("and 24 high", dp(24), selector.measuredHeight)
+            assertEquals(0, selector.paddingLeft + selector.paddingTop + selector.paddingRight + selector.paddingBottom)
             assertTrue("Far from the width of the screen", selector.measuredWidth < dp(300))
             val looks = looks(selector)
             assertEquals("It rests on the page", Color.TRANSPARENT, fill(looks["rest"]!!))
@@ -587,9 +679,12 @@ class UiComponentsDeviceTest {
             val theme = Theme.DARK
             val ui = ui()
             val value = arrayOfNulls<TextView>(1)
-            val tile = ui.speedTile("\u2193", theme.success, value)
-            assertEquals(theme.success, (tile.getChildAt(0) as TextView).currentTextColor)
-            assertEquals("\u2193", (tile.getChildAt(0) as TextView).text.toString())
+            val tile = ui.speedTile(R.drawable.ic_arrow_down, theme.success, value)
+            // ↓ drawn 6 across and 11 high, as the desktop's font draws it, in the colour of the speed.
+            val arrow = tile.getChildAt(0) as android.widget.ImageView
+            assertEquals(theme.success, arrow.imageTintList!!.defaultColor)
+            assertEquals(dp(6), arrow.drawable.intrinsicWidth)
+            assertEquals(dp(11), arrow.drawable.intrinsicHeight)
             assertSame(value[0], tile.getChildAt(1))
             assertEquals("The number is Medium", Ui.MEDIUM, value[0]!!.typeface)
             assertEquals(theme.text, value[0]!!.currentTextColor)
