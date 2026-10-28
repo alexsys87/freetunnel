@@ -22,8 +22,9 @@ needs Android 8.0 or later.
   with a remote. **Receive from phone** shows a QR code on the TV; a phone,
   tablet or laptop on the same network opens it in a browser and sends a link
   or a TOML file.
-- Updates come from this project's GitHub releases. Settings checks for them
-  and verifies each one before Android is asked to install it.
+- Updates come from this project's GitHub releases. The app checks for them on
+  its own when it starts, at most every 12 hours, and Settings checks when you
+  ask. Each is verified before Android is asked to install it.
 - A Quick Settings tile, Android's Always-on VPN, and English and Russian.
 
 ### Security
@@ -54,5 +55,3 @@ needs Android 8.0 or later.
   VPN password, is not kept.
 - Servers that need a client random auth key are refused, with a message: they
   need TrustTunnel core 1.3.
-- Checking for updates when the app starts is off by default. It can be turned
-  on in Settings.

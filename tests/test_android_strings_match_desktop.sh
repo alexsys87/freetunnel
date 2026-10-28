@@ -209,7 +209,6 @@ legacy_rules_removed
 imported_routing_rules
 
 ## The update's own states, and the Android installer the update goes through (the desktop opens its installer or a folder)
-update_on_launch
 update_download
 update_install
 update_ready

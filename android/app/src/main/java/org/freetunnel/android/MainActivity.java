@@ -272,7 +272,9 @@ public final class MainActivity extends Activity {
         loadConfigs();
         syncMirror();
         render();
-        if (state == null && prefs.getBoolean("check_updates_on_launch", false)) AndroidUpdater.INSTANCE.check(this);
+        // As the desktop checks 1.2 s after it starts (Backend.cpp): silently, saying something only for an update it finds. The
+        // updater holds it to once in 12 hours, and to the official build (AndroidUpdater.checkOnLaunch).
+        if (state == null) host.postDelayed(() -> { if (!isDestroyed()) AndroidUpdater.INSTANCE.checkOnLaunch(getApplicationContext()); }, 1200);
         if (state == null) handleIncomingIntent(getIntent());
         if (state == null && prefs.getBoolean("auto_connect", false) && vpnState == 0
                 && !configs.isEmpty() && !Intent.ACTION_VIEW.equals(getIntent().getAction())) {
@@ -3307,8 +3309,8 @@ public final class MainActivity extends Activity {
     // row), Excluded routes (chips, and a field), Logging, Maintenance (the update line) and the footer. Left out are what only
     // the desktop has: Launch at system startup, Hotkeys and the Windows-only ports row. Keys: settings:language, settings:theme,
     // switch:auto_connect, switch:killswitch, settings:vpn, routes:restore, routes:clear, route:N, routes:input, switch:logging,
-    // switch:check_updates_on_launch, settings:update (with update:tick, update:arrow, update:dots and update:version beside it), and
-    // in the footer settings:site and settings:core.
+    // settings:update (with update:tick, update:arrow, update:dots and update:version beside it), and in the footer settings:site
+    // and settings:core.
     private void settings(LinearLayout body) {
         Theme t = t();
         // General.
@@ -3490,7 +3492,8 @@ public final class MainActivity extends Activity {
     // Maintenance (qml/pages/SettingsPage.qml): one row. At its left the update line, 14 in the text colour, which wraps (to six lines),
     // and is a link over its words alone: it is what to do next, as the icon beside it is, and a click does it. At its right the
     // picture for the state and the version (see UpdateLine, and refreshUpdateControls). Only in an official build, which is the
-    // only one Android would let update itself; another says so. Android's own "Check for updates on launch" is above the row.
+    // only one Android would let update itself; another says so. There is no switch for checking on launch, as the desktop has none:
+    // the app checks by itself when it starts (see onCreate).
     private ImageView updateTick;
     private FrameLayout updateSlot;
     private UpdateArrowView updateArrow;
@@ -3509,7 +3512,6 @@ public final class MainActivity extends Activity {
             body.addView(ui.paragraph(getString(R.string.update_unofficial), 12, t.textFaint, 0), lp(-1, -2));
             return;
         }
-        addSwitch(body, getString(R.string.update_on_launch), "", "check_updates_on_launch", false);
         RelativeLayout line = new RelativeLayout(this);
         line.setMinimumHeight(dp(42));
         // The right: ✓ when it is current, the arrow or the dots, and the version.

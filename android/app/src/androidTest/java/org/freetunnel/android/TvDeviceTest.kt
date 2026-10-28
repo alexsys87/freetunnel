@@ -136,6 +136,9 @@ class TvDeviceTest {
         assertTrue("Run with -Pandroid.testInstrumentationRunnerArguments.debugCertificate=<apksigner's SHA-256 digest>, as Android CI does",
             digest != null && Regex("[0-9a-f]{64}").matches(digest))
         updater("officialBuild", null); updater("certificatePin", digest)
+        // An official build makes its own check 1.2 s after the app starts, unless it made one in the last 12 hours: these tests are
+        // about what the line shows, and put the states there themselves.
+        prefs.edit().putLong(AndroidUpdater.LAST_LAUNCH_CHECK, System.currentTimeMillis()).commit()
     }
     private fun shell(command: String): String =
         ParcelFileDescriptor.AutoCloseInputStream(instrumentation.uiAutomation.executeShellCommand(command))
@@ -3702,7 +3705,7 @@ class TvDeviceTest {
         val a = open()
         render(a, 3)
         val keys = listOf("settings:language", "settings:theme", "switch:auto_connect", "switch:killswitch", "routes:restore", "route:0",
-            "routes:input", "switch:logging", "switch:check_updates_on_launch", "settings:update", "settings:site", "settings:core")
+            "routes:input", "switch:logging", "settings:update", "settings:site", "settings:core")
         onMain {
             val tops = keys.map { topOf(root(a).findViewWithTag<View>(it)) }
             // The footer's two links share a line, so the order is non-decreasing, and the rest are strictly one under the other.
@@ -3734,6 +3737,9 @@ class TvDeviceTest {
             assertTrue("both are between the rows of General", lines.all { topOf(it) in language..connect })
             // The desktop's own texts: no About section.
             assertFalse(descendants(body).filterIsInstance<TextView>().any { it.text.toString() == "About" })
+            // The desktop's switches that this has, and no switch for checking updates on launch, which the app does by itself.
+            assertEquals(listOf("switch:auto_connect", "switch:killswitch", "switch:logging"),
+                descendants(body).mapNotNull { it.tag as? String }.filter { it.startsWith("switch:") }.distinct().sorted().toList())
         }
         assertTrue("Kill switch has its subtitle", shows(a, context.getString(R.string.settings_kill_switch_hint)))
         // What only the desktop has is not here.

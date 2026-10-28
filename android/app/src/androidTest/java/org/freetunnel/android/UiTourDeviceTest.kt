@@ -614,7 +614,11 @@ class UiTourDeviceTest {
     }
 
     // The build the user gets has the Maintenance row; a debug build would show the notice instead.
-    private fun official() { updater("officialBuild", true) }
+    // And it makes no check of its own on launch (it made one just now, as far as the 12 hours go): the tour puts the states there itself.
+    private fun official() {
+        updater("officialBuild", true)
+        prefs.edit().putLong(AndroidUpdater.LAST_LAUNCH_CHECK, System.currentTimeMillis()).commit()
+    }
 
     private fun contactSheet(): String {
         val cells = shots.joinToString("") { "<figure><a href=\"$it\"><img src=\"$it\" loading=\"lazy\"></a><figcaption>$it</figcaption></figure>" }

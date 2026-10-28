@@ -91,7 +91,6 @@
     <string name="legacy_rules_removed">Удалены неподдерживаемые правила старой превью-версии. Проверьте маршрутизацию.</string>
     <string name="imported_routing_rules">Правила выбранного конфига: %1$s. Они также влияют на маршрутизацию и включение полного VPN.</string>
     <string name="lockdown_app_warning">Блокировка Android «Без VPN нет соединений» также отключит интернет приложениям, исключённым из VPN.</string>
-    <string name="update_on_launch">Проверять обновления при запуске</string>
     <string name="update_check">Проверить обновления</string>
     <string name="update_download">Скачать обновление</string>
     <string name="update_install">Установить обновление</string>

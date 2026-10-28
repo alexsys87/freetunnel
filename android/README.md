@@ -129,12 +129,13 @@ Android-only list.
   IPv6, and the result is checked as the config is, so routes that together cover an address family are
   refused. A change builds a running VPN again. **A bare address is kept as a /32 (or /128)**: the core's TOML needs the prefix.
 - **Logging**: *Enable logging*.
-- **Maintenance**: *Android's* **Check for updates on launch** (off by default), and the one row of the desktop:
-  the update line, a link over its words alone, with its picture at the right. Idle it says **Check for updates**
+- **Maintenance**: the one row of the desktop, with no switch for checking on launch (the app does that by
+  itself, silently, as the desktop does; see Authenticated Android updates): the update line, a link over its
+  words alone, with its picture at the right. Idle it says **Check for updates**
   with the version; up to date adds a ✓; checking shows three hopping dots and does nothing when clicked, while
   keeping a remote's focus; an offer says **Version X is available** with an arrow down that bends into ↻ under
   the focus or pointer and a click downloads; a download says **Downloading… N%** beside a turning ↻, and a
-  click does nothing, as the desktop cannot stop one either; a downloaded update says so in Android's own words and a click installs it (after the question, with the
+  click does nothing, as the desktop's cannot stop one either; a downloaded update says so in Android's own words and a click installs it (after the question, with the
   VPN on); an error says why, worded as the desktop words a failed check, beside a ↻ that tries again. The line is
   the only control, so the texts that tell what to do next say "this line", and there is no *Install update* button
   on the screen (that is what a screen reader adds to the line, and the red button of the question). Outside the
@@ -348,9 +349,12 @@ the comparison. What differs on purpose, and is not to be changed to match it:
   Configs page's words sit 13 higher. Everything else is measured from the
   desktop's own numbers, which the margin is taken out of (the nav's padding,
   the speed tiles' 44).
-- **Settings, Maintenance: "Check for updates on launch"**, an opt-in switch
-  that is off. The desktop checks silently after every launch, with no switch;
-  the app waits to be asked.
+- **The check for updates on launch is held to once in 12 hours.** The desktop
+  checks silently 1.2 s after every launch; this app's activity starts far more
+  often than a desktop program does, and everyone behind one VPN exit shares
+  GitHub's unauthenticated API limit. The time of the last automatic check is
+  kept, an attempt counts whatever it ends with, and **Check for updates** in
+  Settings is never held to it.
 - **Settings, under Kill switch: the Android VPN settings row** (Open), the two
   sentences on Always-on VPN and Block connections without VPN, and on a TV with
   no Always-on VPN the sentence that the kill switch then protects only while
@@ -758,9 +762,14 @@ preview) says in Settings that it doesn't come from the official channel and
 never checks or downloads, since Android would refuse its update anyway.
 
 Settings' Maintenance row offers **Check for updates**, and then what each state of
-the update calls for (see Settings and Logs). The check on launch is off by default and
-can be turned on in Settings; it never runs while a verified update waits to be
-installed. The client reads the original repository's paginated Releases API,
+the update calls for (see Settings and Logs). As the desktop does 1.2 s after it
+starts, the app also checks by itself when it starts: silently (no "Checking…",
+nothing said if it fails or finds nothing, only a dot on Settings' tile and the
+line when an update is found), at most once every 12 hours (the desktop checks at
+every launch; see the accepted differences), and never while a check, a download or
+an install is under way or an update is already found, so a verified update
+waiting to be installed is not disturbed. A click on **Check for updates** is
+never held to the 12 hours. The client reads the original repository's paginated Releases API,
 accepts only stable `android-X.Y.Z` tags newer than its installed version, and
 pins all three asset URLs to that repository and tag. Desktop tags, drafts,
 prereleases, foreign URLs and incomplete assets are ignored. The desktop

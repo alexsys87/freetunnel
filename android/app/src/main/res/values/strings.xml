@@ -91,7 +91,6 @@
     <string name="legacy_rules_removed">Unsupported rules from an older preview were removed. Review your routing rules.</string>
     <string name="imported_routing_rules">Rules in the selected configuration: %1$s. These also affect routing and the full VPN fallback.</string>
     <string name="lockdown_app_warning">Android’s “Block connections without VPN” also blocks internet access for apps excluded by per-app routing.</string>
-    <string name="update_on_launch">Check for updates on launch</string>
     <string name="update_check">Check for updates</string>
     <string name="update_download">Download update</string>
     <string name="update_install">Install update</string>

@@ -33,6 +33,8 @@ object AndroidUpdater {
     enum class State { IDLE, CHECKING, CURRENT, AVAILABLE, DOWNLOADING, READY, INSTALLING, ERROR }
     /** Which install session a result delivered to InstallResultActivity belongs to. */
     const val EXTRA_SESSION = "org.freetunnel.android.extra.SESSION"
+    /** The preference holding when the last automatic check on launch was made, in wall-clock milliseconds. */
+    const val LAST_LAUNCH_CHECK = "update_last_launch_check"
     // Overall backstops for a transfer that trickles; each read also has its own
     // 30 s timeout. Generous, because a release's limits stay with its users.
     private const val PAGE_DEADLINE = 120_000L
@@ -53,6 +55,11 @@ object AndroidUpdater {
     @Volatile private var expectedDigest: ByteArray? = null
     @Volatile private var verifiedVersionCode = 0L
     @Volatile private var sessionId = -1
+    // A check's request is with the worker; and it is a silent one (checkOnLaunch), of which nothing is said until a click on the line
+    // makes it a visible one. Both are changed under lock, so that the answer and the click do not pass each other.
+    private val lock = Any()
+    @Volatile private var checking = false
+    @Volatile private var silent = false
     @Volatile private var officialBuild: Boolean? = null
     // A var only so that device tests can pin the debug certificate.
     @Volatile private var certificatePin = BuildConfig.RELEASE_CERTIFICATE_SHA256
@@ -120,11 +127,42 @@ object AndroidUpdater {
     private fun versionCode(info: PackageInfo): Long =
         if (Build.VERSION.SDK_INT >= 28) info.longVersionCode else info.versionCode.toLong()
 
-    fun check(context: Context) {
+    /** The Settings line's check, and Retry: said as it goes (Checking…), answered either way, and never throttled. */
+    fun check(context: Context) = startCheck(context, quiet = false)
+
+    /**
+     * The check the desktop makes 1.2 s after it starts (Backend.cpp, checkForUpdates(false)): silent. It says nothing while it runs
+     * and nothing if it fails or finds nothing; only an update it finds shows, on the Settings tile's dot and in the line. At most
+     * once every 12 hours (UpdatePolicy.launchCheckDue), whatever the attempt ends with, because this app's activity starts far more
+     * often than a desktop program does and everyone behind one VPN exit shares GitHub's unauthenticated limit. Only in an official
+     * build, and not over a check, a download, an install or an update that is already found.
+     */
+    fun checkOnLaunch(context: Context) {
+        val app = context.applicationContext
+        if (checking || (state != State.IDLE && state != State.CURRENT) || !official(app)) return
+        val preferences = app.getSharedPreferences("freetunnel", Context.MODE_PRIVATE)
+        val now = System.currentTimeMillis()
+        if (!UpdatePolicy.launchCheckDue(preferences.getLong(LAST_LAUNCH_CHECK, 0L), now)) return
+        preferences.edit { putLong(LAST_LAUNCH_CHECK, now) }
+        startCheck(app, quiet = true)
+    }
+
+    private fun startCheck(context: Context, quiet: Boolean) {
         // A launch check in READY would delete the verified APK, so it waits.
         if (busy() || state == State.READY || !official(context)) return
-        failure = null
-        publish(State.CHECKING)
+        synchronized(lock) {
+            if (checking) {
+                // A silent one is under way, and a click on the line makes it the one that is said: its answer is shown when it comes.
+                if (!quiet && silent) { silent = false; failure = null; publish(State.CHECKING) }
+                return
+            }
+            checking = true
+            silent = quiet
+        }
+        if (!quiet) {
+            failure = null
+            publish(State.CHECKING)
+        }
         worker.execute {
             runCatching {
                 verifiedFile?.delete(); verifiedFile = null; expectedDigest = null
@@ -145,9 +183,17 @@ object AndroidUpdater {
                     if (array.length() < 100) break
                     check(page < 10) { "Release history is too large" }
                 }
-                release = UpdatePolicy.select(candidates, BuildConfig.VERSION_NAME)
-                publish(if (release == null) State.CURRENT else State.AVAILABLE)
-            }.onFailure { release = null; failed(it, UpdatePolicy.Failure.NETWORK, duringCheck = true) }
+                val found = UpdatePolicy.select(candidates, BuildConfig.VERSION_NAME)
+                val said = synchronized(lock) { checking = false; !silent }
+                // Silent, a check that finds nothing leaves the line as it was.
+                if (said || found != null) {
+                    release = found
+                    publish(if (found == null) State.CURRENT else State.AVAILABLE)
+                }
+            }.onFailure {
+                val said = synchronized(lock) { checking = false; !silent }
+                if (said) { release = null; failed(it, UpdatePolicy.Failure.NETWORK, duringCheck = true) }
+            }
         }
     }
 
