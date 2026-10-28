@@ -91,6 +91,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.function.Consumer;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -2418,24 +2419,48 @@ public final class MainActivity extends Activity {
         toast(getString(R.string.editor_no_file_picker));
     }
     // A file the editor cannot read changes nothing, and says so: a file that is not text, or that is empty, must not wipe what was pasted.
-    // The desktop's limit (kMaxUserTextFileBytes) and words.
+    // The desktop's limit (kMaxUserTextFileBytes) and words. Read on the worker that writes exports, as a document provider can keep the
+    // reader waiting (a file in the cloud) and a main thread kept waiting is killed; the box is filled, or the refusal said, back on the
+    // main thread, and whatever goes wrong with a file is a refusal and never a crash.
     private static final int CERTIFICATE_FILE_LIMIT = 1024 * 1024;
     private void readCertificate(Uri uri, EditText target) {
-        try (InputStream input = getContentResolver().openInputStream(uri); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
-            if (input == null) { toast(getString(R.string.text_could_not_open_file)); return; }
-            byte[] bytes = new byte[8192];
-            int n;
-            int total = 0;
-            while ((n = input.read(bytes)) != -1) {
-                total += n;
-                if (total > CERTIFICATE_FILE_LIMIT) { toast(getString(R.string.editor_file_too_large)); return; }
-                out.write(bytes, 0, n);
-            }
-            String pem = out.toString(StandardCharsets.UTF_8.name());
-            if (pem.trim().isEmpty()) { toast(getString(R.string.editor_file_empty)); return; }
-            if (target.isAttachedToWindow()) target.setText(pem);
-        } catch (Exception e) {
-            toast(getString(R.string.text_could_not_open_file));
+        if (isDestroyed()) return;
+        try {
+            ioWorker.execute(() -> {
+                String pem = null;
+                int refusal = 0;
+                try (InputStream input = getContentResolver().openInputStream(uri); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+                    if (input == null) {
+                        refusal = R.string.text_could_not_open_file;
+                    } else {
+                        byte[] bytes = new byte[8192];
+                        int n;
+                        int total = 0;
+                        while (refusal == 0 && (n = input.read(bytes)) != -1) {
+                            total += n;
+                            if (total > CERTIFICATE_FILE_LIMIT) refusal = R.string.editor_file_too_large;
+                            else out.write(bytes, 0, n);
+                        }
+                        if (refusal == 0) {
+                            String text = out.toString(StandardCharsets.UTF_8.name());
+                            if (text.trim().isEmpty()) refusal = R.string.editor_file_empty;
+                            else pem = text;
+                        }
+                    }
+                } catch (Exception | OutOfMemoryError unreadable) {
+                    pem = null;
+                    refusal = R.string.text_could_not_open_file;
+                }
+                final String text = pem;
+                final int said = refusal;
+                runOnUiThread(() -> {
+                    if (isDestroyed()) return;
+                    if (said != 0) toast(getString(said));
+                    else if (target.isAttachedToWindow()) target.setText(text);
+                });
+            });
+        } catch (RejectedExecutionException closing) {
+            // The window is going away.
         }
     }
     // The name is cut in the middle to 36, as the desktop cuts it, and shown as ShownText shows names.

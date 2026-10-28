@@ -1442,7 +1442,8 @@ class TvDeviceTest {
         assertEquals("and the config is as it was", unreadable, saved().first().getString("toml"))
     }
 
-    // "Load from file…" puts what a file holds in the certificate box; a file that is empty changes nothing.
+    // "Load from file…" puts what a file holds in the certificate box; a file that is empty or too large changes nothing and says why. The
+    // file is read on the worker that writes exports (a document provider can keep a reader waiting), and the box is filled on the main thread.
     @Test fun aCertificateFileFillsTheCertificateBoxAndAnEmptyOneChangesNothing() {
         val a = open()
         onMain { method("editConfig", Int::class.javaPrimitiveType).invoke(a, -1) }
@@ -1453,20 +1454,32 @@ class TvDeviceTest {
         val empty = java.io.File(dir, "empty.pem").apply { writeText("  \n") }
         val read = method("readCertificate", android.net.Uri::class.java, EditText::class.java)
         val box = byKey(a, "editor:cert") as EditText
+        fun load(file: java.io.File) {
+            onMain { read.invoke(a, android.net.Uri.fromFile(file), box) }
+            (field("ioWorker").get(a) as ExecutorService).submit {}.get(30, TimeUnit.SECONDS)
+            instrumentation.waitForIdleSync()
+        }
         try {
-            onMain { read.invoke(a, android.net.Uri.fromFile(full), box) }
+            load(full)
             assertEquals(pem, onMain { box.text.toString() })
-            onMain { read.invoke(a, android.net.Uri.fromFile(empty), box) }
+            assertEquals("Nothing is said of a file that is read", emptyList<String>(), toastTexts(a))
+            load(empty)
             assertEquals("An empty file wipes nothing", pem, onMain { box.text.toString() })
             // and says so, in the desktop's words (Backend::readTextFile)
             assertEquals(listOf(context.getString(R.string.editor_file_empty)), toastTexts(a))
             // The desktop's limit is 1 MB, and its words say that.
             val large = java.io.File(dir, "large.pem").apply { writeBytes(ByteArray(1024 * 1024 + 1) { 97 }) }
-            onMain { read.invoke(a, android.net.Uri.fromFile(large), box) }
+            load(large)
             assertEquals("A file over 1 MB changes nothing", pem, onMain { box.text.toString() })
             assertEquals(listOf(context.getString(R.string.editor_file_too_large)), toastTexts(a))
-            val big = java.io.File(dir, "big.pem").apply { writeBytes(ByteArray(260 * 1024) { 98 }) }
-            onMain { read.invoke(a, android.net.Uri.fromFile(big), box) }
+            // A file that is not there is no crash either.
+            load(java.io.File(dir, "missing.pem"))
+            assertEquals("A file that cannot be opened changes nothing", pem, onMain { box.text.toString() })
+            assertEquals(listOf(context.getString(R.string.text_could_not_open_file)), toastTexts(a))
+            // 260 KB, which was refused at 256: a certificate chain as a file has it, lines of 64.
+            val big = java.io.File(dir, "big.pem").apply { writeText(("b".repeat(63) + "\n").repeat(260 * 1024 / 64)) }
+            assertEquals(260 * 1024L, big.length())
+            load(big)
             assertEquals("and one of 260 KB, which was refused at 256, is read", 260 * 1024, onMain { box.text.length })
         } finally {
             dir.deleteRecursively()
