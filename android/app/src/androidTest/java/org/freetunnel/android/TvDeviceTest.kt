@@ -2370,28 +2370,48 @@ class TvDeviceTest {
     }
 
     // The status and navigation bars take the backdrop's dim with the page while a card or a confirmation is open, as the desktop's backdrop
-    // dims its whole window, and are the page's again after: they were bright bands round a dimmed page.
+    // dims its whole window, and are the page's again after: they were bright bands round a dimmed page. Before Android 15 the bars are the
+    // system's, outside the window, and take the dim as a colour. From Android 15 on, with the app targeting it (the phone leg), the window
+    // is edge to edge: the bars are drawn over it, their colours cannot be set, and it is the card's backdrop, reaching the window's edges
+    // behind them, that dims them. So there the test looks at the backdrop and where it reaches, not at colours the platform ignores.
     @Test fun theSystemBarsDimWithACardAndComeBack() {
         val a = open()
         render(a, 1)
         val t = theme(a)
         val dimmed = Theme.over(t.backdrop, t.bg)
+        val outside = android.os.Build.VERSION.SDK_INT < 35
         fun bars() = onMain { a.window.statusBarColor to a.window.navigationBarColor }
-        assertEquals(t.bg to t.bg, bars())
+        // The layer is the window's from its top to its bottom, so that its backdrop is drawn behind the bars; the host does not clip it to
+        // the padding that keeps the page clear of them.
+        fun reachesTheEdges(tag: String) = onMain {
+            val layer = root(a).findViewWithTag<View>("overlay:$tag")
+            val at = IntArray(2).also { layer.getLocationInWindow(it) }
+            at[1] == 0 && at[1] + layer.height == a.window.decorView.height && !root(a).clipToPadding
+        }
+        fun backdropColour(tag: String) = onMain {
+            ((root(a).findViewWithTag<OverlayLayer>("overlay:$tag")).backdrop().background as android.graphics.drawable.ColorDrawable).color
+        }
+        // Whether the bars show the dim of this card or question now.
+        fun dim(tag: String) = if (outside) bars() == (dimmed to dimmed) else reachesTheEdges(tag) && backdropColour(tag) == t.backdrop
+        if (outside) assertEquals(t.bg to t.bg, bars())
         onMain { method("editConfig", Int::class.javaPrimitiveType).invoke(a, 0) }
-        eventually("The bars dim with the card") { bars() == (dimmed to dimmed) }
+        eventually("The bars dim with the card") { dim("editor") }
         showConfirm(a, "Delete?")
-        assertEquals("and stay dim under a question over it", dimmed to dimmed, bars())
+        eventually("The question is up") { overlayTag(a, "confirm") != null }
+        assertTrue("and stay dim under a question over it", dim("confirm") && dim("editor"))
         click(a, "confirm:cancel")
         eventually("The question closes") { overlayTag(a, "confirm") == null }
-        assertEquals("a card's question closed, the card is still there", dimmed to dimmed, bars())
+        assertTrue("a card's question closed, the card is still there", dim("editor"))
         click(a, "editor:cancel")
-        eventually("The bars are the page's again") { bars() == (t.bg to t.bg) }
+        eventually("The card closes and the bars are the page's again") {
+            overlayTag(a, "editor") == null && (!outside || bars() == (t.bg to t.bg))
+        }
         // A popup has no backdrop to dim with.
         render(a, 3)
         click(a, "settings:theme")
         eventually("The popup is up") { overlayTag(a, "select") != null }
-        assertEquals("a popup dims nothing", t.bg to t.bg, bars())
+        if (outside) assertEquals("a popup dims nothing", t.bg to t.bg, bars())
+        else assertEquals("a popup dims nothing", android.graphics.Color.TRANSPARENT, backdropColour("select"))
         instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
         eventually("and goes") { overlayTag(a, "select") == null }
     }
