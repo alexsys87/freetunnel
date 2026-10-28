@@ -105,9 +105,11 @@
     <string name="update_installing">Waiting for Android installation confirmation…</string>
     <string name="update_installing_again">Waiting for Android installation confirmation… If its window closed, tap this line to start it again.</string>
     <string name="update_cancel">Cancel download</string>
-    <string name="update_error_network">couldn’t reach GitHub, or the download was interrupted. Check your connection and try again.</string>
+    <string name="update_error_network">Couldn’t reach GitHub, or the download was interrupted. Check your connection and try again.</string>
+    <string name="update_error_network_inline">couldn’t reach GitHub, or the download was interrupted. Check your connection and try again.</string>
     <string name="update_error_rate_limited">GitHub is limiting update checks for now. The limit is shared by everyone on the same internet address, such as the same Wi-Fi or mobile network. Try again later.</string>
-    <string name="update_error_verification">the update failed the security check and was deleted; nothing was installed.</string>
+    <string name="update_error_verification">The update failed the security check and was deleted; nothing was installed.</string>
+    <string name="update_error_verification_inline">the update failed the security check and was deleted; nothing was installed.</string>
     <string name="update_error_installer">Android didn’t install the update. Try again.</string>
     <string name="update_unofficial">This build doesn’t come from the official channel, so it doesn’t update itself. Install an official release from GitHub to get updates.</string>
     <string name="update_disconnect_warning">Installing replaces FreeTunnel, so the VPN and its kill switch are off until FreeTunnel reconnects after the update. Until then apps go online without the VPN, unless Android blocks connections without VPN.</string>

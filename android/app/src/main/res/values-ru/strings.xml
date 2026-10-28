@@ -105,9 +105,11 @@
     <string name="update_installing">Ожидание подтверждения установки Android…</string>
     <string name="update_installing_again">Ожидание подтверждения установки Android… Если окно установки закрылось, нажмите на эту строку, чтобы запустить его снова.</string>
     <string name="update_cancel">Отменить загрузку</string>
-    <string name="update_error_network">нет связи с GitHub или загрузка прервалась. Проверьте сеть и повторите попытку.</string>
+    <string name="update_error_network">Нет связи с GitHub или загрузка прервалась. Проверьте сеть и повторите попытку.</string>
+    <string name="update_error_network_inline">нет связи с GitHub или загрузка прервалась. Проверьте сеть и повторите попытку.</string>
     <string name="update_error_rate_limited">GitHub временно ограничил проверки обновлений. Ограничение общее для всех с тем же интернет-адресом, например в той же сети Wi-Fi или мобильной сети. Повторите позже.</string>
-    <string name="update_error_verification">обновление не прошло проверку безопасности и удалено; ничего не установлено.</string>
+    <string name="update_error_verification">Обновление не прошло проверку безопасности и удалено; ничего не установлено.</string>
+    <string name="update_error_verification_inline">обновление не прошло проверку безопасности и удалено; ничего не установлено.</string>
     <string name="update_error_installer">Android не установил обновление. Повторите попытку.</string>
     <string name="update_unofficial">Эта сборка не из официального канала, поэтому не обновляется сама. Чтобы получать обновления, установите официальный релиз с GitHub.</string>
     <string name="update_disconnect_warning">Установка заменяет FreeTunnel, поэтому VPN и аварийное отключение выключены, пока FreeTunnel не переподключится после обновления. До этого приложения выходят в сеть без VPN, если Android не блокирует соединения без VPN.</string>

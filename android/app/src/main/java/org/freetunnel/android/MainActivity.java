@@ -3622,9 +3622,9 @@ public final class MainActivity extends Activity {
             // Until Android has the session there is nothing to start again, and the line does nothing: it does not say it will.
             case INSTALLING: text = getString(line.clickable() ? R.string.update_installing_again : R.string.update_installing); break;
             case CHECK_FAILED:
-                text = getString(R.string.update_check_failed, getString(updateFailureText(AndroidUpdater.INSTANCE.getFailure())));
+                text = getString(R.string.update_check_failed, getString(updateFailureText(AndroidUpdater.INSTANCE.getFailure(), true)));
                 break;
-            case FAILED: text = getString(updateFailureText(AndroidUpdater.INSTANCE.getFailure())); break;
+            case FAILED: text = getString(updateFailureText(AndroidUpdater.INSTANCE.getFailure(), false)); break;
             default: text = getString(R.string.update_check);
         }
         updateAction.setText(text);
@@ -3656,11 +3656,13 @@ public final class MainActivity extends Activity {
         updateArrow.setBend(icon == UpdateLine.Icon.DOWNLOAD && !updateHot ? 0 : 1, animate);
         updateArrow.setTurn(icon == UpdateLine.Icon.RETRY && updateHot ? 45 : 0, animate);
     }
-    private static int updateFailureText(UpdatePolicy.Failure failure) {
+    // Why an update failed. Alone it is a sentence; inside "Update check failed: %1" it is the end of one, and the two that begin with a
+    // word of their own (not a name) have a lower-case form for it.
+    private static int updateFailureText(UpdatePolicy.Failure failure, boolean inline) {
         if (failure == UpdatePolicy.Failure.RATE_LIMITED) return R.string.update_error_rate_limited;
-        if (failure == UpdatePolicy.Failure.VERIFICATION) return R.string.update_error_verification;
+        if (failure == UpdatePolicy.Failure.VERIFICATION) return inline ? R.string.update_error_verification_inline : R.string.update_error_verification;
         if (failure == UpdatePolicy.Failure.INSTALLER) return R.string.update_error_installer;
-        return R.string.update_error_network;
+        return inline ? R.string.update_error_network_inline : R.string.update_error_network;
     }
     // A row of a page: a label, with its subtitle under it, and the desktop's Toggle. Only the
     // toggle is the control.

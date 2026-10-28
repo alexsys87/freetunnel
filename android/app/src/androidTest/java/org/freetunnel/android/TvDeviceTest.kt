@@ -3853,7 +3853,9 @@ class TvDeviceTest {
         updater("failure", UpdatePolicy.Failure.NETWORK)
         updater("failedCheck", true)
         updateShows(a, AndroidUpdater.State.ERROR)
-        assertEquals(context.getString(R.string.update_check_failed, context.getString(R.string.update_error_network)), textOf(a, "settings:update"))
+        // Inside "Update check failed: …" the reason continues the sentence, so it begins in lower case.
+        assertEquals(context.getString(R.string.update_check_failed, context.getString(R.string.update_error_network_inline)), textOf(a, "settings:update"))
+        assertTrue("the reason inside the sentence continues it", context.getString(R.string.update_error_network_inline).first().isLowerCase())
         assertTrue(onMain { arrowOf(a).isShown })
         assertEquals("a retry is the arrow round", 1f, onMain { arrowOf(a).bend() }, 0f)
         assertFalse("and does not turn", onMain { arrowOf(a).spinning() })
@@ -3862,6 +3864,12 @@ class TvDeviceTest {
         updater("failedCheck", false)
         updateShows(a, AndroidUpdater.State.ERROR)
         assertEquals(context.getString(R.string.update_error_verification), textOf(a, "settings:update"))
+        // Said alone, a reason is a sentence: it begins with a capital.
+        assertTrue("a failed download's line begins with a capital: ${textOf(a, "settings:update")}", textOf(a, "settings:update").first().isUpperCase())
+        updater("failure", UpdatePolicy.Failure.NETWORK)
+        updateShows(a, AndroidUpdater.State.ERROR)
+        assertEquals(context.getString(R.string.update_error_network), textOf(a, "settings:update"))
+        assertTrue("and so does a lost connection's: ${textOf(a, "settings:update")}", textOf(a, "settings:update").first().isUpperCase())
     }
 
     // The arrow (or the dots) is a target for the pointer only: the remote's stop is the words. A clickable view is a focus stop from API 26
