@@ -54,7 +54,9 @@ certificate is not an official release or an update compatibility contract.
 - The desktop's look: its colours, which `tests/test_android_theme_matches_desktop.sh`
   checks against `qml/Main.qml`, and its icons, which
   [scripts/android-icons-from-svg.py](../scripts/android-icons-from-svg.py) makes
-  from `assets/icons` and `assets/logo.svg`. The theme is System (the default,
+  from `assets/icons` and `assets/logo.svg`, and its typeface, Inter, which
+  `tests/test_android_fonts.sh` holds to the desktop's two weights (see
+  [License](#license)). The theme is System (the default,
   which follows the device), Light or Dark, under Settings → General → Theme.
 
 ## Home and Configs
@@ -374,6 +376,13 @@ the comparison. What differs on purpose, and is not to be changed to match it:
   The desktop's certificate box, which it copies in everything else, uses 12 px.
   A browser on an iPhone zooms the page in on a field under 16 px when it takes
   the focus, so the page uses 16 and iPhones do not zoom in.
+- **What Android draws itself, and the phone's page, are not in Inter.** The app
+  is set in Inter, as the desktop is, but the notification, the Quick Settings
+  tile's label and the system's own toasts are drawn by Android in its font, as
+  the desktop's tray menu, file dialogs and notifications are in its system's.
+  The page a phone is served keeps the phone's own font, because its CSP forbids
+  loading one. The log, the certificate box and the TV's address are monospace,
+  as the desktop's are.
 
 ### Receive from phone
 
@@ -708,6 +717,14 @@ left out), as the desktop ships them as files next to the program, and the app h
 them. They are also in the repository. `scripts/check-apk-notices.sh` checks a built APK for
 them. A new or bumped dependency in `app/build.gradle`, or a new
 AAR, needs its entry there, or `scripts/check-third-party-notices.sh` fails.
+
+The text is set in Inter (SIL OFL 1.1), as the desktop's is: Regular for all text and
+Medium where the desktop's text is Medium, no other weight. The two files are in
+`assets/fonts/inter`, which the desktop compiles in as well, and `assets/fonts/inter/SOURCE` says
+where they come from. `app/build.gradle` checks them against `SHA256SUMS` and copies them into the
+APK's font resources (`res/font/inter_regular.ttf` and `inter_medium.ttf`); `Fonts` is the one place
+the code gets them from, and the theme names Regular for any text nothing sets.
+`scripts/check-apk-data.sh` checks a built APK for the same bytes.
 
 ### Always-on VPN and Block connections without VPN
 
