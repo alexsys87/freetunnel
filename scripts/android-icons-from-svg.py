@@ -15,10 +15,11 @@ android/app/src/main/res/drawable/ic_*.xml from those SVG files:
 Tinted icons are white in the file and take their colour from the view that shows
 them. The plus signs are not icons on the desktop either: it draws two rectangles,
 16 by 1.8 in a 22 box on Configs and 10 by 1.6 in a 14 box on Home, and so do these.
-Nor are the arrows and ticks (▾ ✓ ↓ ↑ ←): the desktop draws them as characters of its font, and
-Android's Roboto has none of them, so the font it falls back to draws them half the size and
-thinner. They are drawn here as shapes of the size the desktop's font gives them (measured
-from its renders: ▾ 7.5 by 7, ✓ 7.5 by 7, ↓ 6 by 10.5, ← 15 by 8.5).
+Nor are the arrows and ticks (▾ ✓ ↓ ↑ ←): the desktop draws them as characters of its font, so
+they are drawn here as shapes of the size that font gave them (measured from the desktop's
+renders in the system font it had before Inter: ▾ 7.5 by 7, ✓ 7.5 by 7, ↓ 6 by 10.5, ← 15 by 8.5),
+which sit on the line as the desktop's do, whatever font a TextView would fall back to. Inter,
+which the desktop is set in now, has ✓ ↓ ↑ ← of its own, drawn larger, and no ▾ (U+25BE).
 
   scripts/android-icons-from-svg.py           writes the drawables
   scripts/android-icons-from-svg.py --check   fails if one is out of date

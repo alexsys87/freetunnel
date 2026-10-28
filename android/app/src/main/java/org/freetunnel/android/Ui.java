@@ -80,7 +80,6 @@ final class Ui {
 
     /** The desktop animates every hover colour for 120 ms. */
     static final int FADE_MS = 120;
-    static final Typeface MEDIUM = Typeface.create("sans-serif-medium", Typeface.NORMAL);
 
     private final Context context;
     private final float density;
@@ -129,16 +128,17 @@ final class Ui {
         v.setText(value);
         v.setTextSize(TypedValue.COMPLEX_UNIT_SP, sp);
         v.setTextColor(color);
+        v.setTypeface(Fonts.regular(context));
         v.setGravity(Gravity.CENTER_VERTICAL);
         // A line is as high as its font's ascent and descent, as a Qt Text is: Android adds the font's own room above and below
         // otherwise, which makes every line two or three dp taller than the desktop's.
         v.setIncludeFontPadding(false);
         return v;
     }
-    /** The desktop's Medium weight, 500: never bold. */
+    /** The desktop's Medium weight, 500: Inter Medium, a file of its own, never bold. */
     TextView medium(CharSequence value, float sp, int color) {
         TextView v = label(value, sp, color);
-        v.setTypeface(MEDIUM);
+        v.setTypeface(Fonts.medium(context));
         return v;
     }
     TextView mono(CharSequence value, float sp, int color) {
@@ -199,9 +199,10 @@ final class Ui {
         return child;
     }
     /**
-     * A character the desktop draws as text (▾ ✓ ↓ ↑ ←), as a shape of the size its font gives it. Roboto has none of them, and the
-     * font Android falls back to draws them about half the size and thinner, floating at the x-height instead of sitting on the
-     * line. One colour, whatever state it is in; it is no thing to read out.
+     * A character the desktop draws as text (▾ ✓ ↓ ↑ ←), as a shape of the size it was measured at (scripts/android-icons-from-svg.py), so
+     * that it sits on the line as the desktop's does and not as whichever font a TextView would fall back to draws it. Those sizes are
+     * from the desktop's renders in the system font it had before Inter: Inter has ✓ ↓ ↑ ← of its own, drawn larger, and no ▾ (U+25BE).
+     * One colour, whatever state it is in; it is no thing to read out.
      */
     ImageView glyph(int drawable, int color) {
         ImageView v = new ImageView(context);
@@ -234,7 +235,10 @@ final class Ui {
      * moves are Left and Right.
      */
     static class LineEdit extends EditText {
-        LineEdit(Context context) { super(context); }
+        LineEdit(Context context) {
+            super(context);
+            setTypeface(Fonts.regular(context));
+        }
 
         @Override public boolean onKeyDown(int keyCode, KeyEvent event) {
             if ((keyCode == KeyEvent.KEYCODE_DPAD_UP || keyCode == KeyEvent.KEYCODE_DPAD_DOWN) && event.hasNoModifiers()) {
@@ -480,7 +484,7 @@ final class Ui {
         b.setAllCaps(false);
         b.setText(caption);
         b.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
-        b.setTypeface(Typeface.DEFAULT);
+        b.setTypeface(Fonts.regular(context));
         b.setLetterSpacing(0);
         b.setStateListAnimator(null);
         b.setMinWidth(dp(minWidthDp));
@@ -578,7 +582,10 @@ final class Ui {
         private ColorStateList colors;
         private boolean dormant;
 
-        LinkText(Context c) { super(c); }
+        LinkText(Context c) {
+            super(c);
+            setTypeface(Fonts.regular(c));
+        }
 
         @Override public void setTextColor(ColorStateList states) {
             colors = states;
@@ -1023,7 +1030,7 @@ final class Ui {
         LinkText label = new LinkText(context);
         label.setText(name);
         label.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
-        label.setTypeface(MEDIUM);
+        label.setTypeface(Fonts.medium(context));
         label.setGravity(Gravity.CENTER_VERTICAL);
         label.setIncludeFontPadding(false);
         label.setSingleLine(true);

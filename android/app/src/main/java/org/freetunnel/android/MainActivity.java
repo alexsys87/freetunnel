@@ -20,7 +20,6 @@ import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.Rect;
-import android.graphics.Typeface;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.GradientDrawable;
 import android.graphics.text.LineBreaker;
@@ -1072,6 +1071,8 @@ public final class MainActivity extends Activity {
     private int widestLine(CharSequence text, float sp, int width) {
         if (text.length() == 0) return 0;
         TextPaint paint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+        // In the face the text is drawn in: the width of what is measured in another is the width of something else.
+        paint.setTypeface(Fonts.regular(this));
         paint.setTextSize(TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, sp, getResources().getDisplayMetrics()));
         StaticLayout lines = StaticLayout.Builder.obtain(text, 0, text.length(), paint, Math.max(1, width))
                 .setBreakStrategy(LineBreaker.BREAK_STRATEGY_SIMPLE).setHyphenationFrequency(Layout.HYPHENATION_FREQUENCY_NONE).build();
@@ -1183,6 +1184,8 @@ public final class MainActivity extends Activity {
     }
     private int textWidth(String text, float sp) {
         Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        // Regular, as every label, button and row it sizes is drawn in (see widestLine).
+        paint.setTypeface(Fonts.regular(this));
         paint.setTextSize(TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, sp, getResources().getDisplayMetrics()));
         return (int) Math.ceil(paint.measureText(text));
     }
@@ -1742,7 +1745,7 @@ public final class MainActivity extends Activity {
         if (configs.isEmpty()) {
             // As wide as its words: the focus is around them, not across the page.
             TextView hint = ui.link(getString(R.string.text_add_configuration), 15, Ui.LinkKind.TEXT, "configs:hint");
-            hint.setTypeface(Ui.MEDIUM);
+            hint.setTypeface(Fonts.medium(this));
             hint.setOnClickListener(v -> addMenu());
             // Under its own menu it would be cut in half.
             hint.setVisibility(overlay("addmenu") != null ? View.INVISIBLE : View.VISIBLE);
@@ -2252,7 +2255,7 @@ public final class MainActivity extends Activity {
         password.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
         password.setTransformationMethod(new Ui.PasswordMask());
         // setInputType makes a password field monospace, and the desktop's dots are in the font of its other fields.
-        password.setTypeface(Typeface.DEFAULT);
+        password.setTypeface(Fonts.regular(this));
         EditText dns = ui.lineEdit();
         dns.setHint("1.1.1.1, 8.8.8.8");
         EditText sni = ui.lineEdit();

@@ -153,10 +153,55 @@ def copySharedData = tasks.register('copySharedData', CopySharedData) {
     defaultExcludedRoutes.set(rootProject.file('../data/split/default-excluded-routes.txt'))
     outputDir.set(layout.buildDirectory.dir('generated/sharedData'))
 }
+// Inter, the typeface of both apps (SIL OFL 1.1), from assets/fonts/inter into the APK's font resources: res/font/inter_regular.ttf and
+// inter_medium.ttf (a resource's name is lowercase), which Fonts reads and the theme names as android:fontFamily. The desktop compiles the
+// same two files in (assets/fonts/fonts.qrc), so there is one copy of each in the repository. Fonts are binaries nobody reads in review: the
+// build checks each against SHA256SUMS before it copies it, as verifyPinnedRuntime does the AAR, and scripts/check-apk-data.sh checks the
+// APK for the same bytes. Regular (400) is for all text and Medium (500) for what the desktop sets in Font.Medium; no other weight.
+abstract class CopyInterFonts extends DefaultTask {
+    @InputFile @PathSensitive(PathSensitivity.NAME_ONLY)
+    abstract RegularFileProperty getChecksums()
+    @InputFile @PathSensitive(PathSensitivity.NAME_ONLY)
+    abstract RegularFileProperty getRegular()
+    @InputFile @PathSensitive(PathSensitivity.NAME_ONLY)
+    abstract RegularFileProperty getMedium()
+    @OutputDirectory
+    abstract DirectoryProperty getOutputDir()
+
+    @TaskAction
+    void copy() {
+        def sums = [:]
+        checksums.get().asFile.eachLine { line ->
+            def entry = line =~ /^([0-9a-f]{64})  (\S+)$/
+            if (entry.matches()) sums[entry.group(2)] = entry.group(1)
+        }
+        def out = outputDir.get().asFile
+        out.deleteDir()
+        def fonts = new File(out, 'font')
+        fonts.mkdirs()
+        install(regular.get().asFile, 'inter_regular.ttf', sums, fonts)
+        install(medium.get().asFile, 'inter_medium.ttf', sums, fonts)
+    }
+
+    static void install(File source, String name, Map sums, File to) {
+        def want = sums[source.name]
+        if (want == null) throw new GradleException("${source.name} is not in assets/fonts/inter/SHA256SUMS")
+        def digest = java.security.MessageDigest.getInstance('SHA-256').digest(source.bytes).encodeHex().toString()
+        if (digest != want) throw new GradleException("${source.name} does not match its SHA-256 in assets/fonts/inter/SHA256SUMS")
+        java.nio.file.Files.copy(source.toPath(), new File(to, name).toPath())
+    }
+}
+def copyInterFonts = tasks.register('copyInterFonts', CopyInterFonts) {
+    checksums.set(rootProject.file('../assets/fonts/inter/SHA256SUMS'))
+    regular.set(rootProject.file('../assets/fonts/inter/Inter-Regular.ttf'))
+    medium.set(rootProject.file('../assets/fonts/inter/Inter-Medium.ttf'))
+    outputDir.set(layout.buildDirectory.dir('generated/interFonts'))
+}
 androidComponents {
     onVariants(selector().all()) { variant ->
         variant.sources.assets?.addGeneratedSourceDirectory(copyThirdPartyNotices) { it.outputDir }
         variant.sources.assets?.addGeneratedSourceDirectory(copySharedData) { it.outputDir }
+        variant.sources.res?.addGeneratedSourceDirectory(copyInterFonts) { it.outputDir }
     }
 }
 
