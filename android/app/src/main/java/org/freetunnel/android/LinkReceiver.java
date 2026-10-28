@@ -157,30 +157,33 @@ final class LinkReceiver {
 
         // The app's own look, which is the desktop's (Theme.java holds its colours, and a test holds
         // those to qml/Main.qml): custom properties on :root for the light theme, the dark ones when
-        // the phone is in dark mode, and the editor card's parts: a label 13 in textDim over a box
-        // in inputBg with a 1 px inputBorder, radius 8, that takes an accent border where it has the
-        // focus; a neutral button for the file's, and a primary one, 44 high, to send. The text box
-        // is 16 px: a browser on an iPhone zooms in on a field smaller than that.
+        // the phone is in dark mode, and the editor card's parts: a title 15 in Medium, as every card's is, a label 13 in textDim over a
+        // box in inputBg with a 1 px inputBorder, radius 8, that takes an accent border where it has the
+        // focus; a neutral button, 32 high, for the file's, and a primary one, as wide as its label and at the right, to send; the notice
+        // on infoBg, 12; and the page's 18 margins. Nothing has a pressed or a tapped look beyond its hover, as the desktop's have none.
+        // The text box is 16 px: a browser on an iPhone zooms in on a field smaller than that, which the desktop's 12 px
+        // monospace would be. The file field's own words ("Choose File", "No file chosen") are the browser's, in its language: a custom
+        // button in the app's words needs a script to say which file is chosen, and the page has none, which its CSP and its test forbid.
         private static String style(Theme light, Theme dark) {
-            String fileButton = "height:32px;margin:0 12px 0 0;padding:0 14px;border:0;border-radius:8px;"
+            String fileButton = "height:32px;min-width:76px;margin:0 12px 0 0;padding:0 13px;border:0;border-radius:8px;"
                     + "background:var(--surface);color:var(--text);font:14px " + FONT + ";cursor:pointer";
             String fileHover = "background:var(--surface-hover)";
             return ":root{color-scheme:light dark;" + tokens(light) + "}"
                     + "@media (prefers-color-scheme:dark){:root{" + tokens(dark) + "}}"
-                    + "*{box-sizing:border-box}"
-                    + "body{margin:0;background:var(--bg);color:var(--text);font:16px/1.45 " + FONT + ";-webkit-text-size-adjust:100%}"
-                    + "main{max-width:32em;margin:0 auto;padding:20px 16px 32px}"
-                    + "h1{margin:0 0 16px;font-size:20px;font-weight:500;line-height:1.3}"
-                    + ".notice{margin:0 0 16px;padding:8px 10px;border-radius:8px;background:var(--info);font-size:14px}"
+                    + "*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}"
+                    + "body{margin:0;background:var(--bg);color:var(--text);font:16px/1.25 " + FONT + ";-webkit-text-size-adjust:100%}"
+                    + "main{max-width:32em;margin:0 auto;padding:18px 18px 32px}"
+                    + "h1{margin:0 0 14px;font-size:15px;font-weight:500;line-height:1.2}"
+                    + ".notice{margin:0 0 16px;padding:8px 10px;border-radius:8px;background:var(--info);font-size:12px;line-height:1.2}"
                     + ".ok{color:var(--success)}"
                     + ".warn{color:var(--warn)}"
-                    + "label{display:block;margin:0 0 4px;font-size:13px;color:var(--dim)}"
-                    + "textarea{display:block;width:100%;min-height:11em;margin:0 0 16px;padding:10px;"
+                    + "label{display:block;margin:0 0 4px;font-size:13px;line-height:1.2;color:var(--dim)}"
+                    + "textarea{display:block;width:100%;min-height:150px;margin:0 0 16px;padding:8px 10px;"
                     + "border:1px solid var(--input-border);border-radius:8px;background:var(--input-bg);color:var(--text);"
-                    + "font:16px/1.4 ui-monospace,Menlo,Consolas,monospace;resize:vertical;outline:none;"
+                    + "font:16px/1.4 ui-monospace,Menlo,Consolas,monospace;resize:none;outline:none;"
                     + "-webkit-appearance:none;appearance:none}"
                     + "textarea:focus{border-color:var(--accent)}"
-                    + "input[type=file]{display:block;width:100%;margin:0 0 16px;font-size:14px;color:var(--dim)}"
+                    + "input[type=file]{display:block;width:100%;margin:0 0 16px;font:14px " + FONT + ";color:var(--dim)}"
                     // The two names for the same button, each in a rule of its own: a browser that does
                     // not know one drops the whole rule it is in.
                     + "input[type=file]::file-selector-button{" + fileButton + "}"
@@ -191,14 +194,16 @@ final class LinkReceiver {
                     + "input[type=file]:focus-visible{outline:none}"
                     + "input[type=file]:focus-visible::file-selector-button{" + fileHover + "}"
                     + "input[type=file]:focus-visible::-webkit-file-upload-button{" + fileHover + "}"
-                    + "button{display:block;width:100%;height:44px;border:0;border-radius:8px;"
-                    + "background:var(--accent);color:var(--accent-text);font:500 16px " + FONT + ";cursor:pointer;"
+                    // The desktop's primary button: 32 high, radius 8, 14 in the normal weight, as wide as its label and 88 at least, and at
+                    // the right of its row.
+                    + "button{display:block;margin-left:auto;min-width:88px;height:32px;padding:0 13px;border:0;border-radius:8px;"
+                    + "background:var(--accent);color:var(--accent-text);font:400 14px " + FONT + ";cursor:pointer;"
                     + "-webkit-appearance:none;appearance:none}"
                     + "button:hover{background:var(--accent-hover)}"
                     // The desktop has no ring anywhere: where the focus is, a control takes the look it has under the pointer, and the
                     // text box its accent border. A rule of its own, since a browser that does not know :focus-visible drops the rule.
                     + "button:focus-visible{outline:none;background:var(--accent-hover)}"
-                    + ".note{margin:14px 0 0;font-size:13px;color:var(--faint)}";
+                    + ".note{margin:14px 0 0;font-size:13px;line-height:1.25;color:var(--faint)}";
         }
 
         private static String tokens(Theme t) {

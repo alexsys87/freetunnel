@@ -684,27 +684,32 @@ public final class LinkReceiverTest {
         assertTrue(night.contains("--info:rgba(176,176,176,0.16)"));
         // The desktop's neutral greys: nothing else is a colour in the rules.
         assertFalse("A colour is a token", css.substring(dark + night.length()).matches("(?s).*#[0-9a-f]{3,6}.*"));
-        // Type: the system's, h1 20 px at weight 500, labels 13 in textDim.
-        assertTrue(css.contains("font:16px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif"));
-        assertTrue(css.contains("h1{margin:0 0 16px;font-size:20px;font-weight:500"));
-        assertTrue(css.contains("label{display:block;margin:0 0 4px;font-size:13px;color:var(--dim)}"));
-        // The text box: inputBg, a 1 px inputBorder, radius 8, monospace 16 so that an iPhone does not zoom in, and an
-        // accent border, no outline, where it has the focus.
-        assertTrue(css.contains("textarea{display:block;width:100%;min-height:11em;margin:0 0 16px;padding:10px;"
+        // Type: the system's, the title 15 at weight 500 as every card's is, labels 13 in textDim, set as tight as a Qt Text is.
+        assertTrue(css.contains("font:16px/1.25 system-ui,-apple-system,Segoe UI,Roboto,sans-serif"));
+        assertTrue(css.contains("h1{margin:0 0 14px;font-size:15px;font-weight:500;line-height:1.2}"));
+        assertTrue(css.contains("label{display:block;margin:0 0 4px;font-size:13px;line-height:1.2;color:var(--dim)}"));
+        // The page's margins are the pages' 18, and a tap leaves no highlight, which the desktop's controls have none of either.
+        assertTrue(css.contains("main{max-width:32em;margin:0 auto;padding:18px 18px 32px}"));
+        assertTrue(css.contains("*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}"));
+        // The text box: inputBg, a 1 px inputBorder, radius 8, monospace 16 so that an iPhone does not zoom in, 150 high with the
+        // padding of the app's own text areas and no grip to resize it by, and an accent border, no outline, where it has the focus.
+        assertTrue(css.contains("textarea{display:block;width:100%;min-height:150px;margin:0 0 16px;padding:8px 10px;"
                 + "border:1px solid var(--input-border);border-radius:8px;background:var(--input-bg);color:var(--text);"
-                + "font:16px/1.4 ui-monospace,Menlo,Consolas,monospace;"));
+                + "font:16px/1.4 ui-monospace,Menlo,Consolas,monospace;resize:none;"));
         assertTrue(css.contains("outline:none"));
         assertTrue(css.contains("textarea:focus{border-color:var(--accent)}"));
-        // The file field, 14 px in textDim, with the browser's button as the neutral one: surface, radius 8, 32 high, in a rule of
-        // its own for each of its two names.
-        assertTrue(css.contains("input[type=file]{display:block;width:100%;margin:0 0 16px;font-size:14px;color:var(--dim)}"));
+        // The file field, 14 px in the page's font and in textDim, with the browser's button as the neutral one: surface, radius 8, 32 high
+        // and 13 padded as the desktop's buttons are, in a rule of its own for each of its two names.
+        assertTrue(css.contains("input[type=file]{display:block;width:100%;margin:0 0 16px;font:14px system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:var(--dim)}"));
         for (String name : new String[]{"::file-selector-button", "::-webkit-file-upload-button"})
-            assertTrue(name, css.contains("input[type=file]" + name + "{height:32px;margin:0 12px 0 0;padding:0 14px;border:0;"
+            assertTrue(name, css.contains("input[type=file]" + name + "{height:32px;min-width:76px;margin:0 12px 0 0;padding:0 13px;border:0;"
                     + "border-radius:8px;background:var(--surface);color:var(--text);font:14px "));
         assertFalse("One rule for each name: a browser drops a rule it half knows", css.contains("::file-selector-button,"));
-        // The button: accent, accentText, radius 8, 44 high, weight 500, no border.
-        assertTrue(css.contains("button{display:block;width:100%;height:44px;border:0;border-radius:8px;"
-                + "background:var(--accent);color:var(--accent-text);font:500 16px system-ui"));
+        // The button: the desktop's primary one, accent, accentText, radius 8, 32 high, 14 in the normal weight, as wide as its label
+        // and 88 at least, at the right of its row, and no border.
+        assertTrue(css.contains("button{display:block;margin-left:auto;min-width:88px;height:32px;padding:0 13px;border:0;border-radius:8px;"
+                + "background:var(--accent);color:var(--accent-text);font:400 14px system-ui"));
+        assertFalse("Not the width of the page", css.contains("button{display:block;width:100%"));
         // The desktop has no focus ring: where the focus is, the button takes its hover look and the file field's button its own,
         // each in a rule of its own, and no rule draws an outline but to take the browser's away.
         assertTrue(css.contains("button:hover{background:var(--accent-hover)}"));
@@ -715,10 +720,10 @@ public final class LinkReceiverTest {
         assertFalse("No ring", css.matches("(?s).*outline:\\s*[0-9].*"));
         assertFalse("No ring", css.contains("outline-offset"));
         // Notices on infoBg, radius 8: warn and success. Notes 13 in textFaint.
-        assertTrue(css.contains(".notice{margin:0 0 16px;padding:8px 10px;border-radius:8px;background:var(--info);"));
+        assertTrue(css.contains(".notice{margin:0 0 16px;padding:8px 10px;border-radius:8px;background:var(--info);font-size:12px;line-height:1.2}"));
         assertTrue(css.contains(".ok{color:var(--success)}"));
         assertTrue(css.contains(".warn{color:var(--warn)}"));
-        assertTrue(css.contains(".note{margin:14px 0 0;font-size:13px;color:var(--faint)}"));
+        assertTrue(css.contains(".note{margin:14px 0 0;font-size:13px;line-height:1.25;color:var(--faint)}"));
         // And the browser is told both themes are the page's.
         assertTrue(page.contains("<meta name=\"color-scheme\" content=\"light dark\">"));
     }
