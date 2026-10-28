@@ -168,6 +168,10 @@ class TvDeviceTest {
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) as MainActivity
         activity = opened
         instrumentation.waitForIdleSync()
+        // The input focus is the window's, and it comes after the activity is resumed (the splash screen is handed over first), or later while a
+        // system dialog has it, such as an emulator launcher's "isn't responding". Keys go to the window that has it and Android answers an
+        // app's read of the clipboard with nothing unless the app does, so no test begins before it is this one.
+        eventually("The window must have the input focus", 30_000) { onMain { opened.hasWindowFocus() } }
         return opened
     }
     private fun inTouchMode(a: MainActivity) = onMain { a.window.decorView.isInTouchMode }
@@ -4251,7 +4255,12 @@ class TvDeviceTest {
         val clipboard = context.getSystemService(android.content.ClipboardManager::class.java)
         click(a, "log:copy")
         eventually("Copy says so") { context.getString(R.string.text_log_copied) in toastTexts(a) }
-        val copied = onMain { clipboard.primaryClip?.getItemAt(0)?.coerceToText(context)?.toString() }
+        // Android answers an app that has not the input focus with nothing (open() waits for it), so it is asked until it answers.
+        var copied: String? = null
+        eventually("The clipboard holds what was copied") {
+            copied = onMain { clipboard.primaryClip?.getItemAt(0)?.coerceToText(context)?.toString() }
+            copied != null
+        }
         assertEquals("what is shown, line by line", "12:34:56 INFO Tunnel up\n12:35:00 ERROR It failed", copied)
         val generation = renderGeneration(a)
         click(a, "log:clear")
