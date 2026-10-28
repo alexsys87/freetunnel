@@ -400,6 +400,11 @@ open the address in Chrome or Safari instead.
 - It does not work while the phone's VPN is on, over mobile data, or on a guest
   network that keeps its devices apart: if the page does not open, turn off the
   phone's VPN (the card does not say so; its hint is short on purpose).
+- The text box on the phone's page is the desktop's certificate box: 12 px
+  monospace. A browser on an iPhone zooms in on a field smaller than 16 px when
+  it takes the focus, and does here; the page's viewport is not locked
+  (`maximum-scale`) to stop that, because the lock would take pinch-zoom from
+  Chrome on Android.
 
 ## Build and signing
 
