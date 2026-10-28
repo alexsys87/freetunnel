@@ -55,7 +55,8 @@ import android.widget.TextView;
  * overscan margin (48 at the sides, 27 above and below, so its rows, its cards and the empty Configs page's words sit differently), the opt-in
  * "Check for updates on launch" row, the Android VPN settings row and the sentences about the kill switch under it,
  * "Receive from phone" first in a TV's add menu, the application field's placeholder (an app has no path to paste and
- * nothing to drop on it), and the file field of the page a phone is served, whose words are the browser's.
+ * nothing to drop on it), and the file field of the page a phone is served, whose words are the browser's, and its paste box, which is
+ * 16 px monospace where the desktop's certificate box is 12 (an iPhone zooms in on a field under 16).
  */
 final class Ui {
     /** What a control's rest, hover and focus look like. */

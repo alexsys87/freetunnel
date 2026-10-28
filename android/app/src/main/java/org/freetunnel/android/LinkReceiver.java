@@ -162,11 +162,11 @@ final class LinkReceiver {
         // box in inputBg with a 1 px inputBorder, radius 8, that takes an accent border where it has the
         // focus; a neutral button, 32 high, for the file's, and a primary one, as wide as its label and at the right, to send; the notice
         // on infoBg, 12; and the page's 18 margins. Nothing has a pressed or a tapped look beyond its hover, as the desktop's have none.
-        // The text box is the desktop's certificate box (the only monospace one it has): 12 px monospace, inset 8 on every side, and 10 under
-        // it, where the desktop's form has 10 between a field and the next label. That is smaller than the 16 px at which a browser on an
-        // iPhone leaves a field alone: Safari zooms in on it when it takes the focus. The desktop's size wins over that, and the viewport
-        // is left as it is, because a maximum-scale in it would take pinch-zoom from Android's Chrome, which is an accessibility cost for
-        // a few seconds of zoom on one browser. The file field's own words ("Choose File", "No file chosen") are the browser's, in its language: a custom
+        // The text box is the desktop's certificate box (the only monospace one it has) in everything but its size: inset 8 on every side,
+        // and 10 under it, where the desktop's form has 10 between a field and the next label. Its text is 16 px monospace where the
+        // desktop's is 12: a browser on an iPhone zooms the page in on any field under 16 px when it takes the focus, and the page must
+        // not jump about under a finger. The viewport is not locked with a maximum-scale instead, which would take pinch-zoom from Android's
+        // Chrome. The file field's own words ("Choose File", "No file chosen") are the browser's, in its language: a custom
         // button in the app's words needs a script to say which file is chosen, and the page has none, which its CSP and its test forbid.
         private static String style(Theme light, Theme dark) {
             String fileButton = "height:32px;min-width:76px;margin:0 12px 0 0;padding:0 13px;border:0;border-radius:8px;"
@@ -184,7 +184,7 @@ final class LinkReceiver {
                     + "label{display:block;margin:0 0 4px;font-size:13px;line-height:1.2;color:var(--dim)}"
                     + "textarea{display:block;width:100%;min-height:150px;margin:0 0 10px;padding:8px;"
                     + "border:1px solid var(--input-border);border-radius:8px;background:var(--input-bg);color:var(--text);"
-                    + "font:12px/1.4 ui-monospace,Menlo,Consolas,monospace;resize:none;outline:none;"
+                    + "font:16px/1.4 ui-monospace,Menlo,Consolas,monospace;resize:none;outline:none;"
                     + "-webkit-appearance:none;appearance:none}"
                     + "textarea:focus{border-color:var(--accent)}"
                     + "input[type=file]{display:block;width:100%;margin:0 0 16px;font:14px " + FONT + ";color:var(--dim)}"

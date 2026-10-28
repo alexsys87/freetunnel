@@ -691,12 +691,13 @@ public final class LinkReceiverTest {
         // The page's margins are the pages' 18, and a tap leaves no highlight, which the desktop's controls have none of either.
         assertTrue(css.contains("main{max-width:32em;margin:0 auto;padding:18px 18px 32px}"));
         assertTrue(css.contains("*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}"));
-        // The text box is the desktop's certificate box: inputBg, a 1 px inputBorder, radius 8, monospace 12, 150 high, inset 8 on every
+        // The text box is the desktop's certificate box but for its size: inputBg, a 1 px inputBorder, radius 8, 150 high, inset 8 on every
         // side (its Flickable's margins) with 10 under it (the form's spacing between a field and the next label), no grip to resize it
-        // by, and an accent border, no outline, where it has the focus. The file field under it keeps its 16: 10 and the button row's 6.
+        // by, and an accent border, no outline, where it has the focus. Its text is monospace 16, where the desktop's is 12, so that an
+        // iPhone does not zoom in on it (Safari does on any field under 16 px). The file field under it keeps its 16: 10 and the button row's 6.
         assertTrue(css.contains("textarea{display:block;width:100%;min-height:150px;margin:0 0 10px;padding:8px;"
                 + "border:1px solid var(--input-border);border-radius:8px;background:var(--input-bg);color:var(--text);"
-                + "font:12px/1.4 ui-monospace,Menlo,Consolas,monospace;resize:none;"));
+                + "font:16px/1.4 ui-monospace,Menlo,Consolas,monospace;resize:none;"));
         assertTrue(css.contains("outline:none"));
         assertTrue(css.contains("textarea:focus{border-color:var(--accent)}"));
         // The file field, 14 px in the page's font and in textDim, with the browser's button as the neutral one: surface, radius 8, 32 high

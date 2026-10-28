@@ -368,6 +368,10 @@ the comparison. What differs on purpose, and is not to be changed to match it:
   File", "No file chosen"). The browser draws that control, in the phone's
   language and not the TV's. Putting the app's words on it needs a script to
   say which file was chosen, and the page's CSP forbids scripts.
+- **Receive from phone, the phone's page: the paste box is 16 px monospace.**
+  The desktop's certificate box, which it copies in everything else, uses 12 px.
+  A browser on an iPhone zooms the page in on a field under 16 px when it takes
+  the focus, so the page uses 16 and iPhones do not zoom in.
 
 ### Receive from phone
 
@@ -432,11 +436,11 @@ open the address in Chrome or Safari instead.
 - It does not work while the phone's VPN is on, over mobile data, or on a guest
   network that keeps its devices apart: if the page does not open, turn off the
   phone's VPN (the card does not say so; its hint is short on purpose).
-- The text box on the phone's page is the desktop's certificate box: 12 px
-  monospace. A browser on an iPhone zooms in on a field smaller than 16 px when
-  it takes the focus, and does here; the page's viewport is not locked
-  (`maximum-scale`) to stop that, because the lock would take pinch-zoom from
-  Chrome on Android.
+- The text box on the phone's page is the desktop's certificate box, in 16 px
+  monospace and not the desktop's 12: a browser on an iPhone zooms in on any
+  field smaller than 16 px when it takes the focus. The page's viewport is not
+  locked (`maximum-scale`) to stop that instead, because the lock would take
+  pinch-zoom from Chrome on Android.
 
 ## Build and signing
 
