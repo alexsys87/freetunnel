@@ -12,6 +12,8 @@ import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
 import android.content.res.Configuration;
+import android.animation.ArgbEvaluator;
+import android.animation.ValueAnimator;
 import android.database.Cursor;
 import android.provider.OpenableColumns;
 import android.provider.Settings;
@@ -40,10 +42,13 @@ import android.text.InputFilter;
 import android.text.InputType;
 import android.text.TextWatcher;
 import android.text.Layout;
+import android.text.StaticLayout;
+import android.text.TextPaint;
 import android.text.TextUtils;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.KeyEvent;
+import android.view.TouchDelegate;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewConfiguration;
@@ -62,7 +67,6 @@ import android.widget.RelativeLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import androidx.core.content.ContextCompat;
-import android.text.method.PasswordTransformationMethod;
 import android.view.WindowManager;
 
 import org.json.JSONArray;
@@ -98,6 +102,7 @@ public final class MainActivity extends Activity {
     private static final int PICK_CONFIG = 21;
     private static final int PREPARE_VPN = 22;
     private static final int EXPORT_CONFIG = 24;
+    private static final int PICK_CERTIFICATE = 25;
     private static final String PREFS = "freetunnel";
     private String[] tabNames;
     // The Home tab is the logo, in its own greys: the app never tints it.
@@ -127,6 +132,14 @@ public final class MainActivity extends Activity {
     private LinearLayout pageRoot;
     private FrameLayout overlayLayer;
     private FrameLayout toastLayer;
+    // Popups and confirmations, above the toast: the desktop's toast is under its popups and its window-level confirmation, and over its cards.
+    private FrameLayout popupLayer;
+    // What a TV may crop at the top and the bottom, which the host is padded by (and Home's foot sits inside of: see home()).
+    private int overscanY;
+    // The status and navigation bars while a card or a confirmation dims the page: the dimmed colour, and where they are now.
+    private boolean barsDimmed;
+    private int barColor;
+    private ValueAnimator barAnimator;
     // render() rebuilds every view. On a remote, the focused control's key and the
     // page's scroll position are carried over the rebuild (see restoreFocus).
     private ScrollView pageScroll;
@@ -232,7 +245,7 @@ public final class MainActivity extends Activity {
         // Only where nothing has the focus: a field that was being typed in keeps it.
         host.getViewTreeObserver().addOnTouchModeChangeListener(inTouchMode -> {
             if (inTouchMode || isDestroyed() || getCurrentFocus() != null) return;
-            Overlay top = topOverlay();
+            Overlay top = topModalOverlay();
             if (top != null) { focusOverlay(top); return; }
             View target = focusTarget(null);
             if (target != null) target.requestFocus();
@@ -260,6 +273,7 @@ public final class MainActivity extends Activity {
     @Override protected void onResume() {
         super.onResume();
         resumed = true;
+        FreeTunnelVpnService.setAppVisible(true);
         FreeTunnelVpnService.clearStaleAlert(this);
         if (!receiverRegistered) {
             IntentFilter filter = new IntentFilter(FreeTunnelVpnService.ACTION_STATE);
@@ -278,6 +292,7 @@ public final class MainActivity extends Activity {
 
     @Override protected void onPause() {
         resumed = false;
+        FreeTunnelVpnService.setAppVisible(false);
         host.removeCallbacks(homeTicker);
         host.removeCallbacks(logTicker);
         // Nothing animates while the app is not shown, and the speeds are of the time it is.
@@ -361,6 +376,10 @@ public final class MainActivity extends Activity {
     // overlays and the toast are in layers above it that render() leaves alone.
     private void buildHost() {
         host = new FrameLayout(this);
+        // The overlays' layers reach the window's edges past this padding, and a layer is only drawn as far as its parent's padding by
+        // default: the backdrop covers all of the window as the desktop's does, and no lighter frame is left round it where a TV's
+        // overscan margin or an edge-to-edge window's bars are.
+        host.setClipToPadding(false);
         pageRoot = new LinearLayout(this);
         pageRoot.setOrientation(LinearLayout.VERTICAL);
         host.addView(pageRoot, new FrameLayout.LayoutParams(-1, -1));
@@ -368,12 +387,15 @@ public final class MainActivity extends Activity {
         host.addView(overlayLayer, new FrameLayout.LayoutParams(-1, -1));
         toastLayer = new FrameLayout(this);
         host.addView(toastLayer, new FrameLayout.LayoutParams(-1, -1));
+        popupLayer = new FrameLayout(this);
+        host.addView(popupLayer, new FrameLayout.LayoutParams(-1, -1));
         // A TV may crop the edges of the picture (overscan), so content keeps clear of them.
         // Set here as well as with the bars: before Android 15 the window is not edge to
         // edge, the decor takes the insets, and this listener may never run. On the TV
         // emulator (Android 14) it did not.
         int sides = isTv() ? dp(48) : 0;
         int ends = isTv() ? dp(27) : 0;
+        overscanY = ends;
         setHostPadding(sides, ends, sides, ends);
         host.setOnApplyWindowInsetsListener((view, insets) -> {
             if (Build.VERSION.SDK_INT >= 30) {
@@ -389,13 +411,15 @@ public final class MainActivity extends Activity {
         setContentView(host);
     }
     // The padding that keeps the page, the popups and the toast clear of the edges. An
-    // overlay's backdrop still covers all of the window, so the layer is as large as it
+    // overlay's backdrop still covers all of the window, so its layer is as large as it
     // and each overlay places its panel inside the padding.
     private void setHostPadding(int left, int top, int right, int bottom) {
         host.setPadding(left, top, right, bottom);
-        FrameLayout.LayoutParams p = (FrameLayout.LayoutParams) overlayLayer.getLayoutParams();
-        p.setMargins(-left, -top, -right, -bottom);
-        overlayLayer.setLayoutParams(p);
+        for (FrameLayout layer : new FrameLayout[] {overlayLayer, popupLayer}) {
+            FrameLayout.LayoutParams p = (FrameLayout.LayoutParams) layer.getLayoutParams();
+            p.setMargins(-left, -top, -right, -bottom);
+            layer.setLayoutParams(p);
+        }
         for (Overlay overlay : overlays) overlay.layer.setSafe(left, top, right, bottom);
     }
 
@@ -421,11 +445,14 @@ public final class MainActivity extends Activity {
         dark = Theme.isDark(themeMode, nightMode());
         ui.update(dark);
         Theme t = t();
-        getWindow().setStatusBarColor(t.bg); getWindow().setNavigationBarColor(t.bg);
+        if (barAnimator != null) barAnimator.cancel();
+        setBarColor(barsDimmed ? Theme.over(t.backdrop, t.bg) : t.bg);
         getWindow().getDecorView().setSystemUiVisibility(dark ? 0 : View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR | View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR);
         // The window itself too, so that nothing of the system theme's dark shows before a frame, or at an edge.
         getWindow().setBackgroundDrawable(new ColorDrawable(t.bg));
         host.setBackgroundColor(t.bg);
+        // What was suggested under the application field is for a field that is going.
+        appSuggestions.close();
         // A field that has the focus loses it to this, and has not been left (see closeProfileName).
         rendering = true;
         try { pageRoot.removeAllViews(); } finally { rendering = false; }
@@ -456,9 +483,12 @@ public final class MainActivity extends Activity {
             ScrollView scroll = new ScrollView(this); scroll.setFillViewport(true); scroll.setClipToPadding(false);
             scroll.setVerticalScrollBarEnabled(false);
             // The desktop's pages fill the width with 18 on each side and have no widest: at a TV's width a config's row goes from edge
-            // to edge with its icons at the far right (the TV's own overscan is the host's padding). Settings has 6 above and 14 below.
+            // to edge with its icons at the far right (the TV's own overscan is the host's padding).
             int side = dp(18);
-            LinearLayout body = column(); body.setPadding(side, dp(page == 3 ? 6 : 8), side, dp(page == 3 ? 14 : 26)); scroll.addView(body);
+            // Settings has 6 above and 14 below; Split 10 above (its first spacer) and 16 below (its last); Configs 8 and 26.
+            LinearLayout body = column();
+            body.setPadding(side, dp(page == 3 ? 6 : page == 2 ? 10 : 8), side, dp(page == 3 ? 14 : page == 2 ? 16 : 26));
+            scroll.addView(body);
             // Links, toggles and dropdown values end at the margin, and a toggle's row fills a little beyond it with the focus.
             body.setClipToPadding(false);
             pageRoot.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
@@ -501,7 +531,7 @@ public final class MainActivity extends Activity {
                 restorePending = false;
                 if (decor.isInTouchMode()) return true;
                 if (scroll != null) scroll.scrollTo(0, scrollY);
-                if (!overlays.isEmpty()) return true;
+                if (anyModalOverlay()) return true;
                 View target = focusTarget(key);
                 if (target != null) target.requestFocus();
                 return true;
@@ -514,13 +544,13 @@ public final class MainActivity extends Activity {
     // the focus for (focusAfterRender), and null for any other render.
     private void refocusFields(String asked) {
         if ((page != 2 && page != 3) || !getWindow().getDecorView().isInTouchMode()) return;
-        String wanted = page == 2 ? (profileNameOpen ? "profile:name" : "domains:input".equals(asked) ? asked : null)
+        String wanted = page == 2 ? (profileNameOpen ? "profile:name" : "domains:input".equals(asked) || "apps:input".equals(asked) ? asked : null)
                 : "routes:input".equals(asked) ? asked : null;
         if (wanted == null) return;
         View field = pageRoot.findViewWithTag(wanted);
         if (!(field instanceof EditText)) return;
         field.post(() -> {
-            if (!field.isAttachedToWindow() || !overlays.isEmpty() || field.getVisibility() != View.VISIBLE) return;
+            if (!field.isAttachedToWindow() || anyModalOverlay() || field.getVisibility() != View.VISIBLE) return;
             field.requestFocus();
             showKeyboard(field);
         });
@@ -595,7 +625,8 @@ public final class MainActivity extends Activity {
 
     // Overlays: a card (the editor, a picker), a confirmation, a popup (a dropdown, a menu).
     //
-    // showOverlay is the only code that adds to overlayLayer, and every overlay in the
+    // showOverlay is the only code that adds to overlayLayer (cards) and popupLayer (popups and
+    // confirmations, which are above the toast), and every overlay in the
     // app goes through it (tests/test_android_tv_dialogs.sh). What it gives each:
     //  - a backdrop, black at 0.45 under a card or a confirmation and clear under a popup,
     //    which swallows touches, and a tap on which is that overlay's Escape;
@@ -603,6 +634,11 @@ public final class MainActivity extends Activity {
     //    popup, which has a shadow), fading in over 130 ms as it slides down 8;
     //  - a place in a stack. While anything is open the page behind takes no focus and is
     //    hidden from accessibility, and so does every overlay below the top one;
+    //  - while a card or a confirmation is open, the status and navigation bars dim with the page, as
+    //    the backdrop does where a window is edge to edge;
+    //  - a passive overlay, the suggestions under a field being typed in, is none of that: it has no
+    //    backdrop that takes a touch, the page behind keeps the focus and what it hears, and the field
+    //    keeps the keyboard; only Back and Escape, which close it first, treat it as an overlay at all;
     //  - a default focus, and the focus back on what opened it, by key, when it closes;
     //  - a life that render() does not end: a popup is put back under its anchor, by key,
     //    after a render, and closes if the anchor is gone;
@@ -618,6 +654,8 @@ public final class MainActivity extends Activity {
         final Runnable onClose;
         final String openerKey;
         OverlayLayer layer;
+        // Not modal: see showOverlay.
+        boolean passive;
         // What Back, Escape and a tap on the backdrop do: close it, unless it asks first.
         Runnable escape;
         // The key of what takes the focus when it opens, else its first control.
@@ -632,6 +670,11 @@ public final class MainActivity extends Activity {
     }
 
     private Overlay topOverlay() { return overlays.isEmpty() ? null : overlays.get(overlays.size() - 1); }
+    // The top one that takes the window: not the suggestions under a field, which have nothing to give the focus to.
+    private Overlay topModalOverlay() {
+        for (int i = overlays.size() - 1; i >= 0; i--) if (!overlays.get(i).passive) return overlays.get(i);
+        return null;
+    }
     private Overlay overlay(String name) {
         for (Overlay open : overlays) if (open.name.equals(name)) return open;
         return null;
@@ -641,6 +684,9 @@ public final class MainActivity extends Activity {
     // content goes inside the card, which is as wide as it holds (a card's width: width()).
     // A second overlay of the same name is not opened: the one that is up is returned.
     private Overlay showOverlay(String name, OverlayLayer.Kind kind, View content, String anchorKey, Runnable onClose) {
+        return showOverlay(name, kind, content, anchorKey, onClose, false);
+    }
+    private Overlay showOverlay(String name, OverlayLayer.Kind kind, View content, String anchorKey, Runnable onClose, boolean passive) {
         Overlay open = overlay(name);
         if (open != null) return open;
         Theme t = t();
@@ -649,6 +695,7 @@ public final class MainActivity extends Activity {
         // A question asked over a form puts the keyboard away: it would cover it.
         if (kind == OverlayLayer.Kind.CONFIRM && focused instanceof EditText) hideKeyboard();
         final Overlay overlay = new Overlay(name, kind, anchorKey, onClose, opener);
+        overlay.passive = passive;
         FrameLayout panel = new FrameLayout(this);
         panel.setBackground(ui.outlined(t.bg, t.border, kind == OverlayLayer.Kind.CARD ? 14 : kind == OverlayLayer.Kind.CONFIRM ? 12 : 10));
         // A touch on the card is the card's: it never reaches the backdrop, whose tap is Escape.
@@ -656,31 +703,35 @@ public final class MainActivity extends Activity {
         panel.addView(content, new FrameLayout.LayoutParams(-1, -2));
         View backdrop = new View(this);
         backdrop.setBackgroundColor(kind == OverlayLayer.Kind.POPUP ? Color.TRANSPARENT : t.backdrop);
-        backdrop.setOnClickListener(v -> escape(overlay));
+        if (!passive) backdrop.setOnClickListener(v -> escape(overlay));
         backdrop.setFocusable(false);
         OverlayLayer layer = new OverlayLayer(this, kind, backdrop, panel);
         layer.setTag("overlay:" + name);
         layer.setSafe(host.getPaddingLeft(), host.getPaddingTop(), host.getPaddingRight(), host.getPaddingBottom());
         if (anchorKey != null) layer.setAnchor(l -> anchorRect(anchorKey, l), OverlayLayer.UNDER_RIGHT_EDGE, dp(4));
-        if (kind == OverlayLayer.Kind.POPUP) {
-            panel.setElevation(dp(8));
-            if (Build.VERSION.SDK_INT >= 28) {
-                panel.setOutlineAmbientShadowColor(t.popupShadow);
-                panel.setOutlineSpotShadowColor(t.popupShadow);
-            }
-        }
+        // The desktop's popups cast a shadow (MultiEffect, black at 0.5 or 0.2): the layer draws one that shows, which the platform's
+        // elevation shadow, at about a fifth of what it is told, does not.
+        if (kind == OverlayLayer.Kind.POPUP && !passive) layer.setShadow(t.popupShadow);
         overlay.layer = layer;
         overlays.add(overlay);
-        overlayLayer.addView(layer, new FrameLayout.LayoutParams(-1, -1));
+        FrameLayout parent = kind == OverlayLayer.Kind.CARD ? overlayLayer : popupLayer;
+        parent.addView(layer, new FrameLayout.LayoutParams(-1, -1));
         updateOverlayState();
         backdrop.setAlpha(0f);
         panel.setAlpha(0f);
         panel.setTranslationY(-dp(8));
         backdrop.animate().alpha(1f).setDuration(130).start();
         panel.animate().alpha(1f).translationY(0f).setDuration(130).setInterpolator(new DecelerateInterpolator(1.5f)).start();
-        // After the caller has said which control comes first. A phone in touch mode has no focus to give.
-        host.post(() -> {
-            if (!overlay.closed && topOverlay() == overlay && !getWindow().getDecorView().isInTouchMode()) focusOverlay(overlay);
+        View shadow = layer.shadow();
+        if (shadow != null) {
+            shadow.setAlpha(0f);
+            shadow.setTranslationY(-dp(8));
+            shadow.animate().alpha(1f).translationY(0f).setDuration(130).setInterpolator(new DecelerateInterpolator(1.5f)).start();
+        }
+        // After the caller has said which control comes first. A phone in touch mode has no focus to give. A passive one gives none: the
+        // field it is the suggestions of keeps it.
+        if (!passive) host.post(() -> {
+            if (!overlay.closed && topModalOverlay() == overlay && !getWindow().getDecorView().isInTouchMode()) focusOverlay(overlay);
         });
         return overlay;
     }
@@ -710,12 +761,15 @@ public final class MainActivity extends Activity {
         // Before the focus goes back: what it does may be to show the control that is to have it, such as the empty Configs page's
         // "Add a config", which is hidden while its own menu is open, and a view that is not shown takes no focus.
         if (overlay.onClose != null) overlay.onClose.run();
-        returnFocus(overlay);
-        if (typing) hideKeyboard();
+        // A passive overlay never took it, so there is nothing to give back (and the keyboard stays with the field).
+        if (!overlay.passive) returnFocus(overlay);
+        if (typing && !overlay.passive) hideKeyboard();
         // The fade ends in taking the view away. Not left to the animation alone: with the activity stopped, as
         // Receive from phone's card is when the app is left, it may never run, and the card would be there,
         // invisible and in the way, when the app comes back.
-        Runnable remove = () -> overlayLayer.removeView(overlay.layer);
+        Runnable remove = () -> {
+            if (overlay.layer.getParent() instanceof ViewGroup) ((ViewGroup) overlay.layer.getParent()).removeView(overlay.layer);
+        };
         overlay.layer.animate().alpha(0f).setDuration(130).withEndAction(remove).start();
         host.postDelayed(remove, 400);
     }
@@ -739,7 +793,7 @@ public final class MainActivity extends Activity {
         if (getWindow().getDecorView().isInTouchMode()) return;
         View target = closed.openerKey == null ? null : host.findViewWithTag(closed.openerKey);
         if (target != null && target.requestFocus()) return;
-        Overlay top = topOverlay();
+        Overlay top = topModalOverlay();
         if (top != null) { focusOverlay(top); return; }
         // Gone, the nearest one to it; or there, and refusing, the page's own: the same key would only find the same control.
         View next = focusTarget(target == null ? closed.openerKey : null);
@@ -747,21 +801,57 @@ public final class MainActivity extends Activity {
     }
 
     // The page behind an overlay takes no focus and no accessibility, nor does an overlay
-    // under another: the top one is the only part of the window a remote can reach.
+    // under another: the top one is the only part of the window a remote can reach. A passive overlay
+    // (the suggestions under a field) is not one that does this: it is not modal.
     private void updateOverlayState() {
-        boolean any = !overlays.isEmpty();
+        Overlay topModal = null;
+        boolean dimsBars = false;
+        for (Overlay open : overlays) {
+            if (open.passive) continue;
+            topModal = open;
+            if (open.kind != OverlayLayer.Kind.POPUP) dimsBars = true;
+        }
+        boolean any = topModal != null;
         if (any != pageBlocked) {
             pageBlocked = any;
             pageRoot.setDescendantFocusability(any ? ViewGroup.FOCUS_BLOCK_DESCENDANTS : ViewGroup.FOCUS_BEFORE_DESCENDANTS);
             pageRoot.setImportantForAccessibility(any ? View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS : View.IMPORTANT_FOR_ACCESSIBILITY_AUTO);
         }
-        for (int i = 0; i < overlays.size(); i++) {
-            boolean topmost = i == overlays.size() - 1;
-            OverlayLayer layer = overlays.get(i).layer;
+        for (Overlay open : overlays) {
+            if (open.passive) continue;
+            boolean topmost = open == topModal;
+            OverlayLayer layer = open.layer;
             layer.setDescendantFocusability(topmost ? ViewGroup.FOCUS_BEFORE_DESCENDANTS : ViewGroup.FOCUS_BLOCK_DESCENDANTS);
             layer.setImportantForAccessibility(topmost ? View.IMPORTANT_FOR_ACCESSIBILITY_AUTO : View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
         }
+        dimBars(dimsBars);
         placeToast();
+    }
+
+    // Whether anything is open that takes the window: not the suggestions under a field.
+    private boolean anyModalOverlay() {
+        for (Overlay open : overlays) if (!open.passive) return true;
+        return false;
+    }
+
+    // The status and navigation bars are the system's, outside the window before Android 15 and over it from then on: where they are
+    // outside, the backdrop cannot dim them, and they stayed bright round a dimmed page. They take the colour the backdrop gives the page
+    // over the same 130 ms. Where the window is edge to edge the layers cover them already, and setting a colour is no more than ignored.
+    private void dimBars(boolean dim) {
+        if (dim == barsDimmed) return;
+        barsDimmed = dim;
+        Theme t = t();
+        int to = dim ? Theme.over(t.backdrop, t.bg) : t.bg;
+        if (barAnimator != null) barAnimator.cancel();
+        barAnimator = ValueAnimator.ofObject(new ArgbEvaluator(), barColor == 0 ? t.bg : barColor, to);
+        barAnimator.setDuration(130);
+        barAnimator.addUpdateListener(a -> setBarColor((Integer) a.getAnimatedValue()));
+        barAnimator.start();
+    }
+    private void setBarColor(int color) {
+        barColor = color;
+        getWindow().setStatusBarColor(color);
+        getWindow().setNavigationBarColor(color);
     }
 
     // The control a popup belongs to, in the layer's coordinates, or null where it is gone.
@@ -772,7 +862,10 @@ public final class MainActivity extends Activity {
         int[] in = new int[2];
         anchor.getLocationInWindow(at);
         layer.getLocationInWindow(in);
-        return new Rect(at[0] - in[0], at[1] - in[1], at[0] - in[0] + anchor.getWidth(), at[1] - in[1] + anchor.getHeight());
+        Rect rect = new Rect(at[0] - in[0], at[1] - in[1], at[0] - in[0] + anchor.getWidth(), at[1] - in[1] + anchor.getHeight());
+        // A dropdown's value ends where its content does, at the page's margin: its own padding, past that, has no fill to hang a popup from.
+        if (anchor instanceof Ui.DropdownValue) rect.right -= anchor.getPaddingRight();
+        return rect;
     }
     // After render(): the popups go back under their controls, or close if a control is gone.
     private void reanchorOverlays() {
@@ -791,6 +884,10 @@ public final class MainActivity extends Activity {
     // asked; the alternate is as much a yes, and waits too. Confirmations queue: one asked
     // for while another is up waits its turn, and never takes its place. Cancel has the focus
     // first. Keys: confirm:message, confirm:cancel, confirm:alt and confirm:ok.
+    //
+    // The card is as wide as what it holds, as the desktop's is (ConfirmDialog.qml): the wider of the buttons' row and
+    // the message's widest line once it wraps, each with 14 at the sides, and no wider than the window less 24. The buttons, which
+    // cannot wrap, give up their padding and minimum width, and elide, when the row is wider than that.
     private static final class ConfirmRequest {
         final CharSequence message;
         final CharSequence confirm;
@@ -821,54 +918,100 @@ public final class MainActivity extends Activity {
         if (request == null) return;
         confirmShowing = true;
         Theme t = t();
+        // Its size, as ConfirmDialog.qml works it out: the window is what the card is no wider than less 24; the message wraps within the
+        // window less 84 to find its widest line; and the buttons, 8 apart, are label + 26 wide and 76 at least, or, where that row
+        // would not fit in the window less 52, label + 16 and no more than their share of it.
+        int window = pageWidthPx();
+        CharSequence[] labels = request.alternate == null
+                ? new CharSequence[] {getString(R.string.text_cancel), request.confirm}
+                : new CharSequence[] {getString(R.string.text_cancel), request.alternate, request.confirm};
+        int count = labels.length;
+        int[] wanted = new int[count];
+        int fullRow = dp(8) * (count - 1);
+        for (int i = 0; i < count; i++) {
+            wanted[i] = textWidth(labels[i].toString(), 14);
+            fullRow += Math.max(dp(76), wanted[i] + dp(26));
+        }
+        int buttonRoom = window - dp(24) - dp(28);
+        boolean compact = fullRow > buttonRoom;
+        int[] widths = new int[count];
+        int row = dp(8) * (count - 1);
+        for (int i = 0; i < count; i++) {
+            widths[i] = compact ? Math.min(wanted[i] + dp(16), (buttonRoom - dp(8) * (count - 1)) / count) : Math.max(dp(76), wanted[i] + dp(26));
+            row += widths[i];
+        }
+        int cardWidth = Math.min(window - dp(24), Math.max(row + dp(28), widestLine(request.message, 14, window - dp(84)) + dp(28)));
+
         LinearLayout box = column();
-        box.setPadding(dp(14), dp(14), dp(14), dp(14));
+        box.setPadding(dp(14), dp(12), dp(14), dp(12));
         CappedScrollView scroll = new CappedScrollView(this);
         scroll.setMaxHeight(Math.max(dp(80), getResources().getDisplayMetrics().heightPixels - dp(160)));
         TextView message = ui.label(request.message, 14, t.text);
         message.setGravity(Gravity.CENTER);
-        // Wraps anywhere: a long host name has no space to break at.
+        // Wraps anywhere: a long host name has no space to break at. Lines are broken as the width of the card was worked out from.
         message.setHyphenationFrequency(Layout.HYPHENATION_FREQUENCY_NONE);
+        message.setBreakStrategy(Layout.BREAK_STRATEGY_SIMPLE);
         message.setTag("confirm:message");
         scroll.addView(message, new FrameLayout.LayoutParams(-1, -2));
         box.addView(scroll, lp(-1, -2));
-        gap(box, 14);
         LinearLayout buttons = row();
         buttons.setGravity(Gravity.CENTER);
         final Overlay[] shown = new Overlay[1];
-        Button cancel = ui.button(getString(R.string.text_cancel), Ui.Kind.NEUTRAL, 76, "confirm:cancel");
+        int minimum = compact ? 0 : 76;
+        Button cancel = ui.button(labels[0], Ui.Kind.NEUTRAL, minimum, "confirm:cancel");
         cancel.setOnClickListener(v -> escape(shown[0]));
-        buttons.addView(cancel, lp(-2, 32));
+        buttons.addView(cancel, new LinearLayout.LayoutParams(widths[0], dp(32)));
         final long armedAt = SystemClock.uptimeMillis() + CONFIRM_ARMED_MS;
         if (request.alternate != null) {
             ui.gapH(buttons, 8);
-            Button alternate = ui.button(request.alternate, Ui.Kind.NEUTRAL, 76, "confirm:alt");
+            Button alternate = ui.button(request.alternate, Ui.Kind.NEUTRAL, minimum, "confirm:alt");
             alternate.setOnClickListener(v -> {
                 if (SystemClock.uptimeMillis() < armedAt) return;
                 closeOverlay(shown[0]);
                 if (request.onAlternate != null) request.onAlternate.run();
             });
-            buttons.addView(alternate, lp(-2, 32));
+            buttons.addView(alternate, new LinearLayout.LayoutParams(widths[1], dp(32)));
         }
         ui.gapH(buttons, 8);
-        Button ok = ui.button(request.confirm, Ui.Kind.DESTRUCTIVE, 76, "confirm:ok");
+        Button ok = ui.button(request.confirm, Ui.Kind.DESTRUCTIVE, minimum, "confirm:ok");
         ok.setOnClickListener(v -> {
             if (SystemClock.uptimeMillis() < armedAt) return;
             closeOverlay(shown[0]);
             if (request.onConfirm != null) request.onConfirm.run();
         });
-        buttons.addView(ok, lp(-2, 32));
-        box.addView(buttons, lp(-1, -2));
+        buttons.addView(ok, new LinearLayout.LayoutParams(widths[count - 1], dp(32)));
+        if (compact) for (int i = 0; i < buttons.getChildCount(); i++) {
+            View child = buttons.getChildAt(i);
+            if (child instanceof Button) child.setPadding(dp(4), 0, dp(4), 0);
+        }
+        // Every child of the box fills its width: a spacer view between them is 1 wide and not a filler, and a column that has one
+        // takes the width of that, so that the card, the message and the buttons came out a few pixels across.
+        LinearLayout.LayoutParams buttonsLp = lp(-1, -2);
+        buttonsLp.topMargin = dp(14);
+        box.addView(buttons, buttonsLp);
         Overlay overlay = showOverlay("confirm", OverlayLayer.Kind.CONFIRM, box, null, () -> {
             confirmShowing = false;
             host.post(this::nextConfirm);
         });
         shown[0] = overlay;
+        overlay.width(cardWidth);
         overlay.defaultKey = "confirm:cancel";
         overlay.escape = () -> {
             closeOverlay(overlay);
             if (request.onCancel != null) request.onCancel.run();
         };
+    }
+    // The widest line of the text once it is wrapped to this width, as the desktop sizes a confirmation by: not the text on one line,
+    // and not the width it is wrapped to, which would leave wide empty sides once a long question wrapped.
+    private int widestLine(CharSequence text, float sp, int width) {
+        if (text.length() == 0) return 0;
+        TextPaint paint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+        paint.setTextSize(TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, sp, getResources().getDisplayMetrics()));
+        StaticLayout lines = StaticLayout.Builder.obtain(text, 0, text.length(), paint, Math.max(1, width))
+                .setBreakStrategy(Layout.BREAK_STRATEGY_SIMPLE).setHyphenationFrequency(Layout.HYPHENATION_FREQUENCY_NONE).build();
+        float widest = 0;
+        for (int i = 0; i < lines.getLineCount(); i++) widest = Math.max(widest, lines.getLineWidth(i));
+        return (int) Math.ceil(widest);
     }
 
     // SelectPopup: the choices of a dropdown, under the right edge of the control they
@@ -899,7 +1042,7 @@ public final class MainActivity extends Activity {
             name.setSingleLine(true);
             name.setEllipsize(TextUtils.TruncateAt.END);
             rowView.addView(name, new LinearLayout.LayoutParams(0, -1, 1));
-            if (i == current) rowView.addView(ui.label("✓", 14, t.accent), lp(-2, -1));
+            if (i == current) rowView.addView(ui.glyph(R.drawable.ic_check, t.accent), lp(-2, -2));
             ui.focus(rowView, "select:" + i, Ui.Look.MENU_ROW).setOnClickListener(v -> {
                 closeOverlay(shown[0]);
                 pick.picked(index);
@@ -909,7 +1052,7 @@ public final class MainActivity extends Activity {
         scroll.addView(list, new FrameLayout.LayoutParams(-1, -2));
         Overlay overlay = showOverlay("select", OverlayLayer.Kind.POPUP, scroll, anchorKey, null);
         shown[0] = overlay;
-        overlay.width(Math.max(dp(140), widest + dp(56) + dp(12)));
+        overlay.width(Math.max(dp(140), widest + dp(56)));
         overlay.defaultKey = "select:" + Math.max(0, current);
         return overlay;
     }
@@ -944,7 +1087,7 @@ public final class MainActivity extends Activity {
                 FrameLayout slot = new FrameLayout(this);
                 View line = ui.sep();
                 FrameLayout.LayoutParams lineLp = new FrameLayout.LayoutParams(-1, Math.max(1, dp(1)), Gravity.CENTER_VERTICAL);
-                lineLp.setMargins(dp(3), 0, dp(3), 0);
+                lineLp.setMargins(dp(8), 0, dp(8), 0);
                 slot.addView(line, lineLp);
                 list.addView(slot, lp(-1, 11));
                 continue;
@@ -968,7 +1111,7 @@ public final class MainActivity extends Activity {
         Overlay overlay = showOverlay(name, OverlayLayer.Kind.POPUP, list, anchorKey, onClose);
         shown[0] = overlay;
         if (anchorKey != null) overlay.layer.setAnchor(l -> anchorRect(anchorKey, l), OverlayLayer.UNDER_CENTRE_OF_WINDOW, dp(4));
-        overlay.width(Math.max(dp(140), widest + dp(40) + dp(10)));
+        overlay.width(Math.max(dp(140), widest + dp(40)));
         overlay.defaultKey = first;
         return overlay;
     }
@@ -1017,7 +1160,7 @@ public final class MainActivity extends Activity {
         toastHandler.postDelayed(toastHide, Math.min(10_000, Math.max(3_200, 55L * text.length())));
     }
     private FrameLayout.LayoutParams toastParams() {
-        boolean top = !overlays.isEmpty();
+        boolean top = anyModalOverlay();
         FrameLayout.LayoutParams p = new FrameLayout.LayoutParams(-2, -2, (top ? Gravity.TOP : Gravity.BOTTOM) | Gravity.CENTER_HORIZONTAL);
         p.topMargin = dp(48);
         p.bottomMargin = dp(26);
@@ -1156,11 +1299,13 @@ public final class MainActivity extends Activity {
         TextView[] up = new TextView[1];
         LinearLayout speeds = row();
         speeds.setGravity(Gravity.CENTER);
-        speeds.addView(ui.speedTile("↓", t.success, down), lp(116, 44));
+        speeds.addView(ui.speedTile(R.drawable.ic_arrow_down, t.success, down), lp(116, 44));
         ui.gapH(speeds, 12);
-        speeds.addView(ui.speedTile("↑", t.textDim, up), lp(116, 44));
+        speeds.addView(ui.speedTile(R.drawable.ic_arrow_up, t.textDim, up), lp(116, 44));
         FrameLayout.LayoutParams speedsLp = new FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
-        speedsLp.bottomMargin = dp(44);
+        // 44 above the window's bottom, as the desktop's are: on a TV the host is already padded by the overscan, which the desktop's
+        // 44 lies outside of, so that much less here. On a phone the window's bottom is the top of the navigation bar, and 44 is right.
+        speedsLp.bottomMargin = dp(44) - overscanY;
         stage.addView(speeds, speedsLp);
         // The speeds are of the time Home has been shown: a start is taken when it is shown, and the first tick after it gives a speed.
         if (vpnState != 2) speedMeter.reset();
@@ -1175,7 +1320,7 @@ public final class MainActivity extends Activity {
         FrameLayout area = new FrameLayout(this);
         area.setClipChildren(false);
         FrameLayout.LayoutParams areaLp = new FrameLayout.LayoutParams(-1, -1);
-        areaLp.bottomMargin = dp(44 + 44 + 22);
+        areaLp.bottomMargin = dp(44 + 44 + 22) - overscanY;
         stage.addView(area, areaLp);
         LinearLayout column = column();
         column.setGravity(Gravity.CENTER_HORIZONTAL);
@@ -1254,11 +1399,19 @@ public final class MainActivity extends Activity {
         selection.setGravity(Gravity.CENTER);
         boolean any = !configs.isEmpty();
         String shown = any ? configs.get(Math.max(0, Math.min(activeIndex, configs.size() - 1))).name : getString(R.string.text_add_configuration);
-        // The room the name has: the page less its 18 each side, the arrow and its 6, the + and its 6, and the selector's own padding.
-        int room = pageWidthPx() - dp(36) - (any ? textWidth("▾", 15) + dp(6) + dp(6) + dp(22) : 0) - dp(12);
+        // The room the name has: the page less its 18 each side, the arrow and its 6, the + and its 6.
+        int room = pageWidthPx() - dp(36) - (any ? dp(Ui.DROPDOWN_ARROW_DP) + dp(Ui.SELECTOR_GAP_DP) + dp(Ui.SELECTOR_GAP_DP) + dp(22) : 0);
         LinearLayout selector = ui.selector(shown, any, room, "home:config");
         selector.setOnClickListener(v -> { if (configs.isEmpty()) addConfigOnConfigsPage(); else homePicker(); });
         selection.addView(selector, lp(-2, -2));
+        // The desktop's selector is 24 high, which is little for a finger: it is hit from a little round it, by the column it is in.
+        column.addOnLayoutChangeListener((v, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> {
+            Rect hit = new Rect();
+            selector.getDrawingRect(hit);
+            column.offsetDescendantRectToMyCoords(selector, hit);
+            hit.inset(-dp(8), -dp(10));
+            column.setTouchDelegate(new TouchDelegate(hit, selector));
+        });
         if (any) {
             FrameLayout add = ui.smallIconButton(R.drawable.ic_add_home, 14, getString(R.string.text_add_configuration), "home:add");
             add.setOnClickListener(v -> addConfigOnConfigsPage());
@@ -1269,6 +1422,8 @@ public final class MainActivity extends Activity {
         LinearLayout.LayoutParams selectionLp = lp(-2, -2);
         selectionLp.gravity = Gravity.CENTER_HORIZONTAL;
         column.addView(selection, selectionLp);
+        // What the config dropdown is under and centred on, + and all, as the desktop's is (cfgSel).
+        selection.setTag("home:selection");
         homeSelectorRow = selection;
     }
 
@@ -1348,7 +1503,8 @@ public final class MainActivity extends Activity {
         Theme t = t();
         int selected = Math.max(0, Math.min(activeIndex, configs.size() - 1));
         LinearLayout frame = column();
-        frame.setPadding(dp(5), dp(5), dp(5), dp(5));
+        // 5 above the rows and 7 below them: the card is 12 more than its list, and the list is 5 in (HomePage.qml).
+        frame.setPadding(dp(5), dp(5), dp(5), dp(7));
         CappedScrollView scroll = new CappedScrollView(this);
         scroll.setMaxHeight(dp(3 * 40));
         LinearLayout list = column();
@@ -1376,7 +1532,9 @@ public final class MainActivity extends Activity {
         Overlay overlay = showOverlay("homepicker", OverlayLayer.Kind.POPUP, frame, "home:config", null);
         homePickerCount = configs.size();
         shown[0] = overlay;
-        overlay.layer.setAnchor(l -> anchorRect("home:config", l), OverlayLayer.UNDER_CENTRE_OF_CONTROL, dp(6));
+        // Under the whole selector row and centred on it, the + included, as the desktop's is; its key, home:config, is what the overlay
+        // follows across a render and returns the focus to.
+        overlay.layer.setAnchor(l -> anchorRect("home:selection", l), OverlayLayer.UNDER_CENTRE_OF_CONTROL, dp(6));
         overlay.width(Math.max(dp(140), widest + dp(30)));
         overlay.defaultKey = "home:pick:" + selected;
     }
@@ -1479,7 +1637,9 @@ public final class MainActivity extends Activity {
                 runOnUiThread(() -> {
                     if (isDestroyed()) return;
                     if (supersedable && request != validationRequest) { rejected.run(); return; }
-                    if (plan.getWarning() != null) toast(getString(plan.getWarning()));
+                    // The routing warning is about the config in use. A file or a link being checked to add is not in use, and the plan made
+                    // for it (with the profile that is none of its) has nothing to say: it was a toast over the question about the import.
+                    if (supersedable && plan.getWarning() != null) toast(getString(plan.getWarning()));
                     accepted.accept(checked);
                 });
             } catch (RoutingConfig.ImportRefused refused) {
@@ -1520,7 +1680,6 @@ public final class MainActivity extends Activity {
         gap(body, 8);
         configsHint = null;
         if (configs.isEmpty()) {
-            body.addView(new View(this), new LinearLayout.LayoutParams(1, 0, 1));
             // As wide as its words: the focus is around them, not across the page.
             TextView hint = ui.link(getString(R.string.text_add_configuration), 15, Ui.LinkKind.TEXT, "configs:hint");
             hint.setTypeface(Ui.MEDIUM);
@@ -1528,10 +1687,14 @@ public final class MainActivity extends Activity {
             // Under its own menu it would be cut in half.
             hint.setVisibility(overlay("addmenu") != null ? View.INVISIBLE : View.VISIBLE);
             configsHint = hint;
-            LinearLayout.LayoutParams hintLp = lp(-2, 40);
-            hintLp.gravity = Gravity.CENTER_HORIZONTAL;
-            body.addView(hint, hintLp);
-            body.addView(new View(this), new LinearLayout.LayoutParams(1, 0, 1));
+            // In the middle of the whole page, the header included, as the desktop's is (anchors.centerIn: parent): the room under the header
+            // starts 48 down (the page's 8, the header's 32 and the gap's 8) and ends 26 above the page's foot, so its middle is 11 below the
+            // page's, and the words are lifted by twice that.
+            FrameLayout middle = new FrameLayout(this);
+            FrameLayout.LayoutParams hintLp = new FrameLayout.LayoutParams(-2, dp(40), Gravity.CENTER);
+            hintLp.bottomMargin = dp(22);
+            middle.addView(hint, hintLp);
+            body.addView(middle, new LinearLayout.LayoutParams(-1, 0, 1));
             return;
         }
         // Answers of configs that are no more are not kept.
@@ -1601,7 +1764,15 @@ public final class MainActivity extends Activity {
     // and as a tt:// link on the clipboard. Both carry the password, which the notice afterwards says.
     private void exportMenu(Config config, int index) {
         String[] options = {getString(R.string.export_toml), getString(R.string.export_deep_link)};
-        showSelect("config:" + index + ":export", options, -1, which -> { if (which == 0) exportToml(config); else copyDeepLink(config); });
+        final String key = "config:" + index + ":export";
+        Overlay menu = showSelect(key, options, -1, which -> { if (which == 0) exportToml(config); else copyDeepLink(config); });
+        // The desktop anchors it to the icon's cell, which is the whole 56 high slot of the row: 4 below that. The icon's own is 40 high
+        // here, in a row of 48, so the cell is 8 more above and below it.
+        menu.layer.setAnchor(l -> {
+            Rect cell = anchorRect(key, l);
+            if (cell != null) { cell.top -= dp(8); cell.bottom += dp(8); }
+            return cell;
+        }, OverlayLayer.UNDER_RIGHT_EDGE, dp(4));
     }
     // A config's name may hold a "/" or a "\", which a file name cannot (ConfigsPage.exportFileName).
     private static String exportFileName(String name) {
@@ -1750,9 +1921,11 @@ public final class MainActivity extends Activity {
                 v -> closeOverlay(shown[0])), lp(-1, -2));
         LinearLayout box = column(); box.setGravity(Gravity.CENTER_HORIZONTAL); box.setPadding(dp(18), dp(4), dp(18), dp(4));
         // Drawn at its own size, a whole number of pixels a module, so it is never blurred. The most
-        // that fits: a TV only 540 dp high has the card's other lines to make room for.
+        // that fits: a TV only 540 dp high has the card's other lines to make room for. A card is as tall as the window less 40 above (or
+        // the bar or the overscan) and 12 below (or the same), and 292 of it is not the code (OverlayLayer).
         float density = getResources().getDisplayMetrics().density;
-        int room = host.getHeight() > 0 ? Math.round((host.getHeight() - host.getPaddingTop() - host.getPaddingBottom()) / density) - 52 - 292 : 220;
+        int room = host.getHeight() > 0 ? Math.round(host.getHeight() / density - Math.max(40f, host.getPaddingTop() / density)
+                - Math.max(12f, host.getPaddingBottom() / density)) - 292 : 220;
         LinkReceiver.Qr qr = LinkReceiver.qr(r.url(), dp(Math.max(130, Math.min(220, room))));
         ImageView code = new ImageView(this);
         code.setImageBitmap(Bitmap.createBitmap(qr.pixels, qr.side, qr.side, Bitmap.Config.ARGB_8888));
@@ -1775,7 +1948,8 @@ public final class MainActivity extends Activity {
         scroll.setFocusable(false);
         scroll.addView(box);
         card.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
-        Button close = ui.button(getString(R.string.text_close), Ui.Kind.NEUTRAL, 88, "receive:close");
+        // The card's one button is the editor's Cancel (a secondary one), as the only other card with a button to dismiss it has.
+        Button close = ui.button(getString(R.string.text_close), Ui.Kind.SECONDARY, 88, "receive:close");
         close.setOnClickListener(v -> closeOverlay(shown[0]));
         LinearLayout buttons = row(); buttons.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
         buttons.setPadding(dp(18), dp(6), dp(18), dp(12));
@@ -1796,7 +1970,8 @@ public final class MainActivity extends Activity {
             if (linkReceiver == r) stopReceiver();
         });
         shown[0] = overlay;
-        overlay.width(dp(460));
+        // As wide as the app picker, which it is modelled on, and no card of the desktop's is wider.
+        overlay.width(dp(420));
         // A remote starts on Close, not on the back arrow above the code.
         overlay.defaultKey = "receive:close";
         // These arrive on the receiver's thread. A text it took is the TV's to answer, whether or not its card is
@@ -1988,48 +2163,92 @@ public final class MainActivity extends Activity {
     private static String stripBom(String toml) {
         return toml.startsWith("\uFEFF") ? toml.substring(1) : toml;
     }
-    // The editor: the desktop's card (qml/CreateConfigOverlay.qml), with ← and the title, a Name field, the
-    // Split profile this config uses as a select box (where a config's profile is chosen, as on the desktop), the
-    // TOML in a text area of its own, Show TOML and password as a toggle row, and Cancel and Save at the
-    // bottom right. It opens on the name, and a remote never lands on the toggle by itself, first or after a
-    // Save that is refused, where an OK would show the password to the room. The TOML holds the password,
-    // so while the card is up the window is FLAG_SECURE. Back, ←, Cancel and a tap outside ask before they
-    // drop what was typed. Keys: editor:back, editor:name, editor:toml, editor:show, editor:cancel and
-    // editor:save; the select box is editor:profile.
+    // The editor: the desktop's card (qml/CreateConfigOverlay.qml), with ← and the title, and the form, which scrolls with its buttons: Name;
+    // Server host; Address(es); Username and Password, side by side; Protocol and DNS servers; Custom SNI and Client random; the Split
+    // profile this config uses, as a select box (where a config's profile is chosen, as on the desktop); Allow IPv6, Skip certificate check
+    // and Anti-DPI; the Certificate, with its "Load from file…" link; and Cancel and Save at the end. ConfigForm reads the fields from the
+    // config and writes them back into it, and has the desktop's checks. It opens on the name. The config's password is in it, so while
+    // the card is up the window is FLAG_SECURE. Back, ←, Cancel and a tap outside ask before they drop what was typed. Keys: editor:back,
+    // editor:name, editor:host, editor:addresses, editor:username, editor:password, editor:protocol, editor:dns, editor:sni,
+    // editor:random, editor:profile, editor:ipv6, editor:skip, editor:antidpi, editor:cert, editor:certfile, editor:cancel and editor:save.
     private void editConfig(int index) {
         if (storageFailed) { toast(getString(R.string.text_storage_is_unavailable_data_has_not_been_changed)); return; }
         if (overlay("editor") != null) return;
         final Config editing = index < 0 ? null : configs.get(index);
+        final ConfigForm.Fields initial = editing == null ? new ConfigForm.Fields() : ConfigForm.read(editing.toml);
         final Overlay[] shown = new Overlay[1];
-        EditText name = new EditText(this);
-        name.setSingleLine(true);
+        EditText name = ui.lineEdit();
         name.setHint(getString(R.string.editor_name_placeholder));
-        name.setImeOptions(EditorInfo.IME_ACTION_NEXT);
-        EditText raw = new EditText(this);
-        raw.setHint(getString(R.string.text_paste_complete_trusttunnel_toml));
-        raw.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
-        // In landscape a keyboard can fill the screen with its own copy of the text. Ask it
-        // not to go full screen, and not to copy the text if it does anyway: the copy has no
-        // password mask and is outside FLAG_SECURE. Keyboards see ordinary text here, not a
-        // password field, so also ask them not to learn from it: the TOML holds the password.
-        raw.setImeOptions(raw.getImeOptions() | EditorInfo.IME_FLAG_NO_FULLSCREEN | EditorInfo.IME_FLAG_NO_EXTRACT_UI
-                | EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING);
-        raw.setTransformationMethod(PasswordTransformationMethod.getInstance());
-        if (editing != null) { name.setText(editing.name); raw.setText(editing.toml); }
+        EditText host = ui.lineEdit();
+        host.setHint("frankfurt.example.com");
+        EditText addresses = ui.lineEdit();
+        addresses.setHint("1.2.3.4:443");
+        EditText username = ui.lineEdit();
+        EditText password = ui.lineEdit();
+        // Dots, and no suggestions: the password is a secret.
+        password.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        EditText dns = ui.lineEdit();
+        dns.setHint("1.1.1.1, 8.8.8.8");
+        EditText sni = ui.lineEdit();
+        EditText random = ui.lineEdit();
+        EditText certificate = new EditText(this);
+        certificate.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
+        EditText[] texts = {name, host, addresses, username, password, dns, sni, random, certificate};
+        for (EditText text : texts) {
+            // In landscape a keyboard can fill the screen with its own copy of the text, which is outside FLAG_SECURE and holds the
+            // password: asked not to go full screen, nor to copy the text if it does anyway, nor to learn from what is typed here.
+            text.setImeOptions(text.getImeOptions() | EditorInfo.IME_FLAG_NO_FULLSCREEN | EditorInfo.IME_FLAG_NO_EXTRACT_UI
+                    | EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING);
+            // Next field, as Tab is on the desktop: the last one of a line, and a text area, have none to go on to.
+            if (text != random && text != certificate) text.setImeOptions(text.getImeOptions() | EditorInfo.IME_ACTION_NEXT);
+        }
+        if (editing != null) name.setText(editing.name);
+        host.setText(initial.hostname);
+        addresses.setText(initial.addresses);
+        username.setText(initial.username);
+        password.setText(initial.password);
+        dns.setText(initial.dns);
+        sni.setText(initial.customSni);
+        random.setText(initial.clientRandom);
+        certificate.setText(initial.certificate);
+        final String[] protocol = {initial.protocol};
         // The profile the config uses; a new one uses Default.
         final String[] chosenProfile = {editing == null ? SplitProfiles.DEFAULT : splitModel().effective(editing.profile)};
-        // What was there when it opened. Joined on a character no text holds, so that moving a boundary
-        // between the two is a change.
-        final String opened = name.getText() + "\u001f" + raw.getText() + "\u001f" + chosenProfile[0];
-        ToggleView show = ui.toggle(false, false, "editor:show");
-        show.setContentDescription(getString(R.string.text_show_toml_and_password));
-        show.setListener((v, checked) -> raw.setTransformationMethod(checked ? null : PasswordTransformationMethod.getInstance()));
+        ToggleView ipv6 = ui.toggle(initial.allowIpv6, false, "editor:ipv6");
+        ipv6.setContentDescription(getString(R.string.editor_ipv6));
+        ToggleView skip = ui.toggle(initial.skipVerification, false, "editor:skip");
+        skip.setContentDescription(getString(R.string.editor_skip_verification));
+        ToggleView antiDpi = ui.toggle(initial.antiDpi, false, "editor:antidpi");
+        antiDpi.setContentDescription(getString(R.string.editor_anti_dpi));
+
+        // What the form holds, as the check and the write have it.
+        final java.util.function.Supplier<ConfigForm.Fields> fields = () -> {
+            ConfigForm.Fields f = new ConfigForm.Fields();
+            f.hostname = host.getText().toString();
+            f.addresses = addresses.getText().toString();
+            f.username = username.getText().toString();
+            f.password = password.getText().toString();
+            f.protocol = protocol[0];
+            f.dns = dns.getText().toString();
+            f.customSni = sni.getText().toString();
+            f.clientRandom = random.getText().toString();
+            f.certificate = certificate.getText().toString();
+            f.allowIpv6 = ipv6.isChecked();
+            f.skipVerification = skip.isChecked();
+            f.antiDpi = antiDpi.isChecked();
+            return f;
+        };
+        // Joined on a character no text holds, so that moving a boundary between two fields is a change (CreateConfigOverlay.snapshot).
+        final java.util.function.Supplier<String> snapshot = () -> String.join("\u001f", name.getText(), host.getText(), addresses.getText(),
+                username.getText(), password.getText(), protocol[0], dns.getText(), sni.getText(), random.getText(), certificate.getText(),
+                String.valueOf(ipv6.isChecked()), String.valueOf(skip.isChecked()), String.valueOf(antiDpi.isChecked()), chosenProfile[0]);
+        final String opened = snapshot.get();
 
         final boolean[] asking = {false};
         final Runnable tryClose = () -> {
             Overlay editor = shown[0];
             if (editor == null || editor.closed) return;
-            if ((name.getText() + "\u001f" + raw.getText() + "\u001f" + chosenProfile[0]).equals(opened)) { closeOverlay(editor); return; }
+            if (snapshot.get().equals(opened)) { closeOverlay(editor); return; }
             // A second Cancel, or a Back, while the question is up or waits is no second question.
             if (asking[0]) return;
             asking[0] = true;
@@ -2042,13 +2261,32 @@ public final class MainActivity extends Activity {
                 "editor:back", getString(R.string.text_back), v -> tryClose.run()), lp(-1, -2));
         LinearLayout form = column();
         form.setPadding(dp(18), 0, dp(18), 0);
-        // The toggle's row fills a little beyond the fields' edges when it has the focus.
+        // The toggles' rows fill a little beyond the fields' edges when they have the focus, and a link ends at the margin.
         form.setClipToPadding(false);
         form.addView(ui.field(getString(R.string.editor_name), name, "editor:name"), lp(-1, -2));
         gap(form, 10);
+        form.addView(ui.field(getString(R.string.editor_host), host, "editor:host"), lp(-1, -2));
+        gap(form, 10);
+        form.addView(ui.field(getString(R.string.editor_addresses), addresses, "editor:addresses"), lp(-1, -2));
+        gap(form, 10);
+        form.addView(pair(ui.field(getString(R.string.editor_username), username, "editor:username"),
+                ui.field(getString(R.string.editor_password), password, "editor:password")), lp(-1, -2));
+        gap(form, 10);
+        TextView[] protocolValue = new TextView[1];
+        LinearLayout protocolBox = ui.selectField(getString(R.string.editor_protocol), protocolLabel(protocol[0]), "editor:protocol", protocolValue, v -> {
+            // The keyboard would cover the choices.
+            hideKeyboard();
+            showSelect("editor:protocol", new String[] {protocolLabel("http2"), protocolLabel("http3")}, "http3".equals(protocol[0]) ? 1 : 0, which -> {
+                protocol[0] = which == 1 ? "http3" : "http2";
+                protocolValue[0].setText(protocolLabel(protocol[0]));
+            });
+        });
+        form.addView(pair(protocolBox, ui.field(getString(R.string.editor_dns), dns, "editor:dns")), lp(-1, -2));
+        gap(form, 10);
+        form.addView(pair(ui.field(getString(R.string.editor_sni), sni, "editor:sni"), ui.field(getString(R.string.editor_random), random, "editor:random")), lp(-1, -2));
+        gap(form, 10);
         TextView[] profileValue = new TextView[1];
         form.addView(ui.selectField(getString(R.string.editor_split_profile), profileLabel(chosenProfile[0]), "editor:profile", profileValue, v -> {
-            // The keyboard would cover the choices.
             hideKeyboard();
             List<String> names = splitModel().names();
             String[] labels = new String[names.size()];
@@ -2059,61 +2297,69 @@ public final class MainActivity extends Activity {
             });
         }), lp(-1, -2));
         gap(form, 10);
-        form.addView(ui.fieldArea(getString(R.string.editor_toml), raw, "editor:toml", 150), lp(-1, -2));
+        form.addView(ui.editorToggleRow(getString(R.string.editor_ipv6), ipv6), ui.focusRowLp());
         gap(form, 10);
-        form.addView(ui.editorToggleRow(getString(R.string.text_show_toml_and_password), show), ui.focusRowLp());
+        form.addView(ui.editorToggleRow(getString(R.string.editor_skip_verification), skip), ui.focusRowLp());
+        gap(form, 10);
+        form.addView(ui.editorToggleRow(getString(R.string.editor_anti_dpi), antiDpi), ui.focusRowLp());
+        gap(form, 10);
+        TextView load = ui.link(getString(R.string.editor_load_certificate), 12, Ui.LinkKind.ACCENT, "editor:certfile");
+        load.setOnClickListener(v -> pickCertificate(certificate));
+        form.addView(ui.fieldArea(getString(R.string.editor_certificate), load, certificate, "editor:cert", 70), lp(-1, -2));
+        gap(form, 10);
+        Button cancel = ui.button(getString(R.string.text_cancel), Ui.Kind.SECONDARY, 88, "editor:cancel");
+        cancel.setOnClickListener(v -> tryClose.run());
+        Button save = ui.button(getString(R.string.text_save), Ui.Kind.PRIMARY, 88, "editor:save");
+        // The last row of the form, which scrolls with it: 6 above it and 12 below.
+        LinearLayout buttons = row();
+        buttons.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
+        buttons.setPadding(0, dp(6), 0, dp(12));
+        buttons.addView(cancel, lp(-2, 32));
+        ui.gapH(buttons, 8);
+        buttons.addView(save, lp(-2, 32));
+        form.addView(buttons, lp(-1, -2));
         ScrollView scroll = new ScrollView(this);
         scroll.setVerticalScrollBarEnabled(false);
         // The fields are its stops, not it.
         scroll.setFocusable(false);
         scroll.addView(form);
         card.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
-        Button cancel = ui.button(getString(R.string.text_cancel), Ui.Kind.SECONDARY, 88, "editor:cancel");
-        cancel.setOnClickListener(v -> tryClose.run());
-        Button save = ui.button(getString(R.string.text_save), Ui.Kind.PRIMARY, 88, "editor:save");
-        LinearLayout buttons = row();
-        buttons.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
-        buttons.setPadding(dp(18), dp(6), dp(18), dp(12));
-        buttons.addView(cancel, lp(-2, 32));
-        ui.gapH(buttons, 8);
-        buttons.addView(save, lp(-2, 32));
-        card.addView(buttons, lp(-1, -2));
 
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);
         Overlay overlay = showOverlay("editor", OverlayLayer.Kind.CARD, card, null, () -> {
             validationRequest++;
+            certificateTarget = null;
             getWindow().clearFlags(WindowManager.LayoutParams.FLAG_SECURE);
         });
         shown[0] = overlay;
         overlay.width(dp(372));
         overlay.escape = tryClose;
-        // A remote starts on the name: left to itself, on the first control, which could be the toggle.
+        // A remote starts on the name: left to itself, on the first control.
         overlay.defaultKey = "editor:name";
         // One check at a time. Only a phone greys Save out meanwhile: disabling the view
-        // that has a remote's focus moves the focus to the toggle as well.
+        // that has a remote's focus moves the focus to the first control as well.
         boolean[] checking = {false};
         save.setOnClickListener(v -> {
             if (checking[0]) return;
-            String n = name.getText().toString().trim();
-            String text = stripBom(raw.getText().toString().trim());
-            if (n.isEmpty()) { toast(getString(R.string.text_enter_a_configuration_name)); return; }
-            // A link pasted here is read as the link it is. On a TV, a phone's
-            // keyboard, such as the Google TV app's, can paste one where a whole
-            // file is a lot to get across.
-            final DeepLinkImport.Imported link;
-            try { link = DeepLinkImport.looksLikeLink(text) ? DeepLinkImport.parse(text) : null; }
-            catch (DeepLinkImport.ParseException e) { refuseImport(e.messageResource); return; }
+            // Nothing changed, nothing to write: the file would come back in the form the editor writes, its comments gone and its keys
+            // in another order (as the desktop's Save does).
+            if (editing != null && snapshot.get().equals(opened)) { closeOverlay(overlay); return; }
+            ConfigForm.Fields f = fields.get();
+            int problem = ConfigForm.problem(f);
+            if (problem != 0) { toast(getString(problem)); return; }
+            // A name left empty is the host's, as on the desktop.
+            String typed = name.getText().toString().trim();
+            final String named = typed.isEmpty() ? f.hostname.trim() : typed;
+            final String n = named.length() > 80 ? named.substring(0, 80) : named;
+            final boolean certificateTrimmed = ConfigForm.certificates(f.certificate).dropped;
+            final String text = ConfigForm.write(editing == null ? null : editing.toml, f);
             checking[0] = true;
             if (save.isInTouchMode()) save.setEnabled(false);
-            // Checked as an import: the hint asks for a whole TrustTunnel file, and
-            // one pasted here, or saved by an earlier version, can carry a
-            // subscription address, an auth key or a private key with its
-            // certificate just as an imported one can. An endpoint's export is
-            // turned into a whole file, and the name stays the one typed here,
-            // as it does for a link, which is checked as importDeepLink() checks it.
-            validateAsync(link != null ? link.toml : text, chosenProfile[0], link == null, true, result -> {
-                RoutingConfig.Import checked = link == null ? result
-                        : new RoutingConfig.Import(result.getToml(), link.subscriptionNotKept, link.certificateIgnored);
+            // Checked as an import: what is written is a whole config, and the file it was made from, or a certificate pasted whole
+            // with its private key, can carry what an import takes out (a subscription, an auth key, what is no certificate).
+            validateAsync(text, chosenProfile[0], true, true, result -> {
+                RoutingConfig.Import checked = certificateTrimmed && !result.getCertificateIgnored()
+                        ? new RoutingConfig.Import(result.getToml(), result.getSubscriptionNotKept(), true) : result;
                 if (overlay.closed) return;
                 if (editing == null) configs.add(new Config(n, checked.getToml(), chosenProfile[0]));
                 else {
@@ -2130,6 +2376,47 @@ public final class MainActivity extends Activity {
                 if (!notes.isEmpty()) toast(notes);
             }, () -> { checking[0] = false; save.setEnabled(true); });
         });
+    }
+
+    // Two of the form's fields side by side, 10 apart and as wide as each other.
+    private LinearLayout pair(View left, View right) {
+        LinearLayout both = row();
+        both.setGravity(Gravity.TOP);
+        both.addView(left, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+        ui.gapH(both, 10);
+        both.addView(right, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+        return both;
+    }
+    private static String protocolLabel(String protocol) { return "http3".equals(protocol) ? "HTTP/3" : "HTTP/2"; }
+
+    // "Load from file…": the system's file picker, and the text of what it gives is put in the certificate field. Many TVs have no picker.
+    private EditText certificateTarget;
+    private void pickCertificate(EditText target) {
+        hideKeyboard();
+        certificateTarget = target;
+        for (String action : new String[]{Intent.ACTION_OPEN_DOCUMENT, Intent.ACTION_GET_CONTENT}) {
+            if (startForResult(new Intent(action).setType("*/*").addCategory(Intent.CATEGORY_OPENABLE), PICK_CERTIFICATE)) return;
+        }
+        certificateTarget = null;
+        toast(getString(R.string.editor_no_file_picker));
+    }
+    // A file the editor cannot read changes nothing, and says so: a file that is not text, or that is empty, must not wipe what was pasted.
+    private void readCertificate(Uri uri, EditText target) {
+        try (InputStream input = getContentResolver().openInputStream(uri); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            if (input == null) { toast(getString(R.string.text_could_not_open_file)); return; }
+            byte[] bytes = new byte[8192];
+            int n;
+            int total = 0;
+            while ((n = input.read(bytes)) != -1) {
+                total += n;
+                if (total > 256 * 1024) { toast(getString(R.string.text_file_is_too_large)); return; }
+                out.write(bytes, 0, n);
+            }
+            String pem = out.toString(StandardCharsets.UTF_8.name());
+            if (!pem.trim().isEmpty() && target.isAttachedToWindow()) target.setText(pem);
+        } catch (Exception e) {
+            toast(getString(R.string.text_could_not_open_file));
+        }
     }
     // The name is cut in the middle to 36, as the desktop cuts it, and shown as ShownText shows names.
     private void confirmRemove(int index) {
@@ -2152,6 +2439,13 @@ public final class MainActivity extends Activity {
         if (requestCode == PREPARE_VPN) {
             if (resultCode == RESULT_OK) startVpnWithPendingConfig();
             else { pendingConfig = null; toast(getString(R.string.text_vpn_permission_was_not_granted)); }
+            return;
+        }
+        if (requestCode == PICK_CERTIFICATE) {
+            EditText target = certificateTarget;
+            certificateTarget = null;
+            Uri picked = resultCode == RESULT_OK && data != null ? data.getData() : null;
+            if (target != null && picked != null) readCertificate(picked, target);
             return;
         }
         if (requestCode == EXPORT_CONFIG) {
@@ -2181,10 +2475,10 @@ public final class MainActivity extends Activity {
     // The Split page (qml/pages/SplitPage.qml), top to bottom: the Split Tunneling switch; the Mode, as a value and its ▾; the
     // notices that apply; Profile and its chips, the edited one in accent, with a + that opens the field for a new name;
     // the rules header, with Recommended for Russia and Clear all, the domains as chips and the field to add them; and the
-    // applications header, with Choose… and Clear all, and the applications as chips. The chips are the profile being edited
+    // applications header, with Choose… and Clear all, the applications as chips and the field to type one's name in. The chips are the profile being edited
     // (SplitProfiles.edited), which is not the profile the selected config uses: that is chosen in the editor.
     // Keys: split:enabled, split:mode, profile:N, profile:N:remove, profile:add, profile:name, domains:russia, domains:clear,
-    // domain:N, domains:input, apps:choose, apps:clear and app:N.
+    // domain:N, domains:input, apps:choose, apps:clear, app:N and apps:input (with the suggestions under it: AppSuggestions).
     private void split(LinearLayout body) {
         SplitProfiles model = splitModel();
         final String edited = model.edited();
@@ -2235,7 +2529,8 @@ public final class MainActivity extends Activity {
         profilesLp.topMargin = dp(2);
         body.addView(profiles, profilesLp);
         // The field for the name of a new profile: there all the time, and shown while it is wanted.
-        EditText nameInput = ui.pageInput(getString(R.string.split_profile_name_hint), "profile:name");
+        // Its "profile name, then Enter" stays while it has the focus, as the desktop's does (the field is only there while it is wanted).
+        EditText nameInput = ui.pageInput(getString(R.string.split_profile_name_hint), "profile:name", true);
         nameInput.setFilters(new InputFilter[]{new InputFilter.LengthFilter(SplitProfiles.MAX_NAME)});
         nameInput.setImeOptions(EditorInfo.IME_ACTION_DONE);
         nameInput.setText(profileNameDraft);
@@ -2272,12 +2567,13 @@ public final class MainActivity extends Activity {
         domainHeader.addView(rulesTitle, weighted());
         TextView recommended = ui.link(getString(R.string.split_recommended), 12, Ui.LinkKind.ACCENT, "domains:russia");
         recommended.setOnClickListener(v -> addRecommendedRussia());
-        domainHeader.addView(recommended, lp(-2, -2));
+        // The links add none to the row's height, and the last ends at the page's margin.
+        domainHeader.addView(recommended, ui.linkLp(domainRules.isEmpty()));
         if (!domainRules.isEmpty()) {
             TextView clearDomains = ui.link(getString(R.string.split_clear_all), 12, Ui.LinkKind.DANGER, "domains:clear");
             clearDomains.setOnClickListener(v -> showConfirm(getString(R.string.split_clear_domains_question), getString(R.string.text_clear),
                     () -> editRules(m -> m.clearDomains(m.edited()))));
-            domainHeader.addView(clearDomains, lp(-2, -2));
+            domainHeader.addView(clearDomains, ui.linkLp(true));
         }
         body.addView(domainHeader, lp(-1, -2));
         if (!domainRules.isEmpty()) {
@@ -2307,8 +2603,9 @@ public final class MainActivity extends Activity {
         body.addView(domainInput, domainInputLp);
         gap(body, 14);
 
-        // Applications: those of the profile being edited, by the name the picker showed. No field for typing one in:
-        // the picker is the way in.
+        // Applications: those of the profile being edited, by the name the picker showed, and a field to type one's name in: what
+        // matches is listed above it, as the desktop's does (the desktop's can also take a path or a dropped file, which Android has
+        // none of).
         List<String> appRules = model.apps(edited);
         LinearLayout appHeader = row();
         TextView appsTitle = ui.sectionLabel(through ? getString(R.string.text_applications_through_vpn) : getString(R.string.text_applications_bypass_vpn));
@@ -2317,12 +2614,12 @@ public final class MainActivity extends Activity {
         appHeader.addView(appsTitle, weighted());
         TextView chooseLink = ui.link(getString(R.string.text_choose), 12, Ui.LinkKind.ACCENT, "apps:choose");
         chooseLink.setOnClickListener(v -> appPicker());
-        appHeader.addView(chooseLink, lp(-2, -2));
+        appHeader.addView(chooseLink, ui.linkLp(appRules.isEmpty()));
         if (!appRules.isEmpty()) {
             TextView clearApps = ui.link(getString(R.string.split_clear_all), 12, Ui.LinkKind.DANGER, "apps:clear");
             clearApps.setOnClickListener(v -> showConfirm(getString(R.string.split_clear_apps_question), getString(R.string.text_clear),
                     () -> editRules(m -> m.clearApps(m.edited()))));
-            appHeader.addView(clearApps, lp(-2, -2));
+            appHeader.addView(clearApps, ui.linkLp(true));
         }
         body.addView(appHeader, lp(-1, -2));
         if (!appRules.isEmpty()) {
@@ -2341,6 +2638,12 @@ public final class MainActivity extends Activity {
             }
             body.addView(apps, lp(-1, -2));
         }
+        EditText appInput = ui.pageInput(getString(R.string.split_apps_hint), "apps:input");
+        appInput.setImeOptions(EditorInfo.IME_ACTION_DONE);
+        LinearLayout.LayoutParams appInputLp = lp(-1, 36);
+        appInputLp.topMargin = dp(6);
+        body.addView(appInput, appInputLp);
+        appSuggestions.attach(appInput);
     }
 
     // The name an application is listed by: the one the launcher shows, or its package where it is no longer installed, which is
@@ -2547,8 +2850,8 @@ public final class MainActivity extends Activity {
     // The app picker (qml/AppPickerOverlay.qml): a card with ← and the title, a search box, and the installed
     // applications, a row each with the name over its package. One application to a visit: a tap adds it and
     // the card closes, as does Enter, which adds the first match. They are listed on a worker, and the card
-    // says so meanwhile. On a phone the search box has the focus first, and the keyboard comes up; on a TV
-    // the first row has it, once the list is in. No checkboxes, no icons and no Done, and no file to
+    // says so meanwhile. The search box has the focus first, as the desktop's does, and on a phone the keyboard comes up; on a TV Down goes
+    // on to the rows. No checkboxes, no icons and no Done, and no file to
     // choose instead, which Android has no such thing as. Keys: picker:back, picker:search, picker:0, ...
     private static final class AppEntry {
         final String label;
@@ -2564,7 +2867,6 @@ public final class MainActivity extends Activity {
     private final class AppPicker {
         private final List<AppEntry> apps = new ArrayList<>();
         private boolean scanning = true;
-        private boolean focusedOnce;
         private Overlay overlay;
         private EditText search;
         private LinearLayout list;
@@ -2575,7 +2877,9 @@ public final class MainActivity extends Activity {
             card.setMinimumHeight(dp(460));
             card.addView(ui.cardHeader(getString(R.string.picker_title), "picker:back", getString(R.string.text_back),
                     v -> closeOverlay(overlay)), lp(-1, -2));
-            search = ui.pageInput(getString(R.string.picker_search), "picker:search");
+            // Its "Search" stays while the field has the focus (the desktop's does), and starts 10 in, as the desktop's does.
+            search = ui.pageInput(getString(R.string.picker_search), "picker:search", true);
+            search.setPadding(dp(10), 0, dp(10), 0);
             search.setImeOptions(EditorInfo.IME_ACTION_DONE);
             search.addTextChangedListener(new TextWatcher() {
                 @Override public void beforeTextChanged(CharSequence text, int start, int count, int after) { }
@@ -2602,8 +2906,10 @@ public final class MainActivity extends Activity {
             overlay = showOverlay("picker", OverlayLayer.Kind.CARD, card, null, null);
             overlay.width(dp(420));
             fill();
+            // The search field has the focus first, as the desktop's does, and no row is highlighted; Down goes on to the rows. A phone's
+            // keyboard comes up at once, a TV's when OK is pressed on the field.
+            overlay.defaultKey = "picker:search";
             if (!isTv()) {
-                overlay.defaultKey = "picker:search";
                 search.post(() -> {
                     if (overlay.closed) return;
                     search.requestFocus();
@@ -2644,7 +2950,6 @@ public final class MainActivity extends Activity {
                 list.addView(status, lp(-1, -2));
                 return;
             }
-            View first = null;
             for (int i = 0; i < matching.size(); i++) {
                 AppEntry app = matching.get(i);
                 LinearLayout row = column();
@@ -2663,14 +2968,6 @@ public final class MainActivity extends Activity {
                 LinearLayout.LayoutParams rowLp = lp(-1, 42);
                 rowLp.bottomMargin = dp(2);
                 list.addView(row, rowLp);
-                if (first == null) first = row;
-            }
-            // A TV's remote starts on the first row, when the list first arrives, or when the row it was on is gone.
-            if (isTv() && first != null && !getWindow().getDecorView().isInTouchMode()) {
-                View focused = getCurrentFocus();
-                boolean unmoved = focused == null || "picker:back".equals(focused.getTag());
-                if (unmoved || !focusedOnce) first.requestFocus();
-                focusedOnce = true;
             }
         }
 
@@ -2680,6 +2977,177 @@ public final class MainActivity extends Activity {
             if (overlay.closed) return;
             closeOverlay(overlay);
             editRules(m -> m.addApp(m.edited(), app.pkg));
+        }
+    }
+
+    // The suggestions under the Split page's application field (qml/pages/SplitPage.qml, apSuggest): what is typed names the installed
+    // applications that match it, up to 24, in a list above the field, as wide as it, three rows showing and the rest scrolling, each the
+    // name over its package; the one highlighted (the first, and then the one the pointer or Up and Down are on) is what Enter or a tap
+    // adds to the profile being edited. The list is a passive overlay: it takes neither the focus nor the keyboard from the field, and
+    // Back and Escape close it first, as the desktop's first Escape does. Without it, Up and Down leave the field as from any field.
+    private final AppSuggestions appSuggestions = new AppSuggestions();
+
+    private final class AppSuggestions {
+        private static final int MAX_ROWS = 24;
+        private static final long LISTING_MS = 30_000;
+        private EditText field;
+        // Every installed application, null until they have been listed (on the scan worker, since loadLabel is slow on a TV), and when.
+        private List<AppEntry> choices;
+        private long listedAt;
+        private boolean listing;
+        private final List<AppEntry> rows = new ArrayList<>();
+        private int highlighted;
+        private Overlay open;
+        private LinearLayout column;
+        private CappedScrollView scroll;
+        private ViewTreeObserver watched;
+        private final ViewTreeObserver.OnScrollChangedListener follow = () -> { if (open != null && !open.closed) open.layer.requestLayout(); };
+
+        void attach(EditText input) {
+            field = input;
+            input.addTextChangedListener(new TextWatcher() {
+                @Override public void beforeTextChanged(CharSequence text, int start, int count, int after) { }
+                @Override public void onTextChanged(CharSequence text, int start, int before, int count) { }
+                @Override public void afterTextChanged(Editable text) { if (field == input) refresh(); }
+            });
+            final View.OnFocusChangeListener before = input.getOnFocusChangeListener();
+            input.setOnFocusChangeListener((v, focused) -> {
+                if (before != null) before.onFocusChange(v, focused);
+                if (field != input) return;
+                if (focused) { list(); refresh(); } else close();
+            });
+            input.setOnEditorActionListener((f, action, event) -> {
+                if (event != null && event.getAction() != KeyEvent.ACTION_DOWN) return true;
+                if (open != null && !open.closed && highlighted < rows.size()) take(highlighted);
+                else if (!input.getText().toString().trim().isEmpty()) toast(getString(choices == null ? R.string.picker_scanning : R.string.picker_nothing));
+                return true;
+            });
+            // Up and Down move the highlight while the list is up; without it they are the arrows of any field.
+            input.setOnKeyListener((f, keyCode, event) -> {
+                if (open == null || open.closed || (keyCode != KeyEvent.KEYCODE_DPAD_UP && keyCode != KeyEvent.KEYCODE_DPAD_DOWN)) return false;
+                if (event.getAction() == KeyEvent.ACTION_DOWN) highlight(highlighted + (keyCode == KeyEvent.KEYCODE_DPAD_DOWN ? 1 : -1), true);
+                return true;
+            });
+        }
+
+        // The installed applications, listed again when what was listed is older than half a minute.
+        private void list() {
+            if (listing || isDestroyed() || (choices != null && SystemClock.elapsedRealtime() - listedAt < LISTING_MS)) return;
+            listing = true;
+            scanWorker.execute(() -> {
+                List<AppEntry> found = installedApps();
+                runOnUiThread(() -> {
+                    listing = false;
+                    if (isDestroyed()) return;
+                    choices = found;
+                    listedAt = SystemClock.elapsedRealtime();
+                    refresh();
+                });
+            });
+        }
+
+        // What is typed, against the names and the packages, as the picker's search is; the list is put away when there is nothing
+        // typed, nothing that matches, or no focus in the field.
+        void refresh() {
+            String query = field == null ? "" : field.getText().toString().trim().toLowerCase(Locale.ROOT);
+            if (field == null || !field.hasFocus() || query.isEmpty() || choices == null) { close(); return; }
+            rows.clear();
+            for (AppEntry app : choices) {
+                if (rows.size() >= MAX_ROWS) break;
+                if (app.label.toLowerCase(Locale.ROOT).contains(query) || app.pkg.toLowerCase(Locale.ROOT).contains(query)) rows.add(app);
+            }
+            if (rows.isEmpty()) { close(); return; }
+            highlighted = 0;
+            show();
+        }
+
+        private void show() {
+            if (open == null || open.closed) {
+                Theme t = t();
+                LinearLayout frame = column();
+                frame.setPadding(dp(4), dp(4), dp(4), dp(4));
+                scroll = new CappedScrollView(MainActivity.this);
+                scroll.setMaxHeight(dp(3 * 42));
+                column = column();
+                scroll.addView(column, new FrameLayout.LayoutParams(-1, -2));
+                frame.addView(scroll, lp(-1, -2));
+                open = showOverlay("appsuggest", OverlayLayer.Kind.POPUP, frame, "apps:input", () -> { open = null; unwatch(); }, true);
+                open.layer.setAnchor(l -> anchorRect("apps:input", l), OverlayLayer.ABOVE_CONTROL, dp(4));
+                open.layer.panel().setBackground(ui.outlined(t.bg, t.border, 8));
+                watched = field.getViewTreeObserver();
+                watched.addOnScrollChangedListener(follow);
+            }
+            fill();
+            open.layer.requestLayout();
+        }
+
+        private void unwatch() {
+            if (watched != null && watched.isAlive()) watched.removeOnScrollChangedListener(follow);
+            watched = null;
+        }
+
+        // The rows: the name, 13, over the package, 11 and cut at its left, as the picker's are, on the card's colour and on surface where
+        // they are highlighted, and 42 high.
+        private void fill() {
+            Theme t = t();
+            column.removeAllViews();
+            for (int i = 0; i < rows.size(); i++) {
+                final int index = i;
+                AppEntry app = rows.get(i);
+                LinearLayout row = column();
+                row.setGravity(Gravity.CENTER_VERTICAL);
+                row.setPadding(dp(8), 0, dp(8), 0);
+                TextView name = label(app.label, 13, t.text);
+                name.setSingleLine(true);
+                name.setEllipsize(TextUtils.TruncateAt.END);
+                TextView pkg = label(app.pkg, 11, t.textFaint);
+                pkg.setSingleLine(true);
+                pkg.setEllipsize(TextUtils.TruncateAt.START);
+                row.addView(name, lp(-1, -2));
+                row.addView(pkg, lp(-1, -2));
+                row.setTag("suggestion:" + i);
+                row.setOnClickListener(v -> take(index));
+                row.setOnHoverListener((v, event) -> {
+                    if (event.getActionMasked() == MotionEvent.ACTION_HOVER_ENTER) highlight(index, false);
+                    return false;
+                });
+                column.addView(row, lp(-1, 42));
+            }
+            paint();
+        }
+
+        private void paint() {
+            Theme t = t();
+            for (int i = 0; i < column.getChildCount(); i++) column.getChildAt(i).setBackground(ui.shape(i == highlighted ? t.surface : t.bg, 6));
+        }
+
+        private void highlight(int index, boolean intoView) {
+            if (rows.isEmpty()) return;
+            highlighted = Math.max(0, Math.min(rows.size() - 1, index));
+            paint();
+            if (intoView && scroll != null) {
+                int top = dp(42) * highlighted;
+                int shown = scroll.getHeight();
+                if (top < scroll.getScrollY()) scroll.scrollTo(0, top);
+                else if (top + dp(42) > scroll.getScrollY() + shown) scroll.scrollTo(0, top + dp(42) - shown);
+            }
+        }
+
+        // Adds it to the profile being edited, and clears the field, which stays where the cursor is for the next.
+        private void take(int index) {
+            if (index < 0 || index >= rows.size()) return;
+            AppEntry app = rows.get(index);
+            close();
+            field.setText("");
+            focusAfterRender = "apps:input";
+            if (!editRules(m -> m.addApp(m.edited(), app.pkg))) focusAfterRender = null;
+        }
+
+        void close() {
+            Overlay shown = open;
+            open = null;
+            unwatch();
+            if (shown != null) closeOverlay(shown);
         }
     }
 
@@ -2785,19 +3253,25 @@ public final class MainActivity extends Activity {
         gap(body, 14);
         LinearLayout footer = row();
         footer.setGravity(Gravity.CENTER);
+        // The links add none to the footer's height, and the words round the dot are the dot's own two spaces on each side, as the
+        // desktop's are: the links' own 6 at the sides are taken back.
         TextView site = ui.link("FreeTunnel " + BuildConfig.VERSION_NAME, 12, Ui.LinkKind.FAINT, "settings:site");
         site.setOnClickListener(v -> openLink("https://github.com/" + UpdatePolicy.REPOSITORY));
-        footer.addView(site, lp(-2, -2));
+        LinearLayout.LayoutParams siteLp = ui.linkLp(false);
+        siteLp.rightMargin = -dp(Ui.LINK_PAD_H_DP);
+        footer.addView(site, siteLp);
         footer.addView(label("  ·  ", 12, t.textFaint), lp(-2, -2));
         TextView core = ui.link(getString(R.string.settings_core) + BuildConfig.CORE_VERSION, 12, Ui.LinkKind.FAINT, "settings:core");
         core.setOnClickListener(v -> openLink("https://github.com/TrustTunnel/TrustTunnelClient"));
-        footer.addView(core, lp(-2, -2));
+        LinearLayout.LayoutParams coreLp = ui.linkLp(false);
+        coreLp.leftMargin = -dp(Ui.LINK_PAD_H_DP);
+        footer.addView(core, coreLp);
         body.addView(footer, lp(-1, -2));
         LinearLayout licenses = row();
         licenses.setGravity(Gravity.CENTER);
         TextView openLicenses = ui.link(getString(R.string.text_open_source_licenses), 12, Ui.LinkKind.FAINT, "settings:licenses");
         openLicenses.setOnClickListener(v -> openSourceLicenses());
-        licenses.addView(openLicenses, lp(-2, -2));
+        licenses.addView(openLicenses, ui.linkLp(false));
         body.addView(licenses, lp(-1, -2));
     }
 
@@ -2838,18 +3312,16 @@ public final class MainActivity extends Activity {
             // Already the defaults: nothing to build again.
             if (!routes.equals(defaults)) saveExcludedRoutes(new ArrayList<>(defaults));
         }));
-        LinearLayout.LayoutParams restoreLp = lp(-2, -2);
-        header.addView(restore, restoreLp);
+        // The links add none to the row's height, and the last ends where the page's margin does.
+        header.addView(restore, ui.linkLp(routes.isEmpty()));
         if (!routes.isEmpty()) {
             TextView clear = ui.link(getString(R.string.split_clear_all), 12, Ui.LinkKind.DANGER, "routes:clear");
             clear.setOnClickListener(v -> showConfirm(getString(R.string.settings_routes_clear_question), getString(R.string.text_clear),
                     () -> saveExcludedRoutes(new ArrayList<>())));
-            LinearLayout.LayoutParams clearLp = lp(-2, -2);
-            clearLp.rightMargin = -dp(6);
+            // 10 from "Restore defaults", as the desktop's row spaces them: the links' own 6 each side make 12.
+            LinearLayout.LayoutParams clearLp = ui.linkLp(true);
+            clearLp.leftMargin = -dp(2);
             header.addView(clear, clearLp);
-        } else {
-            // It is the last, so its words end where the page's margin does.
-            restoreLp.rightMargin = -dp(6);
         }
         body.addView(header, lp(-1, -2));
         if (!routes.isEmpty()) {
@@ -2900,12 +3372,13 @@ public final class MainActivity extends Activity {
     // and is a link over its words alone: it is what to do next, as the icon beside it is, and a click does it. At its right the
     // picture for the state and the version (see UpdateLine, and refreshUpdateControls). Only in an official build, which is the
     // only one Android would let update itself; another says so. Android's own "Check for updates on launch" is above the row.
-    private TextView updateTick;
+    private ImageView updateTick;
     private FrameLayout updateSlot;
     private UpdateArrowView updateArrow;
     private BusyDotsView updateDots;
     private TextView updateVersion;
-    // The pointer or the remote is on the line: the arrow beside it bends (a download) or leans (a retry), as the desktop's does under the pointer.
+    // The pointer is on the arrow: it bends (a download) or leans (a retry), as the desktop's does under the pointer. Not on the words,
+    // which only take their colour and an underline there.
     private boolean updateHot;
 
     private void maintenance(LinearLayout body) {
@@ -2923,11 +3396,22 @@ public final class MainActivity extends Activity {
         // The right: ✓ when it is current, the arrow or the dots, and the version.
         LinearLayout right = row();
         right.setId(View.generateViewId());
-        updateTick = label("✓", 14, t.success);
+        updateTick = ui.glyph(R.drawable.ic_check, t.success);
         updateTick.setTag("update:tick");
         updateTick.setContentDescription(getString(R.string.update_latest));
+        updateTick.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_AUTO);
         right.addView(updateTick, lp(-2, -2));
         updateSlot = new FrameLayout(this);
+        // The arrow does what the words do, as the desktop's icon does, and bends under the pointer: it is not a stop of its own for a
+        // remote, which has the words.
+        updateSlot.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        updateSlot.setOnClickListener(v -> { if (updateLine().clickable()) doUpdateAction(); });
+        updateSlot.setOnHoverListener((v, event) -> {
+            int action = event.getActionMasked();
+            if (action == MotionEvent.ACTION_HOVER_ENTER) setUpdateHot(updateLine().clickable());
+            else if (action == MotionEvent.ACTION_HOVER_EXIT) setUpdateHot(false);
+            return false;
+        });
         // The pictures are the line's, which says what they say; TalkBack has nothing to add.
         updateArrow = new UpdateArrowView(this, t.text);
         updateArrow.setTag("update:arrow");
@@ -2955,13 +3439,6 @@ public final class MainActivity extends Activity {
         updateAction.setMaxLines(6);
         updateAction.setEllipsize(TextUtils.TruncateAt.END);
         updateAction.setOnClickListener(v -> doUpdateAction());
-        updateAction.setOnFocusChangeListener((v, focused) -> setUpdateHot(focused || v.isHovered()));
-        updateAction.setOnHoverListener((v, event) -> {
-            int action = event.getActionMasked();
-            if (action == MotionEvent.ACTION_HOVER_ENTER) setUpdateHot(true);
-            else if (action == MotionEvent.ACTION_HOVER_EXIT) setUpdateHot(v.hasFocus());
-            return false;
-        });
         // A RelativeLayout makes a child with a rule for each of its sides exactly as wide as the room between them, whatever its width
         // says: the link would be the line's whole width, and a tap or the remote's focus across empty space. So the link sits in
         // a row that takes that room, and is as wide as its words in it.
@@ -3056,10 +3533,10 @@ public final class MainActivity extends Activity {
             title.setText(getString(R.string.text_open_source_licenses));
             body.removeAllViews();
             LinearLayout rows = column();
-            rows.setPadding(dp(14), 0, dp(14), dp(14));
             for (int i = 0; i < files.size(); i++) {
                 final int index = i;
-                TextView row = label(files.get(i), 13, t.text);
+                // The file's name, not its path: licenses/common/ was on every one of those from the core.
+                TextView row = label(LicenseText.name(files.get(i)), 13, t.text);
                 row.setPadding(dp(10), 0, dp(10), 0);
                 row.setSingleLine(true);
                 row.setEllipsize(TextUtils.TruncateAt.MIDDLE);
@@ -3072,7 +3549,11 @@ public final class MainActivity extends Activity {
             scroll.setVerticalScrollBarEnabled(false);
             scroll.setFocusable(false);
             scroll.addView(rows);
-            body.addView(scroll, new FrameLayout.LayoutParams(-1, -1));
+            // The rows are clipped 14 inside the card's edge, as the desktop's lists are (the 14 of its layout and its clip), so that the last
+            // is cut where the card's margin is and not at its border.
+            FrameLayout.LayoutParams scrollLp = new FrameLayout.LayoutParams(-1, -1);
+            scrollLp.setMargins(dp(14), 0, dp(14), dp(14));
+            body.addView(scroll, scrollLp);
             if (focusRow >= 0 && !getWindow().getDecorView().isInTouchMode()) {
                 View row = body.findViewWithTag("licenses:" + focusRow);
                 if (row != null) row.requestFocus();
@@ -3093,15 +3574,18 @@ public final class MainActivity extends Activity {
                 return;
             }
             showing = index;
-            title.setText(asset);
+            title.setText(LicenseText.name(asset));
             body.removeAllViews();
-            TextView text = ui.mono(contents, 11, t.text);
+            // The files are broken at 80 columns, and the notices are Markdown: joined into paragraphs, with the marks out of them, the
+            // box wraps them once.
+            TextView text = ui.mono(LicenseText.reflow(contents, asset.endsWith(".md")), 11, t.text);
             text.setGravity(Gravity.TOP | Gravity.START);
             text.setPadding(dp(12), dp(12), dp(12), dp(12));
             ScrollView scroll = new ScrollView(MainActivity.this);
             scroll.setVerticalScrollBarEnabled(false);
             scroll.addView(text);
             ui.focus(scroll, "licenses:text", Ui.Look.BOX);
+            Ui.leaveAtTheEnds(scroll);
             FrameLayout.LayoutParams boxLp = new FrameLayout.LayoutParams(-1, -1);
             boxLp.setMargins(dp(14), 0, dp(14), dp(14));
             body.addView(scroll, boxLp);
@@ -3130,7 +3614,8 @@ public final class MainActivity extends Activity {
             case AVAILABLE: text = getString(R.string.update_available, version); break;
             case DOWNLOADING: text = getString(R.string.update_downloading, AndroidUpdater.INSTANCE.getProgress()); break;
             case READY: text = getString(R.string.update_ready, version); break;
-            case INSTALLING: text = getString(R.string.update_installing); break;
+            // Until Android has the session there is nothing to start again, and the line does nothing: it does not say it will.
+            case INSTALLING: text = getString(line.clickable() ? R.string.update_installing_again : R.string.update_installing); break;
             case CHECK_FAILED:
                 text = getString(R.string.update_check_failed, getString(updateFailureText(AndroidUpdater.INSTANCE.getFailure())));
                 break;
@@ -3145,13 +3630,15 @@ public final class MainActivity extends Activity {
         // Not setEnabled: disabling the view that has a remote's focus moves the focus to
         // the top of the window. Not clickable, it ignores taps and OK just the same.
         updateAction.setClickable(line.clickable());
+        // Which has no hover look on the desktop while it does nothing: plain, in the text colour, and not underlined.
+        ((Ui.LinkText) updateAction).setDormant(!line.clickable());
         updateTick.setVisibility(line.tick ? View.VISIBLE : View.GONE);
         updateVersion.setVisibility(line.version ? View.VISIBLE : View.GONE);
         applyUpdateArrow(false);
     }
 
-    // The picture beside the line: dots while it waits on an answer, ↓ for an offered download (it bends into ↻ under the pointer or a
-    // remote's focus), a turning ↻ while one comes down, and ↻ after a failure (which leans, with the pointer or the focus on it).
+    // The picture beside the line: dots while it waits on an answer, ↓ for an offered download (it bends into ↻ under the pointer), a
+    // turning ↻ while one comes down, and ↻ after a failure (which leans, with the pointer on it).
     private void applyUpdateArrow(boolean animate) {
         if (updateArrow == null || updateDots == null || updateSlot == null) return;
         UpdateLine.Icon icon = updateLine().icon;
@@ -3229,9 +3716,7 @@ public final class MainActivity extends Activity {
             off.addView(message, weighted());
             TextView turnOn = ui.link(getString(R.string.logs_turn_on), 12, Ui.LinkKind.ACCENT, "logs:enable");
             turnOn.setOnClickListener(v -> { prefs.edit().putBoolean("logging", true).apply(); render(); });
-            LinearLayout.LayoutParams turnOnLp = lp(-2, -2);
-            turnOnLp.rightMargin = -dp(6);
-            off.addView(turnOn, turnOnLp);
+            off.addView(turnOn, ui.linkLp(true));
             body.addView(off, lp(-1, -2));
         }
         gap(body, 8);
@@ -3242,6 +3727,8 @@ public final class MainActivity extends Activity {
         logBox.setVerticalScrollBarEnabled(false);
         logBox.setPadding(dp(12), dp(12), dp(12), dp(12));
         ui.focus(logBox, "log:box", Ui.Look.BOX);
+        // A remote scrolls it with the arrows, and leaves it with Up at the top and Down at the end.
+        Ui.leaveAtTheEnds(logBox);
         logText = ui.mono("", 11, t.text);
         logText.setTag("log:text");
         logText.setGravity(Gravity.TOP | Gravity.START);
@@ -3264,8 +3751,11 @@ public final class MainActivity extends Activity {
         auto.setContentDescription(getString(R.string.logs_auto_scroll));
         auto.setListener((v, on) -> { logAutoScroll = on; if (on) scrollLogToEnd(); });
         LinearLayout.LayoutParams autoLp = lp(-2, -2);
-        // The track ends at the margin: the row's 6 of padding on its right, which the fill shows, go beyond it.
+        // The track ends at the margin: the row's 6 of padding on its right, which the fill shows, go beyond it. The row is 28 high to fill
+        // round the toggle, and the desktop's is 20: the 4 above and below that hang outside the foot.
         autoLp.rightMargin = -dp(Ui.FOCUS_ROW_RIGHT_DP);
+        autoLp.topMargin = -dp(4);
+        autoLp.bottomMargin = -dp(4);
         foot.addView(ui.toggleGroup(getString(R.string.logs_auto_scroll), 12, t.textDim, auto), autoLp);
         body.addView(foot, lp(-1, -2));
         refreshLog(true);

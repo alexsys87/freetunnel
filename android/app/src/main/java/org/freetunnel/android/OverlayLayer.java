@@ -1,6 +1,9 @@
 package org.freetunnel.android;
 
 import android.content.Context;
+import android.graphics.BlurMaskFilter;
+import android.graphics.Canvas;
+import android.graphics.Paint;
 import android.graphics.Rect;
 import android.view.View;
 import android.view.ViewGroup;
@@ -10,17 +13,19 @@ import android.view.ViewGroup;
  * as the desktop places it. MainActivity.showOverlay is what makes one and adds it.
  *
  * <ul>
- * <li>CARD (the editor, the app picker, Receive from phone): centred across, at least 40
- * from the top, as wide as asked and 14 from the window's sides at most, 52 shorter than
- * the window at most.
+ * <li>CARD (the editor, the app picker, Receive from phone): centred across, as wide as asked and 14 from the window's sides at most.
+ * Down the window as the desktop's cards are: centred in it, and never higher than 40 from the top (or than the status bar, or a TV's
+ * overscan) nor lower than 12 from the bottom (or the bar, or the overscan), so that on a TV the card covers the nav row and a phone's
+ * keeps clear of its bars.
  * <li>CONFIRM: centred both ways, 12 from the sides at most.
  * <li>POPUP (a dropdown, a menu, the select popup): under the control it belongs to,
  * 8 inside the window, flipped above when it does not fit below, and on the larger side,
- * scrolling, when it fits neither.
+ * scrolling, when it fits neither. A popup casts the desktop's shadow (MultiEffect: black at 0.5, 0.2 in the light theme, a blur of 0.7,
+ * 5 down). The suggestions of a field are a popup that is above its field, as wide as it, and passive: no backdrop takes a touch.
  * </ul>
  *
- * The panel is laid out after the page behind it, so that where the control is, after the
- * page is rebuilt, is known by then: requestLayout() puts a popup back under it.
+ * The panel is laid out after the page behind it, so that where the control is, after the page is rebuilt, is known by then:
+ * requestLayout() puts a popup back under it.
  */
 final class OverlayLayer extends ViewGroup {
     enum Kind { CARD, CONFIRM, POPUP }
@@ -29,6 +34,17 @@ final class OverlayLayer extends ViewGroup {
     static final int UNDER_RIGHT_EDGE = 0;
     static final int UNDER_CENTRE_OF_CONTROL = 1;
     static final int UNDER_CENTRE_OF_WINDOW = 2;
+    /** Above the control, as wide as it and level with its left edge: the suggestions of a text field. */
+    static final int ABOVE_CONTROL = 3;
+
+    /**
+     * The shadow's shape, from the desktop's render of a popup: it darkens the page by a quarter of its opacity at the sides and by
+     * four fifths of it at the bottom edge, which is a blur with a sigma of 5 and an offset of 5, down.
+     */
+    private static final float SHADOW_SIGMA_DP = 5f;
+    private static final float SHADOW_OFFSET_DP = 5f;
+    private static final float SHADOW_PAD_DP = 24f;
+    private static final float POPUP_RADIUS_DP = 10f;
 
     /** The control's rectangle in this layer's own coordinates, or null where it is gone. */
     interface Anchor { Rect rect(View layer); }
@@ -38,6 +54,7 @@ final class OverlayLayer extends ViewGroup {
     private final View panel;
     private final float density;
     private final Rect safe = new Rect();
+    private ShadowView shadow;
     private int preferredWidth;
     private int placement = UNDER_RIGHT_EDGE;
     private int gap;
@@ -56,6 +73,15 @@ final class OverlayLayer extends ViewGroup {
     View backdrop() { return backdrop; }
     View panel() { return panel; }
     Kind kind() { return kind; }
+    /** The popup's shadow, for the one who fades the popup in to fade it too; null for anything that casts none. */
+    View shadow() { return shadow; }
+
+    /** Gives the panel a shadow of this colour (Theme.popupShadow), drawn under it and a little below. */
+    void setShadow(int color) {
+        if (shadow != null) removeView(shadow);
+        shadow = new ShadowView(getContext(), color, density);
+        addView(shadow, indexOfChild(panel));
+    }
 
     /** What the window keeps clear of at its edges: the status bar, and a TV's overscan. */
     void setSafe(int left, int top, int right, int bottom) {
@@ -73,14 +99,23 @@ final class OverlayLayer extends ViewGroup {
 
     private int dp(float n) { return Math.round(n * density); }
 
+    /** Where a card's top may not rise above: 40 from the window's top, or the bar or overscan, whichever is lower. */
+    private int cardFloor() { return Math.max(dp(40), safe.top); }
+
     private void measurePanel(int w, int h, int forcedHeight) {
         int availableWidth = w - safe.left - safe.right;
         int availableHeight = h - safe.top - safe.bottom;
         int side = dp(kind == Kind.CARD ? 14 : kind == Kind.CONFIRM ? 12 : 8);
         int maxWidth = Math.max(0, availableWidth - 2 * side);
-        int maxHeight = Math.max(0, availableHeight - dp(kind == Kind.CARD ? 52 : kind == Kind.CONFIRM ? 24 : 16));
-        int widthSpec = preferredWidth > 0
-            ? MeasureSpec.makeMeasureSpec(Math.min(preferredWidth, maxWidth), MeasureSpec.EXACTLY)
+        int maxHeight = kind == Kind.CARD ? Math.max(0, h - cardFloor() - Math.max(dp(12), safe.bottom))
+            : Math.max(0, availableHeight - dp(kind == Kind.CONFIRM ? 24 : 16));
+        int width = preferredWidth;
+        if (placement == ABOVE_CONTROL && anchor != null) {
+            Rect a = anchor.rect(this);
+            if (a != null) width = a.width();
+        }
+        int widthSpec = width > 0
+            ? MeasureSpec.makeMeasureSpec(Math.min(width, maxWidth), MeasureSpec.EXACTLY)
             : MeasureSpec.makeMeasureSpec(maxWidth, MeasureSpec.AT_MOST);
         int heightSpec = forcedHeight >= 0
             ? MeasureSpec.makeMeasureSpec(forcedHeight, MeasureSpec.EXACTLY)
@@ -107,7 +142,7 @@ final class OverlayLayer extends ViewGroup {
         int x = safe.left + (availableWidth - panelWidth) / 2;
         int y;
         if (kind == Kind.CARD) {
-            y = safe.top + Math.max(dp(40), (availableHeight - panelHeight) / 2);
+            y = Math.max(cardFloor(), safe.top + (availableHeight - panelHeight) / 2);
         } else if (kind == Kind.CONFIRM) {
             y = safe.top + (availableHeight - panelHeight) / 2;
         } else {
@@ -118,13 +153,17 @@ final class OverlayLayer extends ViewGroup {
             } else {
                 if (placement == UNDER_RIGHT_EDGE) x = a.right - panelWidth;
                 else if (placement == UNDER_CENTRE_OF_CONTROL) x = a.centerX() - panelWidth / 2;
+                else if (placement == ABOVE_CONTROL) x = a.left;
                 x = Math.max(safe.left + margin, Math.min(w - safe.right - margin - panelWidth, x));
                 int below = (h - safe.bottom - margin) - (a.bottom + gap);
                 int above = (a.top - gap) - (safe.top + margin);
-                if (panelHeight <= below) {
+                boolean wantsAbove = placement == ABOVE_CONTROL;
+                if (!wantsAbove && panelHeight <= below) {
                     y = a.bottom + gap;
                 } else if (panelHeight <= above) {
                     y = a.top - gap - panelHeight;
+                } else if (wantsAbove && panelHeight <= below) {
+                    y = a.bottom + gap;
                 } else {
                     // Neither side has room for all of it: the larger one, and it scrolls.
                     boolean underneath = below >= above;
@@ -136,5 +175,41 @@ final class OverlayLayer extends ViewGroup {
             }
         }
         panel.layout(x, y, x + panelWidth, y + panelHeight);
+        if (shadow != null) {
+            int pad = dp(SHADOW_PAD_DP);
+            shadow.measure(MeasureSpec.makeMeasureSpec(panelWidth + 2 * pad, MeasureSpec.EXACTLY),
+                MeasureSpec.makeMeasureSpec(panelHeight + 2 * pad, MeasureSpec.EXACTLY));
+            shadow.layout(x - pad, y - pad, x + panelWidth + pad, y + panelHeight + pad);
+        }
+    }
+
+    /**
+     * The popup's shadow: the panel's outline, black at the theme's opacity, blurred and moved down. A view of its own, drawn in software
+     * where a blur is the same on every release (the platform's elevation shadow, which this replaces, is drawn at a fifth of the colour
+     * it is given, so that a shadow of 0.5 came out at 0.1 and a menu hardly stood off the page).
+     */
+    private static final class ShadowView extends View {
+        private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final float density;
+
+        ShadowView(Context context, int color, float density) {
+            super(context);
+            this.density = density;
+            setLayerType(LAYER_TYPE_SOFTWARE, null);
+            setFocusable(false);
+            setClickable(false);
+            setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);
+            paint.setColor(color);
+            // Skia's sigma is 0.57735 of the radius a BlurMaskFilter is given, and a half pixel more.
+            float sigma = SHADOW_SIGMA_DP * density;
+            paint.setMaskFilter(new BlurMaskFilter(Math.max(1f, (sigma - 0.5f) / 0.57735f), BlurMaskFilter.Blur.NORMAL));
+        }
+
+        @Override protected void onDraw(Canvas canvas) {
+            float pad = SHADOW_PAD_DP * density;
+            float down = SHADOW_OFFSET_DP * density;
+            float radius = POPUP_RADIUS_DP * density;
+            canvas.drawRoundRect(pad, pad + down, getWidth() - pad, getHeight() - pad + down, radius, radius, paint);
+        }
     }
 }

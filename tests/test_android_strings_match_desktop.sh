@@ -216,6 +216,7 @@ update_download
 update_install
 update_ready
 update_installing
+update_installing_again
 update_cancel
 update_error_network
 update_error_rate_limited
@@ -249,17 +250,13 @@ receive_page_busy
 receive_page_wrong_code
 receive_page_locked_out
 
-## Importing and editing a config, where Android has its own words: the editor's raw TOML, a file or a link it cannot read, a file picker that is missing, storage it cannot reach
+## Importing and editing a config, where Android has its own words: a file or a link it cannot read, a file picker that is missing, storage it cannot reach
 text_from_clipboard
-text_paste_complete_trusttunnel_toml
-text_show_toml_and_password
-text_enter_a_configuration_name
 text_configuration
 text_file_is_too_large
 text_could_not_open_file
 text_no_file_picker
 editor_no_file_picker
-editor_toml
 text_invalid_trusttunnel_link
 text_unsupported_link_size
 text_unsupported_link_version

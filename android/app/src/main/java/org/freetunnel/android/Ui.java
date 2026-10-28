@@ -9,9 +9,11 @@ import android.graphics.Typeface;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
 import android.graphics.drawable.StateListDrawable;
+import android.os.Build;
 import android.text.TextUtils;
 import android.util.TypedValue;
 import android.view.Gravity;
+import android.view.KeyEvent;
 import android.view.TouchDelegate;
 import android.view.View;
 import android.view.animation.DecelerateInterpolator;
@@ -20,6 +22,7 @@ import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
+import android.widget.ScrollView;
 import android.widget.TextView;
 
 /**
@@ -29,13 +32,19 @@ import android.widget.TextView;
  * <p>The desktop has no focus ring: where the pointer is, a control takes its hover
  * look, and a remote's focus is that same look, control by control: a nav tile and a row fill with surface, a link goes to its hover
  * colour and underlines, a chip to surfaceHover, a button to its hover colour, a dropdown's
- * value and a back arrow to the text colour, a text field's border to the accent. A control
+ * value and a back arrow to the text colour, a text field's border to the accent, a box of text
+ * (which rests on surface) to surfaceHover. A control
  * the desktop gives no hover (a toggle, the logo) takes the nearest thing it has: its row
  * fills as a config row does, the logo grows to the pulse's peak. What is selected stays as
  * it is, with a remote or without one: an accent chip, an accent primary button, a red
  * confirm button with a white label, and an inputBg field. Never a stroke around a control,
  * never a foreground, never a fill across empty width: a control's focus is its background
  * (or its colour), in its own shape and radius. See {@link #focus}.
+ *
+ * <p>The two places a remote's focus shows what the desktop's pointer does not, because the control would otherwise have none: the
+ * current page's nav tile grows to 1.08 like the others (the desktop leaves it as it is under the pointer), and the selected profile
+ * chip goes to primaryHover (the desktop leaves it on the accent). Both are the one place a control that does nothing, or is already
+ * selected, is still somewhere a remote stops, and both are on purpose.
  */
 final class Ui {
     /** What a control's rest, hover and focus look like. */
@@ -110,6 +119,9 @@ final class Ui {
         v.setTextSize(TypedValue.COMPLEX_UNIT_SP, sp);
         v.setTextColor(color);
         v.setGravity(Gravity.CENTER_VERTICAL);
+        // A line is as high as its font's ascent and descent, as a Qt Text is: Android adds the font's own room above and below
+        // otherwise, which makes every line two or three dp taller than the desktop's.
+        v.setIncludeFontPadding(false);
         return v;
     }
     /** The desktop's Medium weight, 500: never bold. */
@@ -175,6 +187,61 @@ final class Ui {
         child.setImageTintList(always(color));
         return child;
     }
+    /**
+     * A character the desktop draws as text (▾ ✓ ↓ ↑ ←), as a shape of the size its font gives it. Roboto has none of them, and the
+     * font Android falls back to draws them about half the size and thinner, floating at the x-height instead of sitting on the
+     * line. One colour, whatever state it is in; it is no thing to read out.
+     */
+    ImageView glyph(int drawable, int color) {
+        ImageView v = new ImageView(context);
+        v.setImageResource(drawable);
+        v.setImageTintList(always(color));
+        v.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        return v;
+    }
+    /** The same, in the colours of the control it is in: at rest, under the pointer and with the focus. */
+    ImageView followGlyph(int drawable, int rest, int hot, int focused) {
+        return followTint(glyph(drawable, rest), rest, hot, focused);
+    }
+
+    /**
+     * A field of one line. Android 13 and later keep an arrow pressed on a keyboard inside an editor, so that Up and Down never left
+     * a field with one (a remote's keys are not a keyboard's, but a keyboard on a TV, and the device tests' keys, are): they go on to the
+     * control above or below, as they do from any other control, and stay in the field only where there is none. The cursor's own
+     * moves are Left and Right.
+     */
+    static class LineEdit extends EditText {
+        LineEdit(Context context) { super(context); }
+
+        @Override public boolean onKeyDown(int keyCode, KeyEvent event) {
+            if ((keyCode == KeyEvent.KEYCODE_DPAD_UP || keyCode == KeyEvent.KEYCODE_DPAD_DOWN) && event.hasNoModifiers()) {
+                int direction = keyCode == KeyEvent.KEYCODE_DPAD_UP ? FOCUS_UP : FOCUS_DOWN;
+                View next = focusSearch(direction);
+                if (next != null && next != this && next.requestFocus(direction)) return true;
+            }
+            return super.onKeyDown(keyCode, event);
+        }
+    }
+    /** A field of one line, for a form to put in {@link #field}, with the arrows above. */
+    EditText lineEdit() {
+        EditText e = new LineEdit(context);
+        e.setSingleLine(true);
+        return e;
+    }
+
+    /**
+     * A box of text that a remote scrolls with Up and Down (the log, a license): at its top an Up, and at its end a Down, go on to the control
+     * beside it, as they do from any control, where the scroll view itself would keep them. Anywhere else the arrows scroll it.
+     */
+    static void leaveAtTheEnds(ScrollView box) {
+        box.setOnKeyListener((v, keyCode, event) -> {
+            if (event.getAction() != KeyEvent.ACTION_DOWN || !event.hasNoModifiers()) return false;
+            int direction = keyCode == KeyEvent.KEYCODE_DPAD_UP ? View.FOCUS_UP : keyCode == KeyEvent.KEYCODE_DPAD_DOWN ? View.FOCUS_DOWN : 0;
+            if (direction == 0 || box.canScrollVertically(direction == View.FOCUS_UP ? -1 : 1)) return false;
+            View next = box.focusSearch(direction);
+            return next != null && next != box && next.requestFocus(direction);
+        });
+    }
 
     // Focus.
 
@@ -213,7 +280,7 @@ final class Ui {
      * with the focus alone it goes to primaryHover, as the primary button does;
      * <li>BUTTON: surfaceHover (a dialog's), surface (the editor's Cancel, which keeps its border); PRIMARY: primaryHover;
      * DANGER: destructiveHover;
-     * <li>FIELD, SELECT: an accent border on inputBg; BOX (a box of text a remote scrolls): the same on surface.
+     * <li>FIELD, SELECT: an accent border on inputBg; BOX (a box of text a remote scrolls): surfaceHover, with no border.
      * </ul>
      */
     StateListDrawable background(Look look, int flags) {
@@ -277,12 +344,12 @@ final class Ui {
                 hotStrokeSet = true;
                 break;
             case BOX:
-                // A box of text that a remote scrolls, such as a license or the log: the desktop's surface, radius 8; with the
-                // focus, the field's accent border.
+                // A box of text that a remote scrolls, such as a license or the log: the desktop's surface, radius 8, which has no
+                // border under the pointer or with the focus there (the log's box never draws one). As any control that rests on
+                // surface, its focus is surfaceHover.
                 rest = t.surface;
                 hot = t.surface;
-                focused = t.surface;
-                focusStroke = t.accent;
+                focused = t.surfaceHover;
                 focusSet = true;
                 break;
             default:
@@ -407,7 +474,8 @@ final class Ui {
         v.setGravity(Gravity.CENTER_VERTICAL);
         v.setSingleLine(true);
         v.setEllipsize(TextUtils.TruncateAt.END);
-        v.setPadding(dp(6), dp(4), dp(6), dp(4));
+        v.setIncludeFontPadding(false);
+        v.setPadding(dp(LINK_PAD_H_DP), dp(LINK_PAD_V_DP), dp(LINK_PAD_H_DP), dp(LINK_PAD_V_DP));
         switch (kind) {
             case DANGER:
                 v.setTextColor(colors(t.danger, t.dangerLinkHover, t.dangerLinkHover));
@@ -425,14 +493,52 @@ final class Ui {
         return key == null ? styled(v, Look.LINK, 0) : focus(v, key, Look.LINK, 0);
     }
 
-    /** A link that underlines while it is pressed, hovered or focused: the desktop's, which has the pointer for the first two. */
+    /** What a link is padded by, to be hit and to take its focus by: 6 at the sides and 4 above and below. */
+    static final int LINK_PAD_H_DP = 6;
+    static final int LINK_PAD_V_DP = 4;
+    /**
+     * A link's place in a row of a page, such as a header or the footer: the desktop's link is its words, and its hit area, which reaches
+     * 4 round them, adds nothing to the row's height or length, so that the padding hangs outside the row, above and below. {@code last}
+     * is the last control of the row, whose words end where the page's margin does.
+     */
+    LinearLayout.LayoutParams linkLp(boolean last) {
+        LinearLayout.LayoutParams p = lp(-2, -2);
+        p.topMargin = -dp(LINK_PAD_V_DP);
+        p.bottomMargin = -dp(LINK_PAD_V_DP);
+        if (last) p.rightMargin = -dp(LINK_PAD_H_DP);
+        return p;
+    }
+
+    /**
+     * A link that underlines while it is pressed, hovered or focused: the desktop's, which has the pointer for the first two. While it is
+     * dormant (the update row while it checks or installs, which cannot be clicked) it has no hover look at all, as the desktop's has none:
+     * plain, in the colour it rests in, never underlined.
+     */
     static final class LinkText extends TextView {
+        private ColorStateList colors;
+        private boolean dormant;
+
         LinkText(Context c) { super(c); }
+
+        @Override public void setTextColor(ColorStateList states) {
+            colors = states;
+            super.setTextColor(dormant && states != null ? ColorStateList.valueOf(states.getColorForState(new int[0], states.getDefaultColor())) : states);
+        }
+
+        void setDormant(boolean value) {
+            if (dormant == value) return;
+            dormant = value;
+            if (colors != null) setTextColor(colors);
+            refreshDrawableState();
+            if (value) setPaintFlags(getPaintFlags() & ~Paint.UNDERLINE_TEXT_FLAG);
+        }
+
         @Override protected void drawableStateChanged() {
             super.drawableStateChanged();
             boolean hot = false;
-            for (int state : getDrawableState())
-                if (state == android.R.attr.state_pressed || state == android.R.attr.state_hovered || state == android.R.attr.state_focused) hot = true;
+            if (!dormant)
+                for (int state : getDrawableState())
+                    if (state == android.R.attr.state_pressed || state == android.R.attr.state_hovered || state == android.R.attr.state_focused) hot = true;
             int flags = getPaintFlags();
             int next = hot ? flags | Paint.UNDERLINE_TEXT_FLAG : flags & ~Paint.UNDERLINE_TEXT_FLAG;
             if (next != flags) setPaintFlags(next);
@@ -441,7 +547,8 @@ final class Ui {
 
     /**
      * The desktop's Dropdown: the label does nothing; only the value and its ▾ open the choice, and they are textDim and the
-     * text colour under the pointer or with the focus, with no fill.
+     * text colour under the pointer or with the focus, with no fill. The value and ▾ are as high as the row, as the desktop's are
+     * (their popup opens under the row, not under the words), and are a {@link DropdownValue}.
      */
     LinearLayout dropdown(CharSequence name, CharSequence value, String key, View.OnClickListener open) {
         LinearLayout r = row();
@@ -451,27 +558,42 @@ final class Ui {
         title.setEllipsize(TextUtils.TruncateAt.END);
         r.addView(title, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
         gapH(r, 8);
-        LinearLayout group = row();
-        group.setPadding(dp(6), dp(4), dp(6), dp(4));
+        LinearLayout group = new DropdownValue(context);
+        group.setOrientation(LinearLayout.HORIZONTAL);
+        group.setGravity(Gravity.CENTER_VERTICAL);
+        group.setPadding(dp(DROPDOWN_PADDING_DP), 0, dp(DROPDOWN_PADDING_DP), 0);
         TextView shown = follow(label(value, 14, t.textDim), t.textDim, t.text, t.text);
         shown.setSingleLine(true);
         shown.setEllipsize(TextUtils.TruncateAt.END);
-        shown.setMaxWidth(dp(106));
+        shown.setMaxWidth(dp(112));
         group.addView(shown, lp(-2, -2));
         gapH(group, 4);
-        group.addView(follow(label("▾", 16, t.textDim), t.textDim, t.text, t.text), lp(-2, -2));
+        LinearLayout.LayoutParams arrowLp = lp(-2, -2);
+        arrowLp.topMargin = dp(1);
+        group.addView(followGlyph(R.drawable.ic_dropdown, t.textDim, t.text, t.text), arrowLp);
         focus(group, key, Look.PLAIN).setOnClickListener(open);
         // The value and its ▾ end where the page's margin does, as the desktop's do: the control's own 6 of padding, which has no
         // fill to show, go beyond it.
-        LinearLayout.LayoutParams groupLp = lp(-2, -2);
-        groupLp.rightMargin = -dp(6);
+        LinearLayout.LayoutParams groupLp = lp(-2, -1);
+        groupLp.rightMargin = -dp(DROPDOWN_PADDING_DP);
         r.addView(group, groupLp);
         return r;
     }
+    /** How far a dropdown's value is padded at each side, and so how far its control reaches past the page's margin. */
+    static final int DROPDOWN_PADDING_DP = 6;
+    /** A dropdown's value and its ▾. A popup for its choices opens under the row and ends where its content does (see MainActivity.anchorRect). */
+    static final class DropdownValue extends LinearLayout {
+        DropdownValue(Context c) { super(c); }
+    }
 
-    /** A page's text input: 36 high, radius 8, 13. The desktop's field look. */
-    EditText pageInput(CharSequence hint, String key) {
-        EditText e = new EditText(context);
+    /**
+     * A page's text input: 36 high, radius 8, 13. The desktop's field look. Its placeholder goes while it has the focus, as the
+     * desktop's does (the new profile's name and the picker's search keep theirs: {@link #pageInput(CharSequence, String, boolean)}).
+     */
+    EditText pageInput(CharSequence hint, String key) { return pageInput(hint, key, false); }
+
+    EditText pageInput(CharSequence hint, String key, boolean keepHint) {
+        EditText e = new LineEdit(context);
         e.setSingleLine(true);
         e.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
         e.setTextColor(t.text);
@@ -479,7 +601,31 @@ final class Ui {
         e.setHint(hint);
         e.setPadding(dp(12), 0, dp(12), 0);
         e.setGravity(Gravity.CENTER_VERTICAL);
+        caret(e);
+        if (!keepHint) hideHintWhileFocused(e);
         return focus(e, key, Look.FIELD);
+    }
+
+    /** A field's text cursor is one dp wide in the text colour, as the desktop's is, and its selection is the accent: nothing of the system's teal. */
+    private void caret(EditText e) {
+        e.setHighlightColor(Theme.withAlpha(t.accent, 0x66));
+        if (Build.VERSION.SDK_INT >= 29) {
+            GradientDrawable line = new GradientDrawable();
+            line.setColor(t.text);
+            line.setSize(Math.max(1, dp(1)), -1);
+            e.setTextCursorDrawable(line);
+        }
+    }
+
+    /** The desktop shows a field's placeholder only while it is empty and has not the focus: the hint goes with the focus and comes back with it. */
+    static void hideHintWhileFocused(EditText e) {
+        final CharSequence hint = e.getHint();
+        final View.OnFocusChangeListener before = e.getOnFocusChangeListener();
+        e.setOnFocusChangeListener((v, focused) -> {
+            e.setHint(focused ? null : hint);
+            if (before != null) before.onFocusChange(v, focused);
+        });
+        if (e.hasFocus()) e.setHint(null);
     }
 
     /** Field: a label, 13 in textDim, 4 above a 34 high box, radius 8, 14. */
@@ -492,18 +638,34 @@ final class Ui {
         input.setHintTextColor(t.textFaint);
         input.setPadding(dp(10), 0, dp(10), 0);
         input.setGravity(Gravity.CENTER_VERTICAL);
+        caret(input);
+        hideHintWhileFocused(input);
         focus(input, key, Look.FIELD);
         box.addView(input, lp(-1, 34));
         return box;
     }
 
     /**
-     * The desktop's text area (the editor's certificate): a Field's label and look, and a box
-     * of several lines in monospace 12, at least this high and growing with what is typed.
+     * The desktop's text area (the editor's certificate): a Field's label and look, and a box of several lines in monospace 12, this high,
+     * whose text scrolls in it. The label line can have a link at its right ({@code beside}, which the desktop's "Load from file…" is),
+     * and the label gives way to it.
      */
-    LinearLayout fieldArea(CharSequence name, EditText input, String key, int minHeightDp) {
+    LinearLayout fieldArea(CharSequence name, EditText input, String key, int heightDp) { return fieldArea(name, null, input, key, heightDp); }
+
+    LinearLayout fieldArea(CharSequence name, View beside, EditText input, String key, int heightDp) {
         LinearLayout box = column();
-        box.addView(label(name, 13, t.textDim), lp(-1, -2));
+        if (beside == null) {
+            box.addView(label(name, 13, t.textDim), lp(-1, -2));
+        } else {
+            LinearLayout line = row();
+            TextView caption = label(name, 13, t.textDim);
+            caption.setSingleLine(true);
+            caption.setEllipsize(TextUtils.TruncateAt.END);
+            line.addView(caption, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+            // The link's own padding hangs outside the line, and its words end at the margin.
+            line.addView(beside, linkLp(true));
+            box.addView(line, lp(-1, -2));
+        }
         gap(box, 4);
         input.setTypeface(Typeface.MONOSPACE);
         input.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
@@ -511,15 +673,16 @@ final class Ui {
         input.setHintTextColor(t.textFaint);
         input.setPadding(dp(10), dp(8), dp(10), dp(8));
         input.setGravity(Gravity.TOP | Gravity.START);
-        input.setMinHeight(dp(minHeightDp));
+        caret(input);
+        hideHintWhileFocused(input);
         focus(input, key, Look.FIELD);
-        box.addView(input, lp(-1, -2));
+        box.addView(input, lp(-1, heightDp));
         return box;
     }
 
     /**
      * The editor's select box (qml/Field.qml's look, CreateConfigOverlay's Protocol and Split profile): a label, 13 in textDim, over a
-     * box 34 high, radius 8, on inputBg, with the value (14, the text colour) 10 in from the left and ▾ (16, textDim) 10 from the right. The
+     * box 34 high, radius 8, on inputBg, with the value (14, the text colour) 10 in from the left and ▾ (textDim) 10 from the right. The
      * box is the control; its border turns accent under the pointer and with the focus, as a field's does. Where the
      * value is shown is put in {@code valueOut}, for the caller to change it when a choice is made.
      */
@@ -533,7 +696,7 @@ final class Ui {
         shown.setSingleLine(true);
         shown.setEllipsize(TextUtils.TruncateAt.END);
         box.addView(shown, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
-        box.addView(label("▾", 16, t.textDim), lp(-2, -2));
+        box.addView(glyph(R.drawable.ic_dropdown, t.textDim), lp(-2, -2));
         focus(box, key, Look.SELECT).setOnClickListener(open);
         field.addView(box, lp(-1, 34));
         if (valueOut != null) valueOut[0] = shown;
@@ -555,13 +718,15 @@ final class Ui {
         return r;
     }
 
-    /** A card's ←, 20 in textDim and the text colour under the pointer and with the focus, in a cell 6 larger all round. */
-    TextView backArrow(String key, CharSequence description, View.OnClickListener back) {
-        TextView arrow = label("←", 20, t.textDim);
-        arrow.setTextColor(colors(t.textDim, t.text, t.text));
-        arrow.setGravity(Gravity.CENTER);
-        arrow.setPadding(dp(8), dp(1), dp(8), dp(1));
+    /**
+     * A card's ←, 15 by 8.5 in textDim and the text colour under the pointer and with the focus, in a cell 6 larger all round (the
+     * desktop's arrow is 6 short of its hit area at every side).
+     */
+    ImageView backArrow(String key, CharSequence description, View.OnClickListener back) {
+        ImageView arrow = followGlyph(R.drawable.ic_back, t.textDim, t.text, t.text);
+        arrow.setPadding(dp(6), dp(6), dp(6), dp(6));
         arrow.setContentDescription(description);
+        arrow.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_AUTO);
         arrow.setOnClickListener(back);
         return focus(arrow, key, Look.PLAIN);
     }
@@ -573,13 +738,14 @@ final class Ui {
     LinearLayout cardHeader(CharSequence title, String backKey, CharSequence backDescription, View.OnClickListener back) {
         LinearLayout bar = row();
         bar.setMinimumHeight(dp(48));
-        bar.setPadding(dp(6), 0, dp(14), 0);
+        // The arrow's own 6 of padding make its left edge 14 in, and the title 12 after it.
+        bar.setPadding(dp(8), 0, dp(14), 0);
         bar.addView(backArrow(backKey, backDescription, back), lp(-2, -2));
         TextView name = medium(title, 15, t.text);
         name.setSingleLine(true);
         name.setEllipsize(TextUtils.TruncateAt.MIDDLE);
         LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1);
-        p.leftMargin = dp(4);
+        p.leftMargin = dp(6);
         bar.addView(name, p);
         return bar;
     }
@@ -773,18 +939,19 @@ final class Ui {
 
     /**
      * Home's config selector: the active config's name, 15 in Medium and elided at the right to the room
-     * there is, and 6 later the ▾ (15), as one control that is as wide as they are. Both are the text colour, and
+     * there is, and 6 later the ▾, as one control that is as wide as they are and 24 high, as the desktop's is. Both are the text colour, and
      * accent under the pointer and with the focus, with the name underlined. Without configs it is "Add a config"
      * alone, with no ▾.
      */
     LinearLayout selector(CharSequence name, boolean arrow, int maxNameWidthPx, String key) {
         LinearLayout box = row();
-        box.setPadding(dp(6), dp(4), dp(6), dp(4));
+        box.setMinimumHeight(dp(24));
         LinkText label = new LinkText(context);
         label.setText(name);
         label.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
         label.setTypeface(MEDIUM);
         label.setGravity(Gravity.CENTER_VERTICAL);
+        label.setIncludeFontPadding(false);
         label.setSingleLine(true);
         label.setEllipsize(TextUtils.TruncateAt.END);
         if (maxNameWidthPx > 0) label.setMaxWidth(maxNameWidthPx);
@@ -792,23 +959,27 @@ final class Ui {
         label.setDuplicateParentStateEnabled(true);
         box.addView(label, lp(-2, -2));
         if (arrow) {
-            TextView triangle = follow(label("▾", 15, t.text), t.text, t.accent, t.accent);
             LinearLayout.LayoutParams p = lp(-2, -2);
-            p.leftMargin = dp(6);
-            box.addView(triangle, p);
+            p.leftMargin = dp(SELECTOR_GAP_DP);
+            p.topMargin = dp(1);
+            box.addView(followGlyph(R.drawable.ic_dropdown, t.text, t.accent, t.accent), p);
         }
         return focus(box, key, Look.LINK);
     }
+    /** The space between the selector's name and its ▾, and between the selector and the +. */
+    static final int SELECTOR_GAP_DP = 6;
+    /** The width of the ▾ that every dropdown has (res/drawable/ic_dropdown.xml). */
+    static final int DROPDOWN_ARROW_DP = 8;
 
     /** One of the two speed tiles at the foot of Home: 116 by 44, radius 8, on the tile colour. Not a control. */
-    LinearLayout speedTile(String arrow, int arrowColor, TextView[] valueOut) {
+    LinearLayout speedTile(int arrowDrawable, int arrowColor, TextView[] valueOut) {
         LinearLayout tile = row();
         tile.setGravity(Gravity.CENTER);
         tile.setBackground(shape(t.tile, 8));
-        tile.addView(label(arrow, 14, arrowColor), lp(-2, -2));
+        tile.addView(glyph(arrowDrawable, arrowColor), lp(-2, -2));
         TextView value = medium("", 15, t.text);
         LinearLayout.LayoutParams p = lp(-2, -2);
-        p.leftMargin = dp(5);
+        p.leftMargin = dp(8);
         tile.addView(value, p);
         valueOut[0] = value;
         return tile;

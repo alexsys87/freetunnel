@@ -21,12 +21,9 @@
     <string name="text_from_clipboard">"From clipboard"</string>
     <string name="text_storage_is_unavailable_data_has_not_been_changed">"Storage is unavailable. Data has not been changed."</string>
     <string name="text_cancel">"Cancel"</string>
-    <string name="text_paste_complete_trusttunnel_toml">"Paste complete TrustTunnel TOML or a tt:// link"</string>
-    <string name="text_show_toml_and_password">"Show TOML and password"</string>
     <string name="text_new_configuration">"New config"</string>
     <string name="text_edit_configuration">"Edit config"</string>
     <string name="text_save">"Save"</string>
-    <string name="text_enter_a_configuration_name">"Enter a configuration name"</string>
     <string name="text_delete">"Delete"</string>
     <string name="text_vpn_permission_was_not_granted">"VPN permission was not granted"</string>
     <string name="text_file_is_too_large">"File is too large"</string>
@@ -105,11 +102,12 @@
     <string name="update_available">"Version %1$s is available"</string>
     <string name="update_downloading">"Downloading… %1$d%%"</string>
     <string name="update_ready">Version %1$s is verified. Tap this line to install it. If Android asks, allow installs from FreeTunnel, then tap this line again.</string>
-    <string name="update_installing">Waiting for Android installation confirmation… If its window closed, tap this line to start it again.</string>
+    <string name="update_installing">Waiting for Android installation confirmation…</string>
+    <string name="update_installing_again">Waiting for Android installation confirmation… If its window closed, tap this line to start it again.</string>
     <string name="update_cancel">Cancel download</string>
-    <string name="update_error_network">Couldn’t reach GitHub, or the download was interrupted. Check your connection and try again.</string>
+    <string name="update_error_network">couldn’t reach GitHub, or the download was interrupted. Check your connection and try again.</string>
     <string name="update_error_rate_limited">GitHub is limiting update checks for now. The limit is shared by everyone on the same internet address, such as the same Wi-Fi or mobile network. Try again later.</string>
-    <string name="update_error_verification">The update failed the security check and was deleted; nothing was installed.</string>
+    <string name="update_error_verification">the update failed the security check and was deleted; nothing was installed.</string>
     <string name="update_error_installer">Android didn’t install the update. Try again.</string>
     <string name="update_unofficial">This build doesn’t come from the official channel, so it doesn’t update itself. Install an official release from GitHub to get updates.</string>
     <string name="update_disconnect_warning">Installing replaces FreeTunnel, so the VPN and its kill switch are off until FreeTunnel reconnects after the update. Until then apps go online without the VPN, unless Android blocks connections without VPN.</string>
@@ -129,8 +127,8 @@
     <string name="text_from_another_device">From another device</string>
     <string name="text_no_file_picker_receive">This TV has no file picker. Use Receive from phone, or create the configuration manually.</string>
     <string name="receive_page_title">Send to FreeTunnel</string>
-    <string name="receive_page_prompt">Paste a tt:// link or a TrustTunnel TOML file:</string>
-    <string name="receive_page_file">Or choose a TOML file, or a text file with a tt:// link:</string>
+    <string name="receive_page_prompt">Paste a tt:// link or a TrustTunnel TOML file</string>
+    <string name="receive_page_file">Or choose a TOML file, or a text file with a tt:// link</string>
     <string name="receive_page_send">Send to TV</string>
     <string name="receive_page_note">The TV shows what it received and asks before adding it. The text crosses your network unencrypted, so send it only over a network you trust.</string>
     <string name="receive_page_sent">Sent. Confirm it on the TV. You can send another below.</string>
@@ -176,7 +174,6 @@
     <string name="editor_error_random">"Client random must be hexadecimal in whole bytes (an even number of digits, at most 64), optionally followed by /mask"</string>
     <string name="editor_error_certificate">"The certificate must be in PEM format, as one or more BEGIN CERTIFICATE blocks"</string>
     <string name="editor_no_file_picker">This device has no file picker. Paste the certificate into the field.</string>
-    <string name="editor_toml">"TOML"</string>
     <string name="editor_discard_question">"Discard unsaved changes?"</string>
     <string name="editor_discard">"Discard"</string>
     <string name="picker_title">"Add an application"</string>

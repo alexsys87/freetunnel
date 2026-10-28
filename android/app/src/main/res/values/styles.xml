@@ -5,5 +5,11 @@
         <item name="android:statusBarColor">#181818</item>
         <item name="android:navigationBarColor">#181818</item>
         <item name="android:windowActionModeOverlay">true</item>
+        <!-- The system's teal is in no palette of the app. A text cursor and the handles of a selection take a neutral grey, and a cursor
+             with no drawable of its own is a line in the text colour, as the desktop's is; Ui.field sets a drawable of the same look on
+             Android 10 and later, which is a dp wide. -->
+        <item name="android:colorAccent">#8A8A8A</item>
+        <item name="android:colorControlActivated">#8A8A8A</item>
+        <item name="android:textCursorDrawable">@null</item>
     </style>
 </resources>

@@ -12,10 +12,11 @@
 #    QuickTileService and VpnPermissionActivity.
 #    Only screens the OS owns stay system UI (the VPN consent, the package installer, the file
 #    pickers, Android's settings), and none of them is made with these classes.
-# 2. Every overlay goes through showOverlay(), the one helper that adds to overlayLayer: it is
+# 2. Every overlay goes through showOverlay(), the one helper that adds to overlayLayer (the cards)
+#    and popupLayer (the popups and the confirmations, which are above the toast): it is
 #    what traps the focus, hides the page behind it, gives the focus back and handles Back. An
-#    overlayLayer.addView( anywhere else, in MainActivity or in any other file, would be an
-#    overlay with none of that; and so would a new OverlayLayer( made anywhere else.
+#    overlayLayer.addView( or popupLayer.addView( anywhere else, in MainActivity or in any other file,
+#    would be an overlay with none of that; and so would a new OverlayLayer( made anywhere else.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -45,7 +46,7 @@ banned_toast() {
 # and fails if any. showOverlay runs from its declaration to the first line that is a lone 4-space }.
 stray_adds() {
   awk '/^    (private )?[A-Za-z.<>]+ showOverlay\(/ { inside = 1 }
-       /(overlayLayer\.addView\(|new OverlayLayer\()/ && !inside { print FNR ": " $0; found = 1 }
+       /(overlayLayer\.addView\(|popupLayer\.addView\(|new OverlayLayer\()/ && !inside { print FNR ": " $0; found = 1 }
        inside && /^    }$/ { inside = 0 }
        END { exit found }' "$1"
 }
@@ -141,6 +142,17 @@ printf '%s\n' '        host.overlayLayer.addView(card);' > "$TMP/overlay-other-f
 check "overlayLayer.addView in some other file" stray_adds fail "$TMP/overlay-other-file"
 printf '%s\n' '        OverlayLayer mine = new OverlayLayer(this, kind, backdrop, panel);' > "$TMP/overlay-new"
 check "a new OverlayLayer outside showOverlay" stray_adds fail "$TMP/overlay-new"
+printf '%s\n' '    private void myOwnConfirm() {' '        popupLayer.addView(confirm);' '    }' > "$TMP/popup-stray"
+check "popupLayer.addView in another method" stray_adds fail "$TMP/popup-stray"
+cat > "$TMP/popup-good" <<'EOF'
+    private Overlay showOverlay(String name, OverlayLayer.Kind kind, View content, String anchorKey, Runnable onClose, boolean passive) {
+        FrameLayout parent = kind == OverlayLayer.Kind.CARD ? overlayLayer : popupLayer;
+        parent.addView(layer, new FrameLayout.LayoutParams(-1, -1));
+        popupLayer.addView(layer, new FrameLayout.LayoutParams(-1, -1));
+        return overlay;
+    }
+EOF
+check "popupLayer.addView inside showOverlay" stray_adds pass "$TMP/popup-good"
 
 # The app.
 MAIN="$ROOT/android/app/src/main/java/org/freetunnel/android"
