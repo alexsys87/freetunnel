@@ -689,6 +689,7 @@ public final class MainActivity extends Activity {
             this.escape = () -> closeOverlay(this);
         }
         Overlay width(int px) { layer.setPreferredWidth(px); return this; }
+        Overlay height(int px) { layer.setPreferredHeight(px); return this; }
         void close() { closeOverlay(this); }
     }
 
@@ -2979,10 +2980,14 @@ public final class MainActivity extends Activity {
 
         void open() {
             LinearLayout card = column();
-            // As tall as the desktop's card, 460, or as the window leaves room for.
+            // As tall as the desktop's card, 460, or as the window leaves room for: whatever the list holds (overlay.height, below).
             card.setMinimumHeight(dp(460));
-            card.addView(ui.cardHeader(getString(R.string.picker_title), "picker:back", getString(R.string.text_back),
-                    v -> closeOverlay(overlay)), lp(-1, -2));
+            LinearLayout header = ui.cardHeader(getString(R.string.picker_title), "picker:back", getString(R.string.text_back),
+                    v -> closeOverlay(overlay));
+            // The desktop's row is 24 high under the card's 14, so its middle is 26 down; the header's own is 24. 4 more above, in the
+            // same 48, and the search box under it stays where it is.
+            header.setPadding(header.getPaddingLeft(), dp(4), header.getPaddingRight(), 0);
+            card.addView(header, lp(-1, -2));
             // Its "Search" stays while the field has the focus (the desktop's does), and starts 10 in, as the desktop's does.
             search = ui.pageInput(getString(R.string.picker_search), "picker:search", true);
             search.setPadding(dp(10), 0, dp(10), 0);
@@ -3010,7 +3015,7 @@ public final class MainActivity extends Activity {
             scroll.addView(list);
             card.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
             overlay = showOverlay("picker", OverlayLayer.Kind.CARD, card, null, null);
-            overlay.width(dp(420));
+            overlay.width(dp(420)).height(dp(460));
             fill();
             // The search field has the focus first, as the desktop's does, and no row is highlighted; Down goes on to the rows. A phone's
             // keyboard comes up at once, a TV's when OK is pressed on the field.
@@ -3069,7 +3074,10 @@ public final class MainActivity extends Activity {
                 pkg.setSingleLine(true);
                 pkg.setEllipsize(TextUtils.TruncateAt.START);
                 row.addView(name, lp(-1, -2));
-                row.addView(pkg, lp(-1, -2));
+                // 1 between the two, as the desktop's Column (spacing: 1) has.
+                LinearLayout.LayoutParams pkgLp = lp(-1, -2);
+                pkgLp.topMargin = dp(1);
+                row.addView(pkg, pkgLp);
                 ui.focus(row, "picker:" + i, Ui.Look.ROW).setOnClickListener(v -> choose(app));
                 LinearLayout.LayoutParams rowLp = lp(-1, 42);
                 rowLp.bottomMargin = dp(2);
@@ -3210,7 +3218,10 @@ public final class MainActivity extends Activity {
                 pkg.setSingleLine(true);
                 pkg.setEllipsize(TextUtils.TruncateAt.START);
                 row.addView(name, lp(-1, -2));
-                row.addView(pkg, lp(-1, -2));
+                // 1 between the two, as the desktop's Column (spacing: 1) has.
+                LinearLayout.LayoutParams pkgLp = lp(-1, -2);
+                pkgLp.topMargin = dp(1);
+                row.addView(pkg, pkgLp);
                 row.setTag("suggestion:" + i);
                 row.setOnClickListener(v -> take(index));
                 // Only the highlight moves, as on the desktop: a clickable view is a focus stop from API 26, and a stop here would have no key
@@ -3631,7 +3642,8 @@ public final class MainActivity extends Activity {
             body = new FrameLayout(MainActivity.this);
             card.addView(body, new LinearLayout.LayoutParams(-1, 0, 1));
             overlay = showOverlay("licenses", OverlayLayer.Kind.CARD, card, null, null);
-            overlay.width(dp(420));
+            // 460 high as the picker it copies is, not the length of its list or of the text in it.
+            overlay.width(dp(420)).height(dp(460));
             overlay.escape = () -> { if (showing >= 0) list(showing); else closeOverlay(overlay); };
             list(-1);
             overlay.defaultKey = "licenses:0";

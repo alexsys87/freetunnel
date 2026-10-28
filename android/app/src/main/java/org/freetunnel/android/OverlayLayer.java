@@ -13,7 +13,8 @@ import android.view.ViewGroup;
  * as the desktop places it. MainActivity.showOverlay is what makes one and adds it.
  *
  * <ul>
- * <li>CARD (the editor, the app picker, Receive from phone): centred across, as wide as asked and 14 from the window's sides at most.
+ * <li>CARD (the editor, the app picker, Receive from phone): centred across, as wide as asked and 14 from the window's sides at most,
+ * and as tall as it holds, or as it is asked (the picker and the licenses: 460) and the window leaves room for.
  * Down the window as the desktop's cards are: centred in it, and never higher than 40 from the top (or than the status bar, or a TV's
  * overscan) nor lower than 12 from the bottom (or the bar, or the overscan), so that on a TV the card covers the nav row and a phone's
  * keeps clear of its bars.
@@ -63,6 +64,7 @@ final class OverlayLayer extends ViewGroup {
     private final Rect safe = new Rect();
     private ShadowView shadow;
     private int preferredWidth;
+    private int preferredHeight;
     private int placement = UNDER_RIGHT_EDGE;
     private int gap;
     private Anchor anchor;
@@ -97,6 +99,11 @@ final class OverlayLayer extends ViewGroup {
     }
     /** A card's width in pixels, or 0 for as wide as it holds. */
     void setPreferredWidth(int px) { preferredWidth = px; requestLayout(); }
+    /**
+     * A card's height in pixels, or 0 for as tall as it holds: the desktop's list cards (the app picker) are min(room, 460) high however
+     * much they hold, and one that holds a long list does not run the length of the window. Never more than the window leaves room for.
+     */
+    void setPreferredHeight(int px) { preferredHeight = px; requestLayout(); }
     void setAnchor(Anchor anchor, int placement, int gapPx) {
         this.anchor = anchor;
         this.placement = placement;
@@ -126,6 +133,8 @@ final class OverlayLayer extends ViewGroup {
             : MeasureSpec.makeMeasureSpec(maxWidth, MeasureSpec.AT_MOST);
         int heightSpec = forcedHeight >= 0
             ? MeasureSpec.makeMeasureSpec(forcedHeight, MeasureSpec.EXACTLY)
+            : kind == Kind.CARD && preferredHeight > 0
+            ? MeasureSpec.makeMeasureSpec(Math.min(preferredHeight, maxHeight), MeasureSpec.EXACTLY)
             : MeasureSpec.makeMeasureSpec(maxHeight, MeasureSpec.AT_MOST);
         panel.measure(widthSpec, heightSpec);
     }

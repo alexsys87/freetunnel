@@ -2891,6 +2891,11 @@ class TvDeviceTest {
             val texts = descendants(layer.findViewWithTag<View>("picker:0")).filterIsInstance<TextView>().toList()
             assertEquals("A name and a package", 2, texts.size)
             assertEquals("The package is cut at its left", TextUtils.TruncateAt.START, texts[1].ellipsize)
+            // 1 between the name and the package, as the desktop's Column (spacing: 1) has, and the header's row 2 lower in its 48.
+            assertEquals("1 between them", Math.round(a.resources.displayMetrics.density), (texts[1].layoutParams as ViewGroup.MarginLayoutParams).topMargin)
+            val header = layer.findViewWithTag<View>("picker:back").parent as View
+            assertEquals("The header is 48 high", dp(a, 48f), header.height.toFloat(), dp(a, 1f))
+            assertEquals("with 4 above the row: its middle is 26 down", Math.round(4 * a.resources.displayMetrics.density), header.paddingTop)
             assertEquals("and the card has no Done and no file to choose", 0, descendants(layer).filterIsInstance<Button>().count())
             texts[1].text.toString()
         }
@@ -2911,6 +2916,25 @@ class TvDeviceTest {
         assertTrue("It is in the apps the VPN carries or leaves", profiles().apps(profiles().edited()).contains(first))
         assertTrue("and in the old list 1.0.0 reads, which copies the profile the selected config uses", prefs.getStringSet("apps", emptySet())!!.contains(first))
         assertEquals("The page does not change", 2, onMain { field("page").getInt(a) })
+    }
+
+    // The licenses are a card of the picker's size, 460 high, whether the list is up or a long text, and not the length of the window; the
+    // picker is never taller (it is shorter where a keyboard takes room), and says so while it is still looking.
+    @Test fun theLicensesAreACardOf460AndThePickerIsNeverTaller() {
+        val a = open()
+        render(a, 3)
+        fun height(tag: String) = onMain { (root(a).findViewWithTag<View>("overlay:$tag") as OverlayLayer).panel().height }
+        onMain { method("openSourceLicenses").invoke(a) }
+        instrumentation.waitForIdleSync()
+        assertEquals("The list is 460 high", dp(a, 460f), height("licenses").toFloat(), dp(a, 1.5f))
+        click(a, "licenses:0")
+        instrumentation.waitForIdleSync()
+        assertEquals("and so is a text, which is far longer", dp(a, 460f), height("licenses").toFloat(), dp(a, 1.5f))
+        closeWithBack(a, "licenses")
+        onMain { method("appPicker").invoke(a) }
+        instrumentation.waitForIdleSync()
+        assertTrue("The picker is 460 at most: ${height("picker")}", height("picker") <= dp(a, 460f) + dp(a, 1.5f))
+        closeWithBack(a, "picker")
     }
 
     // A theme and a mode are chosen in select popups, under their control: the current one first, and the focus back on the
