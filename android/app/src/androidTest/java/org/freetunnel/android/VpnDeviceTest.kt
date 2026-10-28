@@ -417,6 +417,44 @@ class VpnDeviceTest {
         }
     }
 
+    // A failure that ends the connection (the config is refused, say) is a notice in the shade, which alerts when the app is away. While the app
+    // is on the screen it is silent, and the reason is sent to the app, which says it in its toast as the desktop's window does (Main.qml:
+    // toast.show, with the tray told as well only when the window is not in view); with the app away nothing is sent.
+    @Test fun aFailureIsSentToTheOpenAppAndAlertsOnlyWhenTheAppIsAway() {
+        fun kind() = alert(48)?.notification?.let {
+            if (it.groupAlertBehavior == android.app.Notification.GROUP_ALERT_SUMMARY) "silent" else "alerting"
+        } ?: "none"
+        fun gone() = eventually { network() == null && FreeTunnelVpnService.state(context) == 0 && serviceOwner() == null }
+        val reasons = ConcurrentLinkedQueue<String>()
+        val receiver = object : android.content.BroadcastReceiver() {
+            override fun onReceive(c: Context, intent: Intent) { intent.getStringExtra(FreeTunnelVpnService.EXTRA_REASON)?.let { reasons.add(it) } }
+        }
+        androidx.core.content.ContextCompat.registerReceiver(context, receiver, android.content.IntentFilter(FreeTunnelVpnService.ACTION_FAILURE),
+            androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED)
+        try {
+            FreeTunnelVpnService.setAppVisible(true)
+            FreeTunnelVpnService.start(context, source + "\ninvalid TOML")
+            eventually { alert(48) != null && reasons.isNotEmpty() }
+            assertEquals("Silent while the app is on the screen", "silent", kind())
+            assertEquals("and the app is told what the notice says", alert(48)!!.notification.extras.getCharSequence(android.app.Notification.EXTRA_TEXT).toString(),
+                reasons.first())
+            gone()
+            context.getSystemService(android.app.NotificationManager::class.java).cancel(48)
+            reasons.clear()
+            FreeTunnelVpnService.setAppVisible(false)
+            FreeTunnelVpnService.start(context, source + "\ninvalid TOML")
+            eventually { alert(48) != null }
+            SystemClock.sleep(500)
+            assertEquals("It alerts when the app is away", "alerting", kind())
+            assertTrue("and tells no app: $reasons", reasons.isEmpty())
+        } finally {
+            context.unregisterReceiver(receiver)
+            FreeTunnelVpnService.setAppVisible(false)
+            FreeTunnelVpnService.stop(context)
+            gone()
+        }
+    }
+
     // The time Home shows under the logo counts from when the connection last became connected: nothing before the first 2, a repeated 2 changes
     // nothing, the next 2 after the core recovered starts again, as the desktop restarts its timer, and a stop clears it.
     @Test fun theSessionStartIsWhenTheConnectionLastCameUp() = withSink { config ->

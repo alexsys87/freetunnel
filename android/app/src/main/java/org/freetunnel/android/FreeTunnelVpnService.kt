@@ -36,6 +36,9 @@ class FreeTunnelVpnService : VpnService() {
         const val EXTRA_CONFIG = "config"
         const val EXTRA_PROFILE = "profile"
         const val EXTRA_STATE = "state"
+        /** Broadcast to the app, while it is on the screen, with the reason a connection ended in failure (see showFailure). */
+        const val ACTION_FAILURE = "org.freetunnel.android.VPN_FAILURE"
+        const val EXTRA_REASON = "reason"
         private const val CHANNEL = "freetunnel_vpn"
         private const val FAILURE_CHANNEL = "freetunnel_vpn_failure"
         private const val NOTIFICATION_ID = 47
@@ -471,6 +474,10 @@ class FreeTunnelVpnService : VpnService() {
 
     private fun showFailure(reason: String) {
         logEvent(reason, LogLines.ERROR)
+        // The desktop says an error as a toast in its window whenever the window is in view, and tells the tray as well only when it is not
+        // (Main.qml: toast.show(msg), then errorsGoToTray). While the app is on the screen the notice below is silent, and Home has nothing to
+        // say of a failure but that the VPN is off, so the reason goes to the app, which says it in its own toast. Away, the notice alerts.
+        if (appVisible) sendBroadcast(Intent(ACTION_FAILURE).setPackage(packageName).putExtra(EXTRA_REASON, reason))
         getSystemService(NotificationManager::class.java).notify(FAILURE_ID,
             NotificationCompat.Builder(this, FAILURE_CHANNEL).setSmallIcon(android.R.drawable.ic_dialog_alert)
                 .setContentTitle(getString(R.string.text_vpn_disconnected)).setContentText(reason)

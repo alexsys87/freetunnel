@@ -200,6 +200,13 @@ public final class MainActivity extends Activity {
     private final ExecutorService scanWorker = Executors.newSingleThreadExecutor();
     private final BroadcastReceiver vpnReceiver = new BroadcastReceiver() {
         @Override public void onReceive(Context context, Intent intent) {
+            // Why a connection ended in failure, while the app is on the screen: said in the window, as the desktop's errorOccurred toast is
+            // (the notice in the shade is silent meanwhile, and Home shows only that the VPN is off).
+            if (FreeTunnelVpnService.ACTION_FAILURE.equals(intent.getAction())) {
+                String reason = intent.getStringExtra(FreeTunnelVpnService.EXTRA_REASON);
+                if (reason != null && !reason.isEmpty()) toast(reason);
+                return;
+            }
             vpnState = FreeTunnelVpnService.state(context);
             if (vpnState == 0 && stopping) { stopping = false; host.removeCallbacks(clearStopping); }
             // Home shows the state, and so does the selected config's badge on Configs.
@@ -273,13 +280,15 @@ public final class MainActivity extends Activity {
     @Override protected void onResume() {
         super.onResume();
         resumed = true;
-        FreeTunnelVpnService.setAppVisible(true);
         FreeTunnelVpnService.clearStaleAlert(this);
         if (!receiverRegistered) {
             IntentFilter filter = new IntentFilter(FreeTunnelVpnService.ACTION_STATE);
+            filter.addAction(FreeTunnelVpnService.ACTION_FAILURE);
             ContextCompat.registerReceiver(this, vpnReceiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED);
             receiverRegistered = true;
         }
+        // After the receiver: the service sends a failure's reason here only while the app is on the screen.
+        FreeTunnelVpnService.setAppVisible(true);
         AndroidUpdater.INSTANCE.observe(() -> { refreshUpdateDot(); if (page == 3) refreshUpdateControls(); });
         AndroidUpdater.INSTANCE.recoverInstall(this);
         vpnState = FreeTunnelVpnService.state(this);

@@ -2218,6 +2218,17 @@ class TvDeviceTest {
         (0 until layer.childCount).map { (layer.getChildAt(it) as TextView).text.toString() }
     }
 
+    // The service tells an app that is on the screen why a connection failed (its notice is silent meanwhile); the app says it in its own
+    // toast, as the desktop's window does with an error (Main.qml: toast.show). The toast is the app's own, never the system's.
+    @Test fun aFailureReasonSentToTheOpenAppIsSaidInItsOwnToast() {
+        val a = open()
+        val reason = "Could not start VPN (TestFailure)"
+        assertEquals(emptyList<String>(), toastTexts(a))
+        context.sendBroadcast(Intent(FreeTunnelVpnService.ACTION_FAILURE).setPackage(context.packageName)
+            .putExtra(FreeTunnelVpnService.EXTRA_REASON, reason))
+        eventually("The reason is said in the app's toast") { toastTexts(a) == listOf(reason) }
+    }
+
     // render() rebuilds the page and leaves the overlays alone. Back closes the top overlay, and goes
     // no further: not Home on a TV, and not out of the app.
     @Test fun anOverlaySurvivesARebuildAndBackClosesItBeforeAnythingElse() {

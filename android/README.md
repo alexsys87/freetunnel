@@ -671,6 +671,10 @@ home screen offers Reconnect too. The log records each reason, and the reconnect
 once per episode. A connection that drops within 10 s of reconnecting by itself
 continues the episode: the delay keeps growing and the alert comes back silently.
 Opening the app clears an alert left by a process that was killed while blocked.
+A failure that ends the connection (a refused config, a revoked permission) is a
+notice in the shade that alerts while the app is away. While the app is on the
+screen the notice is silent, with no pop-over to cover the navigation bar, and the
+reason is said in the app's own toast, as the desktop's window does with an error.
 An explicit Reconnect builds a new TUN from the current settings and hands traffic
 over to it.
 
