@@ -58,7 +58,13 @@ class FreeTunnelVpnService : VpnService() {
         // so this does too. It is not connectedAt, which keeps a session going across the core's own recovery for
         // the backoff, and which nothing outside the service should have to understand.
         @Volatile private var sessionStartedAt = 0L
+        // Whether the app is on the screen, from its onResume to its onPause. The desktop sends an error to its tray only while its window is not
+        // in view (Main.qml, errorsGoToTray), and never puts a system message over its own open window: the app's own screen says what went
+        // wrong (the line under the logo, the Reconnect link under it), and a pop-over covered its nav bar. While it is, the alerts below are
+        // posted without a sound or a heads-up, and are still in the shade; with the app away they alert as before.
+        @Volatile private var appVisible = false
 
+        @JvmStatic fun setAppVisible(visible: Boolean) { appVisible = visible }
         @JvmStatic fun state(context: Context): Int = currentState
         /** SystemClock.elapsedRealtime() at the moment the connection last became connected, or 0 where it is not. */
         @JvmStatic fun sessionStart(): Long = sessionStartedAt
@@ -469,17 +475,17 @@ class FreeTunnelVpnService : VpnService() {
             NotificationCompat.Builder(this, FAILURE_CHANNEL).setSmallIcon(android.R.drawable.ic_dialog_alert)
                 .setContentTitle(getString(R.string.text_vpn_disconnected)).setContentText(reason)
                 .setStyle(NotificationCompat.BigTextStyle().bigText(getString(R.string.vpn_failure_details, reason)))
-                .setContentIntent(openApp()).setAutoCancel(true).setPriority(NotificationCompat.PRIORITY_HIGH).build())
+                .setContentIntent(openApp()).setAutoCancel(true).setSilent(appVisible).setPriority(NotificationCompat.PRIORITY_HIGH).build())
     }
 
-    // Posted once per blocked episode, silently when it carries one on. Its
+    // Posted once per blocked episode, silently when it carries one on or while the app is on the screen. Its
     // actions are the ongoing notification's own PendingIntents.
     private fun showBlocked(reason: String, silent: Boolean) {
         getSystemService(NotificationManager::class.java).notify(BLOCKED_ID,
             NotificationCompat.Builder(this, FAILURE_CHANNEL).setSmallIcon(android.R.drawable.ic_dialog_alert)
                 .setContentTitle(getString(R.string.vpn_blocked_title)).setContentText(reason)
                 .setStyle(NotificationCompat.BigTextStyle().bigText(getString(R.string.vpn_blocked_details, reason)))
-                .setContentIntent(openApp()).setAutoCancel(true).setOnlyAlertOnce(true).setSilent(silent)
+                .setContentIntent(openApp()).setAutoCancel(true).setOnlyAlertOnce(true).setSilent(silent || appVisible)
                 .setCategory(NotificationCompat.CATEGORY_ERROR).setPriority(NotificationCompat.PRIORITY_HIGH)
                 .addAction(0, getString(R.string.vpn_reconnect), serviceAction(ACTION_START, 1))
                 .addAction(0, getString(R.string.text_disconnect_vpn), serviceAction(ACTION_STOP, 2)).build())
