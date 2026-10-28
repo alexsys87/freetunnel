@@ -20,8 +20,9 @@ import android.view.ViewGroup;
  * <li>CONFIRM: centred both ways, 12 from the sides at most.
  * <li>POPUP (a dropdown, a menu, the select popup): under the control it belongs to,
  * 8 inside the window, flipped above when it does not fit below, and on the larger side,
- * scrolling, when it fits neither. A popup casts the desktop's shadow (MultiEffect: black at 0.5, 0.2 in the light theme, a blur of 0.7,
- * 5 down). The suggestions of a field are a popup that is above its field, as wide as it, and passive: no backdrop takes a touch.
+ * scrolling, when it fits neither (Home's dropdown is never flipped: UNDER_CENTRE_OF_CONTROL_NO_FLIP). A popup casts the desktop's
+ * shadow (MultiEffect: black at 0.5, 0.2 in the light theme, a blur of 0.7, 5 down). The suggestions of a field are a popup that is
+ * above its field, as wide as it, and passive: no backdrop takes a touch.
  * </ul>
  *
  * The panel is laid out after the page behind it, so that where the control is, after the page is rebuilt, is known by then:
@@ -36,6 +37,12 @@ final class OverlayLayer extends ViewGroup {
     static final int UNDER_CENTRE_OF_WINDOW = 2;
     /** Above the control, as wide as it and level with its left edge: the suggestions of a text field. */
     static final int ABOVE_CONTROL = 3;
+    /**
+     * Under the control and centred on it, and never flipped above it: Home's config dropdown, whose desktop popup sits at the selector's
+     * bottom plus 6 whatever room is left under it. Only a window's own edge limits it (it scrolls there), not the overscan or the 8 that
+     * a popup keeps clear of the edges, which would turn it over on a TV with the line of a session under the logo.
+     */
+    static final int UNDER_CENTRE_OF_CONTROL_NO_FLIP = 4;
 
     /**
      * The shadow's shape, from the desktop's render of a popup: it darkens the page by a quarter of its opacity at the sides and by
@@ -152,13 +159,22 @@ final class OverlayLayer extends ViewGroup {
                 y = safe.top + (availableHeight - panelHeight) / 2;
             } else {
                 if (placement == UNDER_RIGHT_EDGE) x = a.right - panelWidth;
-                else if (placement == UNDER_CENTRE_OF_CONTROL) x = a.centerX() - panelWidth / 2;
+                else if (placement == UNDER_CENTRE_OF_CONTROL || placement == UNDER_CENTRE_OF_CONTROL_NO_FLIP) x = a.centerX() - panelWidth / 2;
                 else if (placement == ABOVE_CONTROL) x = a.left;
                 x = Math.max(safe.left + margin, Math.min(w - safe.right - margin - panelWidth, x));
                 int below = (h - safe.bottom - margin) - (a.bottom + gap);
                 int above = (a.top - gap) - (safe.top + margin);
                 boolean wantsAbove = placement == ABOVE_CONTROL;
-                if (!wantsAbove && panelHeight <= below) {
+                if (placement == UNDER_CENTRE_OF_CONTROL_NO_FLIP) {
+                    // Always under it. Short of the window's own edge it is as tall as it is; past it, it scrolls in what is left.
+                    y = a.bottom + gap;
+                    int room = h - y;
+                    if (panelHeight > room) {
+                        panelHeight = Math.max(0, room);
+                        measurePanel(w, h, panelHeight);
+                        panelWidth = panel.getMeasuredWidth();
+                    }
+                } else if (!wantsAbove && panelHeight <= below) {
                     y = a.bottom + gap;
                 } else if (panelHeight <= above) {
                     y = a.top - gap - panelHeight;

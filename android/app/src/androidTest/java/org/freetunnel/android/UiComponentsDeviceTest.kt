@@ -3,6 +3,7 @@ package org.freetunnel.android
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Rect
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.StateListDrawable
@@ -832,4 +833,36 @@ class UiComponentsDeviceTest {
             assertEquals("the round starts at nothing", 0L, dots.millis())
         }
     }
+
+    // A popup turns over above its control where it does not fit under it, before the window's edge and the 8 it keeps clear of it; Home's
+    // config dropdown does not (the desktop's cfgPopup is at the selector's bottom plus 6, whatever is left), and shrinks, to scroll, only
+    // where the window itself ends.
+    @Test fun aNoFlipPopupStaysUnderItsControlWhereTheOthersTurnOver() {
+        onMain {
+            val width = dp(400)
+            val height = dp(300)
+            // The panel is 140 by 132; the anchor 24 high at this top; the window keeps 24 clear of its top and 27 of its foot, as a TV does.
+            fun placed(placement: Int, anchorTop: Int): Pair<Int, Int> {
+                val panel = FrameLayout(context)
+                panel.addView(View(context), FrameLayout.LayoutParams(dp(140), dp(132)))
+                val layer = OverlayLayer(context, OverlayLayer.Kind.POPUP, View(context), panel)
+                layer.setSafe(0, dp(27), 0, dp(27))
+                layer.setAnchor(OverlayLayer.Anchor { Rect(dp(130), anchorTop, dp(270), anchorTop + dp(24)) }, placement, dp(6))
+                layer.measure(MeasureSpec.makeMeasureSpec(width, MeasureSpec.EXACTLY), MeasureSpec.makeMeasureSpec(height, MeasureSpec.EXACTLY))
+                layer.layout(0, 0, width, height)
+                return panel.top to panel.height
+            }
+            val (turnedTop, turnedHeight) = placed(OverlayLayer.UNDER_CENTRE_OF_CONTROL, dp(160))
+            assertTrue("An ordinary popup turns over above a control with little room under it: $turnedTop", turnedTop + turnedHeight <= dp(160))
+            val (stayTop, stayHeight) = placed(OverlayLayer.UNDER_CENTRE_OF_CONTROL_NO_FLIP, dp(160))
+            assertEquals("Home's stays under it, 6 down", dp(160) + dp(24) + dp(6), stayTop)
+            assertTrue("and scrolls in what the window has left, no further than its edge: $stayHeight", stayHeight in 1..(height - stayTop))
+            val (roomyTop, roomyHeight) = placed(OverlayLayer.UNDER_CENTRE_OF_CONTROL_NO_FLIP, dp(40))
+            assertEquals("With room under it, 6 down", dp(40) + dp(24) + dp(6), roomyTop)
+            assertEquals("and as tall as it is", dp(132), roomyHeight)
+            // Short of the window's edge but past the 8 and the overscan a popup keeps clear of, it still stays under.
+            val (closeTop, closeHeight) = placed(OverlayLayer.UNDER_CENTRE_OF_CONTROL_NO_FLIP, dp(130))
+            assertEquals(dp(130) + dp(24) + dp(6), closeTop)
+            assertEquals("with all of it showing where the window has room: ${closeHeight}", dp(132), closeHeight)
+        }
 }

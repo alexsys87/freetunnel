@@ -1327,7 +1327,8 @@ public final class MainActivity extends Activity {
         homeUp.setText(speedText(speedMeter.upBytesPerSecond()));
         homeSpeedRow = speeds;
 
-        // Above them, 22 clear, the logo, its line and the selector as one column, in the middle of what is left and 6 below it.
+        // Above them, 22 clear, the logo, its line and the selector as one column, in the middle of what is left and 6 below it. (A
+        // FrameLayout puts a centred child at the middle plus its top margin less its bottom margin, the whole of each: the 6 is the margin.)
         FrameLayout area = new FrameLayout(this);
         area.setClipChildren(false);
         FrameLayout.LayoutParams areaLp = new FrameLayout.LayoutParams(-1, -1);
@@ -1337,7 +1338,7 @@ public final class MainActivity extends Activity {
         column.setGravity(Gravity.CENTER_HORIZONTAL);
         column.setClipChildren(false);
         FrameLayout.LayoutParams columnLp = new FrameLayout.LayoutParams(-1, -2, Gravity.CENTER_VERTICAL);
-        columnLp.topMargin = dp(12);
+        columnLp.topMargin = dp(6);
         area.addView(column, columnLp);
 
         // The logo: 132 across, and it is all of the control, so the focus and a tap are on it and not around it.
@@ -1544,8 +1545,10 @@ public final class MainActivity extends Activity {
         homePickerCount = configs.size();
         shown[0] = overlay;
         // Under the whole selector row and centred on it, the + included, as the desktop's is; its key, home:config, is what the overlay
-        // follows across a render and returns the focus to.
-        overlay.layer.setAnchor(l -> anchorRect("home:selection", l), OverlayLayer.UNDER_CENTRE_OF_CONTROL, dp(6));
+        // follows across a render and returns the focus to. Never turned over above it: the desktop's cfgPopup is at the selector's bottom
+        // plus 6 whatever is left under it, and on a TV, with a session's line under the logo, there is less than it takes before the
+        // overscan, where a popup in general would flip.
+        overlay.layer.setAnchor(l -> anchorRect("home:selection", l), OverlayLayer.UNDER_CENTRE_OF_CONTROL_NO_FLIP, dp(6));
         overlay.width(Math.max(dp(140), widest + dp(30)));
         overlay.defaultKey = "home:pick:" + selected;
     }
@@ -1700,10 +1703,11 @@ public final class MainActivity extends Activity {
             configsHint = hint;
             // In the middle of the whole page, the header included, as the desktop's is (anchors.centerIn: parent): the room under the header
             // starts 48 down (the page's 8, the header's 32 and the gap's 8) and ends 26 above the page's foot, so its middle is 11 below the
-            // page's, and the words are lifted by twice that.
+            // page's, and the words are lifted by that. A FrameLayout puts a centred child at the middle plus its top margin less its bottom
+            // margin, the whole of each, so the margin is the 11 itself.
             FrameLayout middle = new FrameLayout(this);
             FrameLayout.LayoutParams hintLp = new FrameLayout.LayoutParams(-2, dp(40), Gravity.CENTER);
-            hintLp.bottomMargin = dp(22);
+            hintLp.bottomMargin = dp(11);
             middle.addView(hint, hintLp);
             body.addView(middle, new LinearLayout.LayoutParams(-1, 0, 1));
             return;

@@ -791,6 +791,52 @@ class TvDeviceTest {
         }
     }
 
+    // The desktop's cfgPopup is at the selector's bottom plus 6 whatever room is left under it. A popup of the usual kind turns over above
+    // its control when it does not fit under it before the overscan: on a TV 540 dp high, with a session's line under the logo, it covered
+    // the logo and the timer instead of the speed tiles.
+    @Test fun theHomeDropdownIsNeverTurnedOverAboveItsSelector() {
+        seed(5)
+        val a = open()
+        vpnShows(a, 2)
+        click(a, "home:config")
+        eventually("The dropdown opens") { overlayTag(a, "homepicker") != null }
+        instrumentation.waitForIdleSync()
+        onMain {
+            val layer = root(a).findViewWithTag<ViewGroup>("overlay:homepicker")
+            val panel = layer.getChildAt(layer.childCount - 1)
+            val selector = root(a).findViewWithTag<View>("home:selection")
+            val gap = topOf(panel) - (topOf(selector) + selector.height)
+            assertTrue("Under the selector, 6 down, with a session up: $gap", Math.abs(gap - dp(a, 6f)) <= 3f)
+        }
+    }
+
+    // The logo, its line and the selector are one column in the middle of the room above the speed tiles, 6 below the middle (HomePage.qml:
+    // verticalCenterOffset). A FrameLayout puts a centred child at the middle plus its top margin less its bottom margin, so a margin of 12
+    // put it 12 below, and the toast and the dropdown with it.
+    @Test fun homesColumnIsSixBelowTheMiddleOfTheRoomAboveTheSpeedTiles() {
+        val a = open()
+        vpnShows(a, 0)
+        onMain {
+            val column = root(a).findViewWithTag<View>("home:toggle").parent as View
+            val area = column.parent as View
+            val offset = (topOf(column) + column.height / 2f) - (topOf(area) + area.height / 2f)
+            assertEquals("6 below the middle", dp(a, 6f), offset, dp(a, 1.5f))
+        }
+    }
+
+    // The empty Configs page's "Add a config" is in the middle of the whole page, the header included (anchors.centerIn: parent), not 11 above it.
+    @Test fun theEmptyConfigsPagesWordsAreInTheMiddleOfThePage() {
+        assertTrue(ConfigStore.write(prefs, "[]"))
+        val a = open()
+        render(a, 1)
+        onMain {
+            val hint = root(a).findViewWithTag<View>("configs:hint")
+            val page = field("pageScroll").get(a) as ScrollView
+            val offset = (topOf(hint) + hint.height / 2f) - (topOf(page) + page.height / 2f)
+            assertEquals("In the middle of the page", 0f, offset, dp(a, 1.5f))
+        }
+    }
+
     // The toast on Home sits in the middle of the gap between the selector and the speed tiles.
     @Test fun aToastOnHomeSitsBetweenTheSelectorAndTheSpeedTiles() {
         val a = open()
