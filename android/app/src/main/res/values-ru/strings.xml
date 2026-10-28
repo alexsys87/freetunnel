@@ -82,7 +82,7 @@
     <string name="vpn_traffic_blocked">Соединение потеряно — трафик заблокирован, переподключение…</string>
     <string name="vpn_reconnect">Переподключить</string>
     <string name="vpn_blocked_title">Соединение потеряно — трафик заблокирован</string>
-    <string name="vpn_blocked_details">%1$s. Пока FreeTunnel переподключается, аварийное отключение блокирует трафик вне VPN. Отключите VPN, чтобы пользоваться сетью без него.</string>
+    <string name="vpn_blocked_details">%1$s. Пока FreeTunnel переподключается, kill switch блокирует трафик вне VPN. Отключите VPN, чтобы пользоваться сетью без него.</string>
     <string name="config_validation_error">Конфигурация отклонена: %1$s</string>
     <string name="legacy_rules_removed">Удалены неподдерживаемые правила старой превью-версии. Проверьте маршрутизацию.</string>
     <string name="imported_routing_rules">Правила выбранного конфига: %1$s. Они также влияют на маршрутизацию и включение полного VPN.</string>
@@ -102,7 +102,7 @@
     <string name="update_error_verification_inline">обновление не прошло проверку безопасности и удалено; ничего не установлено.</string>
     <string name="update_error_installer">Android не установил обновление. Повторите попытку.</string>
     <string name="update_unofficial">Эта сборка не из официального канала, поэтому не обновляется сама. Чтобы получать обновления, установите официальный релиз с GitHub.</string>
-    <string name="update_disconnect_warning">Установка заменяет FreeTunnel, поэтому VPN и аварийное отключение выключены, пока FreeTunnel не переподключится после обновления. До этого приложения выходят в сеть без VPN, если Android не блокирует соединения без VPN.</string>
+    <string name="update_disconnect_warning">Установка заменяет FreeTunnel, поэтому VPN и kill switch выключены, пока FreeTunnel не переподключится после обновления. До этого приложения выходят в сеть без VPN, если Android не блокирует соединения без VPN.</string>
     <string name="update_allow_installs">Разрешите FreeTunnel устанавливать приложения в настройках Android (на некоторых телевизорах: «Безопасность и ограничения» › «Неизвестные источники»), затем снова нажмите на строку обновления в настройках.</string>
     <string name="text_no_file_picker">На этом устройстве нет выбора файлов. Вставьте ссылку из буфера или создайте конфигурацию вручную.</string>
     <string name="text_vpn_consent_unavailable">На этом устройстве нет экрана Android для разрешения VPN-подключений, поэтому FreeTunnel не может подключиться.</string>
@@ -211,7 +211,7 @@
     <string name="export_no_picker">"На этом устройстве нет выбора файла для сохранения. Используйте «Скопировать deep-link»."</string>
     <string name="settings_language">"Язык"</string>
     <string name="settings_connect_on_startup">"Подключаться при запуске"</string>
-    <string name="settings_kill_switch">"Аварийное отключение"</string>
+    <string name="settings_kill_switch">"Kill switch"</string>
     <string name="settings_kill_switch_hint">"блокировать трафик при обрыве VPN"</string>
     <string name="settings_excluded_routes">"Исключённые маршруты"</string>
     <string name="settings_restore_defaults">"По умолчанию"</string>
