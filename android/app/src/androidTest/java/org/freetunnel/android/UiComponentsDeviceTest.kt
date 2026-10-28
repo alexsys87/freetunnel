@@ -48,10 +48,14 @@ class UiComponentsDeviceTest {
     }
 
     private fun fill(drawable: Drawable) = (drawable as GradientDrawable).color?.defaultColor ?: Color.TRANSPARENT
+    // The colour of the middle of the left edge of what a look draws: a border has no getter. What looks() returns is a state of the view's
+    // StateListDrawable, which fades its states in and out over 120 ms: the one it has just entered is drawn at an alpha of about 0 for the
+    // first frames (the rest state, entered last, was read as transparent: 0, or 3 a moment later). So a copy of it is drawn, at its own alpha.
     private fun edge(drawable: Drawable): Int {
+        val copy = (drawable.constantState?.newDrawable()?.mutate() ?: drawable).also { it.alpha = 255 }
         val bitmap = Bitmap.createBitmap(160, 240, Bitmap.Config.ARGB_8888)
-        drawable.setBounds(0, 0, 160, 240)
-        drawable.draw(Canvas(bitmap))
+        copy.setBounds(0, 0, 160, 240)
+        copy.draw(Canvas(bitmap))
         return bitmap.getPixel(0, 120)
     }
     private fun looks(view: View): Map<String, Drawable> {
@@ -79,7 +83,7 @@ class UiComponentsDeviceTest {
             var last = false
             big.setListener { _, checked -> flips++; last = checked }
             assertFalse(big.isChecked)
-            big.performClick()
+            assertTrue("A click it acts on is a click that was performed", big.performClick())
             assertTrue("A tap flips it", big.isChecked)
             assertEquals(1, flips)
             assertTrue(last)
@@ -88,10 +92,15 @@ class UiComponentsDeviceTest {
             assertEquals(2, flips)
             big.isEnabled = false
             assertEquals("Disabled it is dimmed", 0.45f, big.alpha, 0.001f)
-            // TalkBack reads it as a switch, with its state.
+            assertFalse("and a click on it does nothing", big.performClick())
+            assertFalse(big.isChecked)
+            assertEquals(2, flips)
+            // TalkBack reads it as a switch, with its state. The view is not in a window here, and a view that is not has no class name in
+            // its node info (View fills it in only once attached), so the class is asked for itself.
+            assertEquals("android.widget.Switch", big.accessibilityClassName.toString())
             val info = big.createAccessibilityNodeInfo()
-            assertEquals("android.widget.Switch", info.className.toString())
             assertTrue(info.isCheckable)
+            assertEquals("and says which way it is", big.isChecked, info.isChecked)
         }
     }
 

@@ -69,8 +69,24 @@ class VpnDeviceTest {
         oldPreferences = prefs.all
         prefs.edit().clear().putBoolean("logging", false).commit()
     }
+    // A service that is up and not on its way out. A stop sent to one that is going, or to none, makes a new one for the moment it takes to be
+    // told (startForegroundService), and its onCreate cancels alert 49, which a test that comes next may have just posted.
+    private fun serviceIsUp(): Boolean {
+        val owner = serviceOwner() ?: return false
+        return !(runCatching { serviceField("destroyed").getBoolean(owner) }.getOrDefault(false))
+    }
+    // Returns once no service has been there for this long.
+    private fun noServiceFor(quietMs: Long) {
+        val deadline = SystemClock.elapsedRealtime() + 30_000
+        var since = SystemClock.elapsedRealtime()
+        while (SystemClock.elapsedRealtime() - since < quietMs) {
+            if (serviceOwner() != null) since = SystemClock.elapsedRealtime()
+            if (SystemClock.elapsedRealtime() > deadline) fail("A service is still there: ${snapshot()}")
+            SystemClock.sleep(50)
+        }
+    }
     @After fun cleanup() {
-        if (serviceOwner() != null) FreeTunnelVpnService.stop(context)
+        if (serviceIsUp()) FreeTunnelVpnService.stop(context)
         eventually { network() == null && FreeTunnelVpnService.state(context) == 0 && serviceOwner() == null }
         val editor = prefs.edit().clear()
         oldPreferences.forEach { (key, value) -> when (value) {
@@ -562,6 +578,9 @@ class VpnDeviceTest {
         // What a process killed while blocked leaves behind: alert 49 and no service.
         val manager = context.getSystemService(android.app.NotificationManager::class.java)
         manager.createNotificationChannel(android.app.NotificationChannel("stale-alert-test", "Test", android.app.NotificationManager.IMPORTANCE_LOW))
+        // The test before this one may have a service on its way (see serviceIsUp), whose start cancels alert 49 and which was seen to
+        // do so to this alert: the process has none when the alert of a killed one is left behind.
+        noServiceFor(1_500)
         manager.notify(49, android.app.Notification.Builder(context, "stale-alert-test").setSmallIcon(android.R.drawable.ic_dialog_alert).build())
         eventually { alert(49) != null }
         val activity = instrumentation.startActivitySync(Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) as MainActivity

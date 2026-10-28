@@ -217,10 +217,14 @@ class TvDeviceTest {
     // pixel at the middle of the left edge of what the background draws in that state.
     private class FocusLook(val restFill: Int, val focusedFill: Int, val restEdge: Int, val focusedEdge: Int)
     private fun fillOf(drawable: Drawable) = (drawable as GradientDrawable).color?.defaultColor ?: Color.TRANSPARENT
+    // What states.current returns is a state of the view's StateListDrawable, which fades its states in and out over 120 ms: the one it has just
+    // entered is drawn at an alpha of about 0 for the first frames, which read as a transparent edge (0, or 3 a moment later). So a copy of it is
+    // drawn, at its own alpha.
     private fun edgeOf(drawable: Drawable): Int {
+        val copy = (drawable.constantState?.newDrawable()?.mutate() ?: drawable).also { it.alpha = 255 }
         val bitmap = Bitmap.createBitmap(160, 240, Bitmap.Config.ARGB_8888)
-        drawable.setBounds(0, 0, 160, 240)
-        drawable.draw(Canvas(bitmap))
+        copy.setBounds(0, 0, 160, 240)
+        copy.draw(Canvas(bitmap))
         return bitmap.getPixel(0, 120)
     }
     private fun focusLook(view: View): FocusLook {
@@ -930,8 +934,10 @@ class TvDeviceTest {
 
     // The probes run side by side, held back here so that "…" can be seen: "…" while pending, then the time or a dash for any failure.
     @Test fun theProbesShowPendingThenTheTimeOrADash() {
-        val up = java.net.ServerSocket(0, 1, java.net.InetAddress.getLoopbackAddress())
-        val closedPort = java.net.ServerSocket(0, 1, java.net.InetAddress.getLoopbackAddress()).use { it.localPort }
+        // The configs say 127.0.0.1. On Android getLoopbackAddress() is ::1, which a socket bound to it answers nobody who connects to 127.0.0.1.
+        val loopback = java.net.InetAddress.getByName("127.0.0.1")
+        val up = java.net.ServerSocket(0, 1, loopback)
+        val closedPort = java.net.ServerSocket(0, 1, loopback).use { it.localPort }
         try {
             val profiles = org.json.JSONArray()
             profiles.put(org.json.JSONObject().put("name", "Up").put("toml", source.replace("192.0.2.1:443", "127.0.0.1:${up.localPort}")))
@@ -1299,12 +1305,23 @@ class TvDeviceTest {
             onMain { shown.start() }
             instrumentation.waitForIdleSync()
             if (shown.tag == "picker") eventually("The apps must be listed") { onMain { root(a).findViewWithTag<View?>("picker:status") == null } }
+            // The arrows look for the next control from where the controls are laid out, and in a window a remote drives (outside touch
+            // mode, where only a field is a stop): the search is made when both are so.
+            leaveTouchMode(a)
+            eventually("${shown.what} is laid out") {
+                onMain {
+                    val laid = root(a).findViewWithTag<ViewGroup?>("overlay:${shown.tag}")
+                    laid != null && laid.isLaidOut && descendants(laid).filter { it.isShown && it.isFocusable }.all { it.width > 0 && it.height > 0 }
+                }
+            }
             onMain {
                 val layer = root(a).findViewWithTag<ViewGroup>("overlay:${shown.tag}")
                 val keys = descendants(layer).filter { it.isShown && it.isFocusable }.mapNotNull { it.tag as? String }.toSet()
                 assertTrue("${shown.what} has controls", keys.isNotEmpty())
                 val seen = HashSet<View>()
-                val queue = ArrayDeque<View>().apply { add(a.currentFocus ?: layer.findViewWithTag<View>(keys.first())) }
+                // From the control that has the focus, if it is one of the overlay's.
+                val focus = a.currentFocus?.takeIf { generateSequence(it as View?) { v -> v.parent as? View }.any { v -> v === layer } }
+                val queue = ArrayDeque<View>().apply { add(focus ?: layer.findViewWithTag<View>(keys.first())) }
                 while (queue.isNotEmpty()) {
                     val view = queue.removeFirst()
                     if (!seen.add(view)) continue
@@ -1316,7 +1333,13 @@ class TvDeviceTest {
                         }
                     }
                 }
-                assertEquals("Controls of ${shown.what} that the arrows never reach", emptySet<String>(), keys - seen.mapNotNull { it.tag as? String }.toSet())
+                // Where each control is and whether the window is outside touch mode, so that a failure says what the search had to go on.
+                val where = keys.joinToString("; ") { key ->
+                    val v = layer.findViewWithTag<View>(key)
+                    "$key at ${v.left},${v.top},${v.right},${v.bottom} in ${(v.parent as View).left},${(v.parent as View).top}"
+                } + "; touch mode ${a.window.decorView.isInTouchMode}; the focus is on ${a.currentFocus?.tag}"
+                assertEquals("Controls of ${shown.what} that the arrows never reach ($where)", emptySet<String>(),
+                    keys - seen.mapNotNull { it.tag as? String }.toSet())
             }
             closeWithBack(a, shown.tag, shown.what)
         }
@@ -1546,11 +1569,13 @@ class TvDeviceTest {
         eventually("Import must save the first") { saved().size == 3 }
         assertEquals("vpn.example.com", saved().last().getString("name"))
         assertTrue(saved().last().getString("toml").contains("hostname = \"vpn.example.com\""))
-        // The second is asked about in turn, named for where it came from, and cancelled it is not added.
+        // The second is asked about in turn, with where it was sent from, and cancelled it is not added. It is added under the name of where it
+        // came from, as the third is below; as on the desktop the question does not say the name of what is new, which whoever sent it controls.
         val named = context.getString(R.string.text_from_another_device)
-        eventually("The second must be asked about, as $named from \"$from\"", 30_000) {
-            confirmMessage(a)?.let { it.contains("second.example.com") && it.contains(named) && it.contains(from) } == true
+        eventually("The second must be asked about, with \"$from\"", 30_000) {
+            confirmMessage(a)?.let { it.contains("second.example.com") && it.contains(from) } == true
         }
+        assertFalse("The name it would get is not in the question", confirmMessage(a)!!.contains(named))
         assertEquals(3, saved().size)
         cancelQuestion(a, "second.example.com")
         assertEquals("Cancelled, it is not added", 3, saved().size)
@@ -1762,13 +1787,15 @@ class TvDeviceTest {
 
     // Both legs: a TOML file with no name of its own and no file's name to go by,
     // pasted into the page or in a file whose name shows nothing, is named for where
-    // it came from.
+    // it came from. As on the desktop the question does not say the name of what is new (the one thing whoever sent it controls), so
+    // the first is asked about by its server and where it was sent from; the second has the first's name, a name already in the list,
+    // which is the desktop's collision: that name is said, and Add copy adds it as another.
     @SdkSuppress(minSdkVersion = 29)
     @Test fun aTomlFromAPhoneWithNoFileNameIsNamedForWhereItCameFrom() {
         val a = open()
         render(a, 1)
         val named = context.getString(R.string.text_from_another_device)
-        for ((server, fileName) in listOf("pasted.example.com" to null, "nameless.example.com" to "\u202E\u200F")) {
+        for ((server, fileName, collides) in listOf(Triple("pasted.example.com", null, false), Triple("nameless.example.com", "\u202E\u200F", true))) {
             onMain { method("receiveFromPhone").invoke(a) }
             instrumentation.waitForIdleSync()
             val opened = receiver(a)
@@ -1780,11 +1807,13 @@ class TvDeviceTest {
             }
             assertTrue(sent, sent.startsWith("HTTP/1.1 200 ") && sent.contains(context.getString(R.string.receive_page_sent)))
             val from = context.getString(R.string.text_nsent_from_s, URI(url).host).trim()
-            eventually("The confirmation must say \"$named\", $server and \"$from\"", 30_000) {
-                confirmMessage(a)?.let { it.contains(named) && it.contains(server) && it.contains(from) } == true
+            eventually("The confirmation must say $server and \"$from\", and ${if (collides) "that $named exists" else "not $named"}", 30_000) {
+                confirmMessage(a)?.let { it.contains(server) && it.contains(from) && it.contains(named) == collides } == true
             }
+            if (collides) assertEquals(context.getString(R.string.import_exists, named), confirmMessage(a)!!.split("\n")[0])
             val before = saved().size
-            answerYes(a)
+            SystemClock.sleep(500)
+            click(a, if (collides) "confirm:alt" else "confirm:ok")
             eventually("Import must save it") { saved().size == before + 1 }
             assertEquals(named, saved().last().getString("name"))
             assertTrue(saved().last().getString("toml").contains("hostname = \"$server\""))
@@ -2672,6 +2701,9 @@ class TvDeviceTest {
             focusOn(a, "profile:add")
             instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_CENTER)
             eventually("The field opens") { focusedKey(a) == "profile:name" }
+            // An arrow looks for the next control from where the field is, so from where it has been laid out.
+            eventually("The field is laid out") { onMain { root(a).findViewWithTag<View>("profile:name").let { it.isLaidOut && it.height > 0 } } }
+            instrumentation.waitForIdleSync()
         }
         fun visibility() = onMain { root(a).findViewWithTag<View>("profile:name").visibility }
         openField()
@@ -2682,8 +2714,27 @@ class TvDeviceTest {
         assertEquals("and adds nothing", listOf("Default"), profiles().names())
         openField()
         assertEquals("Opened again it is empty", "", fieldText(a, "profile:name"))
-        instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_UP)
-        eventually("Going to another control drops it") { visibility() == View.GONE }
+        // Up leaves a single line of text for the control above it. A page that scrolls takes the first press to scroll to that control when
+        // it is out of reach of one arrow, and then the next goes to it: so up to three presses are made, and the field is gone after the first
+        // that moves the focus.
+        repeat(3) {
+            if (visibility() != View.GONE) {
+                instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_UP)
+                instrumentation.waitForIdleSync()
+                SystemClock.sleep(150)
+            }
+        }
+        try {
+            eventually("Going to another control drops it") { visibility() == View.GONE }
+        } catch (e: AssertionError) {
+            // What the arrow had to go on.
+            val where = onMain {
+                val field = root(a).findViewWithTag<View>("profile:name")
+                "the field is at ${field.left},${field.top},${field.right},${field.bottom}, laid out ${field.isLaidOut}, focused ${field.isFocused}; " +
+                    "touch mode ${a.window.decorView.isInTouchMode}; the focus is on ${a.currentFocus?.tag}"
+            }
+            throw AssertionError("${e.message} ($where)", e)
+        }
         assertNotEquals("and the focus is where the arrow took it", "profile:name", focusedKey(a))
         assertEquals(listOf("Default"), profiles().names())
         // Back on a phone with its keyboard up only puts the keyboard away; a TV has none to put away.
@@ -3187,8 +3238,11 @@ class TvDeviceTest {
         val a = open()
         render(a, 3)
         var second: MainActivity? = null
-        fun resumed(): MainActivity? = androidx.test.runner.lifecycle.ActivityLifecycleMonitorRegistry.getInstance()
-            .getActivitiesInStage(androidx.test.runner.lifecycle.Stage.RESUMED).firstOrNull { it is MainActivity && it !== a } as MainActivity?
+        // The lifecycle monitor is asked on the main thread, and nowhere else.
+        fun resumed(): MainActivity? = onMain {
+            androidx.test.runner.lifecycle.ActivityLifecycleMonitorRegistry.getInstance()
+                .getActivitiesInStage(androidx.test.runner.lifecycle.Stage.RESUMED).firstOrNull { it is MainActivity && it !== a } as MainActivity?
+        }
         try {
             onMain { AppLocale.choose(a, prefs, "ru") }
             eventually("The activity is made again", 20_000) { if (second == null) second = resumed(); second != null }
@@ -3207,12 +3261,12 @@ class TvDeviceTest {
                 context.getSystemService(android.app.LocaleManager::class.java).setApplicationLocales(android.os.LocaleList.getEmptyLocaleList())
             val live = second ?: a
             instrumentation.runOnMainSync { if (!live.isDestroyed) live.recreate() }
-            eventually("English again", 20_000) {
-                androidx.test.runner.lifecycle.ActivityLifecycleMonitorRegistry.getInstance().getActivitiesInStage(androidx.test.runner.lifecycle.Stage.RESUMED)
-                    .filterIsInstance<MainActivity>().any { AppLocale.current(it) == "en" }
+            fun resumedOnes(): List<MainActivity> = onMain {
+                androidx.test.runner.lifecycle.ActivityLifecycleMonitorRegistry.getInstance()
+                    .getActivitiesInStage(androidx.test.runner.lifecycle.Stage.RESUMED).filterIsInstance<MainActivity>()
             }
-            activity = androidx.test.runner.lifecycle.ActivityLifecycleMonitorRegistry.getInstance()
-                .getActivitiesInStage(androidx.test.runner.lifecycle.Stage.RESUMED).filterIsInstance<MainActivity>().firstOrNull() ?: activity
+            eventually("English again", 20_000) { resumedOnes().any { AppLocale.current(it) == "en" } }
+            activity = resumedOnes().firstOrNull() ?: activity
         }
     }
 
@@ -3609,8 +3663,9 @@ class TvDeviceTest {
         val generation = renderGeneration(a)
         assertEquals("12:34:56 INFO Tunnel up", shownLogOf(a))
         LogFile.append(logFile, LogLines.entry(1_793_104_503_000L, java.time.ZoneId.of("UTC"), LogLines.INFO, "A line that came while the page was up"))
-        eventually("A new line shows within a few seconds", 6_000) { shownLogOf(a).endsWith("12:34:59 INFO A line that came while the page was up") }
-        assertEquals("12:34:56 INFO Tunnel up\n12:34:59 INFO A line that came while the page was up", shownLogOf(a))
+        // 1_793_104_503_000 is seven seconds after the first line's 12:34:56.
+        eventually("A new line shows within a few seconds", 6_000) { shownLogOf(a).endsWith("12:35:03 INFO A line that came while the page was up") }
+        assertEquals("12:34:56 INFO Tunnel up\n12:35:03 INFO A line that came while the page was up", shownLogOf(a))
         assertEquals("the page was not built again", generation, renderGeneration(a))
         // Left, it stops looking: nothing keeps ticking against views that are gone.
         render(a, 3)

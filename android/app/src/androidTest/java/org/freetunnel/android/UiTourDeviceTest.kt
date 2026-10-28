@@ -135,6 +135,13 @@ class UiTourDeviceTest {
             touchModeBefore?.let { instrumentation.setInTouchMode(it) }
             instrumentation.runOnMainSync { if (!opened.isDestroyed) opened.finish() }
         }
+        // The one the test holds is the one it opened. A recreation makes another, which a test that stopped before it saw it never held,
+        // and which would stay up, with its timers, in front of every test after it: none outlives its test.
+        instrumentation.runOnMainSync {
+            for (stage in listOf(Stage.CREATED, Stage.STARTED, Stage.RESUMED, Stage.PAUSED, Stage.STOPPED, Stage.RESTARTED))
+                ActivityLifecycleMonitorRegistry.getInstance().getActivitiesInStage(stage).filterIsInstance<MainActivity>()
+                    .forEach { if (!it.isDestroyed && !it.isFinishing) it.finish() }
+        }
         for (open in listeners) runCatching { open.close() }
         listeners.clear()
         serviceField("currentState").setInt(null, 0)
@@ -212,8 +219,10 @@ class UiTourDeviceTest {
     private fun focusedKey(): String? = onMain { act().currentFocus?.tag as? String }
 
     private fun inTouchMode(): Boolean = onMain { act().window.decorView.isInTouchMode }
-    private fun resumed(): MainActivity? = ActivityLifecycleMonitorRegistry.getInstance().getActivitiesInStage(Stage.RESUMED)
-        .filterIsInstance<MainActivity>().firstOrNull()
+    // The lifecycle monitor is asked on the main thread, and nowhere else: from another it throws "Querying activity state off main thread".
+    private fun resumed(): MainActivity? = onMain {
+        ActivityLifecycleMonitorRegistry.getInstance().getActivitiesInStage(Stage.RESUMED).filterIsInstance<MainActivity>().firstOrNull()
+    }
 
     // A remote's first key press leaves touch mode, as a TV starts out; a phone starts in it.
     private fun leaveTouchMode() {
