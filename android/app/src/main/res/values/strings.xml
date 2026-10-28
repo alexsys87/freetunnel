@@ -50,8 +50,6 @@
     <string name="text_vpn_settings_are_unavailable">"VPN settings are unavailable"</string>
     <string name="text_enable_always_on_vpn_and_block_connections_without_v">"Enable Always-on VPN and Block connections without VPN in Android settings for protection after the app stops."</string>
     <string name="text_enable_logging">"Enable logging"</string>
-    <string name="text_open_source_licenses">"Open-source licenses"</string>
-    <string name="text_licenses_unavailable">"This build has no license texts"</string>
     <string name="text_copy">"Copy"</string>
     <string name="text_log_copied">"Log copied"</string>
     <string name="text_could_not_read_log">"Could not read log"</string>

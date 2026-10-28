@@ -84,7 +84,6 @@ import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashSet;
 import java.util.IdentityHashMap;
 import java.util.List;
@@ -3309,7 +3308,7 @@ public final class MainActivity extends Activity {
     // the desktop has: Launch at system startup, Hotkeys and the Windows-only ports row. Keys: settings:language, settings:theme,
     // switch:auto_connect, switch:killswitch, settings:vpn, routes:restore, routes:clear, route:N, routes:input, switch:logging,
     // switch:check_updates_on_launch, settings:update (with update:tick, update:arrow, update:dots and update:version beside it), and
-    // in the footer settings:site, settings:core and settings:licenses.
+    // in the footer settings:site and settings:core.
     private void settings(LinearLayout body) {
         Theme t = t();
         // General.
@@ -3375,7 +3374,7 @@ public final class MainActivity extends Activity {
         section(body, getString(R.string.settings_maintenance));
         maintenance(body);
 
-        // The footer, centred: the app, the core it carries, and, Android's own, the licenses of what is in the APK.
+        // The footer, centred: the app and the core it carries.
         gap(body, 14);
         LinearLayout footer = row();
         footer.setGravity(Gravity.CENTER);
@@ -3393,12 +3392,6 @@ public final class MainActivity extends Activity {
         coreLp.leftMargin = -dp(Ui.LINK_PAD_H_DP);
         footer.addView(core, coreLp);
         body.addView(footer, lp(-1, -2));
-        LinearLayout licenses = row();
-        licenses.setGravity(Gravity.CENTER);
-        TextView openLicenses = ui.link(getString(R.string.text_open_source_licenses), 12, Ui.LinkKind.FAINT, "settings:licenses");
-        openLicenses.setOnClickListener(v -> openSourceLicenses());
-        licenses.addView(openLicenses, ui.linkLp(false));
-        body.addView(licenses, lp(-1, -2));
     }
 
     // A link out of the app: the browser's, where there is one. Most TVs have none, and say so.
@@ -3605,120 +3598,6 @@ public final class MainActivity extends Activity {
             case CANCEL: AndroidUpdater.INSTANCE.cancel(); break;
             case INSTALL: installUpdate(); break;
             default: break;
-        }
-    }
-    // The third-party notices and the license texts, as app/build.gradle copies them
-    // from the repository into the APK's assets, in one card: the files as rows, and a file's
-    // text in a box like the log's, which a remote scrolls with the arrows because it has the
-    // focus first. ← and Back go from the text to the list, and from the list out. Keys:
-    // licenses:back, licenses:0, licenses:1, ... for the rows and licenses:text.
-    private void openSourceLicenses() {
-        if (overlay("licenses") != null) return;
-        new Licenses().open();
-    }
-
-    private final class Licenses {
-        private final List<String> files = new ArrayList<>();
-        private Overlay overlay;
-        private TextView title;
-        private FrameLayout body;
-        // The file whose text is up, or -1 while the list is.
-        private int showing = -1;
-
-        void open() {
-            files.add("THIRD_PARTY_NOTICES.md");
-            files.add("LICENSE");
-            for (String group : new String[]{"licenses/common", "licenses/android"}) {
-                List<String> texts = new ArrayList<>();
-                try {
-                    String[] names = getAssets().list(group);
-                    if (names != null) for (String name : names) texts.add(group + "/" + name);
-                } catch (IOException e) {
-                    // Listed as far as it goes: a text that is missing says so when opened.
-                }
-                Collections.sort(texts, String.CASE_INSENSITIVE_ORDER);
-                files.addAll(texts);
-            }
-            LinearLayout card = column();
-            card.setMinimumHeight(dp(460));
-            LinearLayout header = ui.cardHeader(getString(R.string.text_open_source_licenses), "licenses:back", getString(R.string.text_back),
-                    v -> escape(overlay));
-            title = (TextView) header.getChildAt(1);
-            card.addView(header, lp(-1, -2));
-            body = new FrameLayout(MainActivity.this);
-            card.addView(body, new LinearLayout.LayoutParams(-1, 0, 1));
-            overlay = showOverlay("licenses", OverlayLayer.Kind.CARD, card, null, null);
-            // 460 high as the picker it copies is, not the length of its list or of the text in it.
-            overlay.width(dp(420)).height(dp(460));
-            overlay.escape = () -> { if (showing >= 0) list(showing); else closeOverlay(overlay); };
-            list(-1);
-            overlay.defaultKey = "licenses:0";
-        }
-
-        // The files; with the focus on the one whose text was just up, if any.
-        private void list(int focusRow) {
-            Theme t = t();
-            showing = -1;
-            title.setText(getString(R.string.text_open_source_licenses));
-            body.removeAllViews();
-            LinearLayout rows = column();
-            for (int i = 0; i < files.size(); i++) {
-                final int index = i;
-                // The file's name, not its path: licenses/common/ was on every one of those from the core.
-                TextView row = label(LicenseText.name(files.get(i)), 13, t.text);
-                row.setPadding(dp(10), 0, dp(10), 0);
-                row.setSingleLine(true);
-                row.setEllipsize(TextUtils.TruncateAt.MIDDLE);
-                ui.focus(row, "licenses:" + i, Ui.Look.ROW).setOnClickListener(v -> text(index));
-                LinearLayout.LayoutParams rowLp = lp(-1, 42);
-                rowLp.bottomMargin = dp(2);
-                rows.addView(row, rowLp);
-            }
-            ScrollView scroll = new ScrollView(MainActivity.this);
-            scroll.setVerticalScrollBarEnabled(false);
-            scroll.setFocusable(false);
-            scroll.addView(rows);
-            // The rows are clipped 14 inside the card's edge, as the desktop's lists are (the 14 of its layout and its clip), so that the last
-            // is cut where the card's margin is and not at its border.
-            FrameLayout.LayoutParams scrollLp = new FrameLayout.LayoutParams(-1, -1);
-            scrollLp.setMargins(dp(14), 0, dp(14), dp(14));
-            body.addView(scroll, scrollLp);
-            if (focusRow >= 0 && !getWindow().getDecorView().isInTouchMode()) {
-                View row = body.findViewWithTag("licenses:" + focusRow);
-                if (row != null) row.requestFocus();
-            }
-        }
-
-        // One of them. The box has the focus, so the arrows scroll it.
-        private void text(int index) {
-            Theme t = t();
-            String asset = files.get(index);
-            String contents;
-            try (InputStream input = getAssets().open(asset); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
-                byte[] buffer = new byte[8192];
-                for (int n; (n = input.read(buffer)) > 0; ) out.write(buffer, 0, n);
-                contents = new String(out.toByteArray(), StandardCharsets.UTF_8);
-            } catch (IOException e) {
-                toast(getString(R.string.text_licenses_unavailable));
-                return;
-            }
-            showing = index;
-            title.setText(LicenseText.name(asset));
-            body.removeAllViews();
-            // The files are broken at 80 columns, and the notices are Markdown: joined into paragraphs, with the marks out of them, the
-            // box wraps them once.
-            TextView text = ui.mono(LicenseText.reflow(contents, asset.endsWith(".md")), 11, t.text);
-            text.setGravity(Gravity.TOP | Gravity.START);
-            text.setPadding(dp(12), dp(12), dp(12), dp(12));
-            ScrollView scroll = new ScrollView(MainActivity.this);
-            scroll.setVerticalScrollBarEnabled(false);
-            scroll.addView(text);
-            ui.focus(scroll, "licenses:text", Ui.Look.BOX);
-            Ui.leaveAtTheEnds(scroll);
-            FrameLayout.LayoutParams boxLp = new FrameLayout.LayoutParams(-1, -1);
-            boxLp.setMargins(dp(14), 0, dp(14), dp(14));
-            body.addView(scroll, boxLp);
-            if (!getWindow().getDecorView().isInTouchMode()) scroll.requestFocus();
         }
     }
     // Installing replaces the app, and Android stops the VPN with it, so say so

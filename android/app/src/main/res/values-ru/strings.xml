@@ -50,8 +50,6 @@
     <string name="text_vpn_settings_are_unavailable">"Настройки VPN недоступны"</string>
     <string name="text_enable_always_on_vpn_and_block_connections_without_v">"Постоянный VPN и блокировку без соединения можно включить в системных настройках."</string>
     <string name="text_enable_logging">"Включить логирование"</string>
-    <string name="text_open_source_licenses">"Лицензии открытого ПО"</string>
-    <string name="text_licenses_unavailable">"В этой сборке нет текстов лицензий"</string>
     <string name="text_copy">"Копировать"</string>
     <string name="text_log_copied">"Лог скопирован"</string>
     <string name="text_could_not_read_log">"Не удалось прочитать журнал"</string>

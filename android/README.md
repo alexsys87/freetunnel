@@ -140,8 +140,8 @@ Android-only list.
   on the screen (that is what a screen reader adds to the line, and the red button of the question). Outside the
   official build the section says it doesn't come from the official channel.
 - The footer, **FreeTunnel 1.0.0 · TrustTunnel core 1.1.7**, each name a link to its page (a toast where there is no
-  browser, as on most TVs; the core's version is read from the AAR's name by the build), and Android's own
-  **Open-source licenses**.
+  browser, as on most TVs; the core's version is read from the AAR's name by the build). There is no screen for
+  the third-party notices, as the desktop has none: they are files in the APK (see License below).
 
 **Logs**: **Clear** and **Copy** as links as wide as their words (Copy says *Log copied*, and asks the
 clipboard not to show what it copied, as the log lists where connections went); *Logging is off.* with **Turn on**;
@@ -241,7 +241,7 @@ the TV launcher with its banner. It works with a remote:
 - The configuration editor opens on the name. Up and Down leave a field of one
   line for the control above or below it, as they leave any control (Android
   13 and later would keep them inside the field for a keyboard's arrows); the
-  log's and a license's box are left with Up at its top and Down at its end.
+  log's box is left with Up at its top and Down at its end.
 - Every dialog, menu and picker is the app's own overlay, in the same look and
   with the same focus (see Dialogs, menus and notices): a remote never meets a
   system dialog with a ring of its own. Back closes an overlay first.
@@ -328,8 +328,6 @@ window of ours to appear in.
   applications: what is typed there names the installed apps that match, up to
   24, above the field with three rows showing, and Enter or a tap adds the
   highlighted one (Up and Down move it, Back or Escape put the list away first).
-- **Open-source licenses**: the files, and a file's text in a box that the
-  arrows scroll; Back and ← go back to the list.
 - **Notices** are the desktop's toast: one at a time, a new one replacing the
   old, at the bottom or, while an overlay is open, at the top, for 3 to 10
   seconds according to its length, and a tap dismisses it. It is over the
@@ -358,10 +356,6 @@ the comparison. What differs on purpose, and is not to be changed to match it:
   no Always-on VPN the sentence that the kill switch then protects only while
   FreeTunnel runs. Android's kill switch is partly the system's, so the app says
   where to turn it on; the desktop's Settings has no such text.
-- **Settings, footer: the Open-source licenses link** and its card. The desktop
-  ships the notices as files in its downloads; an APK has no folder to open,
-  so the card shows them (the third-party notices and the license texts the
-  APK carries).
 - **Configs, add menu on a TV: Receive from phone**, first. A TV has no
   practical way to paste or to pick a file, so this is how a config gets onto
   it (see Receive from phone below). The desktop's menu has three items.
@@ -660,8 +654,8 @@ tile, Configs (the list with pings, a row, its icons, the add, export and delete
 editor (new, edit, the discard question), the import question and the Replace question,
 Split (profiles and rules, after Recommended for Russia, the mode dropdown, the new profile
 field, the Through VPN notice), the app picker, Settings (the top, the theme and language
-dropdowns, the routes, the foot with the update row in each state the updater's test hooks reach), the
-licenses (list and text), Logs (on and off) and, on the TV leg only, Receive from phone, with the
+dropdowns, the routes, the foot with the update row in each state the updater's test hooks reach),
+Logs (on and off) and, on the TV leg only, Receive from phone, with the
 text a phone sent asked about over the card. A state it cannot reach is written to the pass's
 `index.txt` as `UNREACHABLE` and not drawn. The pages the TV serves to a phone are saved as `.html`
 in English and Russian, as they are served and with each theme forced.
@@ -702,9 +696,11 @@ FreeTunnel and TrustTunnel are Apache-2.0. See [LICENSE](../LICENSE) and
 The APK also contains the libraries in the Android section of
 [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md), under their own
 licenses. `app/build.gradle` copies the notices, `LICENSE` and the texts under
-`licenses/common` and `licenses/android` into the APK's assets, the Open-source
-licenses link at the foot of Settings shows them, and `scripts/check-apk-notices.sh` checks a
-built APK for them. A new or bumped dependency in `app/build.gradle`, or a new
+`licenses/common` and `licenses/android` into the APK's assets
+(`assets/THIRD_PARTY_NOTICES.md`, `assets/LICENSE` and `assets/licenses/`; the desktop's texts are
+left out), as the desktop ships them as files next to the program, and the app has no screen for
+them. They are also in the repository. `scripts/check-apk-notices.sh` checks a built APK for
+them. A new or bumped dependency in `app/build.gradle`, or a new
 AAR, needs its entry there, or `scripts/check-third-party-notices.sh` fails.
 
 ### Failure handling and legacy rules

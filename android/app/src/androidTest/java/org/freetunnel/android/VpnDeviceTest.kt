@@ -889,7 +889,6 @@ class VpnDeviceTest {
         withMainActivity { activity ->
             val overlays = listOf("editor" to { privateMethod("editConfig", Int::class.javaPrimitiveType).invoke(activity, -1) },
                 "picker" to { privateMethod("appPicker").invoke(activity) },
-                "licenses" to { privateMethod("openSourceLicenses").invoke(activity) },
                 "confirm" to { privateMethod("confirmRemove", Int::class.javaPrimitiveType).invoke(activity, 0) })
             for (dark in listOf(false, true)) {
                 val theme = Theme.of(dark)

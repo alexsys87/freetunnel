@@ -152,7 +152,7 @@ expect "eventually() with its message passes" pass "$TMP/message"
 # 2e. The tour may not lose a screen: a copy of the real app and tests, with a picture dropped from the tour.
 mkdir -p "$TMP/tour/app/src"
 cp -r "$ROOT/android/app/src/main" "$ROOT/android/app/src/androidTest" "$TMP/tour/app/src/"
-sed -i 's/shot("licenses-text"/shot("licenses-words"/' "$TMP/tour/app/src/androidTest/java/org/freetunnel/android/UiTourDeviceTest.kt"
-expect "a screen dropped from the tour" fail "$TMP/tour" 'the tour takes no picture "licenses-text"'
+sed -i 's/shot("logs-off"/shot("logs-words"/' "$TMP/tour/app/src/androidTest/java/org/freetunnel/android/UiTourDeviceTest.kt"
+expect "a screen dropped from the tour" fail "$TMP/tour" 'the tour takes no picture "logs-off"'
 
 exit $fail

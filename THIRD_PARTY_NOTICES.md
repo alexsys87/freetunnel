@@ -27,8 +27,10 @@ Every download carries this file, `LICENSE` and the `licenses/` folder it needs:
 - Linux AppImage: in `usr/share/doc/freetunnel/` inside the image (run it with
   `--appimage-extract` to unpack it), with `appimage-runtime.txt`, and the
   system libraries' copyright files in `usr/share/doc/<package>/`.
-- Android: Settings, About, Open-source licenses; the files are in the APK's
-  `assets/`.
+- Android: in the APK's `assets/`: `assets/THIRD_PARTY_NOTICES.md`,
+  `assets/LICENSE` and `assets/licenses/` (without the desktop's texts). Unzip
+  the APK to read them. As on the desktop, they are files, not a screen of the
+  app. They are also in the repository.
 
 ## What each download contains
 

@@ -208,10 +208,6 @@ split_notice_both
 legacy_rules_removed
 imported_routing_rules
 
-## Open-source licenses: only the Android app ships the notices in its own screen
-text_open_source_licenses
-text_licenses_unavailable
-
 ## The update's own states, and the Android installer the update goes through (the desktop opens its installer or a folder)
 update_on_launch
 update_download

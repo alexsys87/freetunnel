@@ -14,7 +14,7 @@ import android.view.ViewGroup;
  *
  * <ul>
  * <li>CARD (the editor, the app picker, Receive from phone): centred across, as wide as asked and 14 from the window's sides at most,
- * and as tall as it holds, or as it is asked (the picker and the licenses: 460) and the window leaves room for.
+ * and as tall as it holds, or as it is asked (the picker: 460) and the window leaves room for.
  * Down the window as the desktop's cards are: centred in it, and never higher than 40 from the top (or than the status bar, or a TV's
  * overscan) nor lower than 12 from the bottom (or the bar, or the overscan), so that on a TV the card covers the nav row and a phone's
  * keeps clear of its bars.

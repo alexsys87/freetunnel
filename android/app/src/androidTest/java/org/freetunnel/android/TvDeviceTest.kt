@@ -263,9 +263,9 @@ class TvDeviceTest {
                 assertEquals("$name: the border of a field at rest", theme.inputBorder, look.restEdge)
                 assertEquals("$name: its fill stays", look.restFill, look.focusedFill)
             }
-            // A box of text a remote scrolls, such as a license or the log: the surface, which goes to surfaceHover as any control that rests on
+            // A box of text a remote scrolls, such as the log: the surface, which goes to surfaceHover as any control that rests on
             // it does, with no border (the desktop's log box never draws one).
-            key == "licenses:text" || key == "log:box" -> {
+            key == "log:box" -> {
                 assertEquals("$name: a focused box of text is surfaceHover", theme.surfaceHover, look.focusedFill)
                 assertEquals("$name: with no border", theme.surfaceHover, look.focusedEdge)
                 assertEquals("$name: a box of text at rest", theme.surface, look.restEdge)
@@ -1597,7 +1597,6 @@ class TvDeviceTest {
             Shown("the editor", "editor") { method("editConfig", Int::class.javaPrimitiveType).invoke(a, -1) },
             Shown("the app picker", "picker") { method("appPicker").invoke(a) },
             Shown("Install update", "confirm") { method("installUpdate").invoke(a) },
-            Shown("the licenses", "licenses") { method("openSourceLicenses").invoke(a) },
             Shown("Receive from phone", "receive") { method("receiveFromPhone").invoke(a) })
         for (shown in overlays) {
             onMain { shown.start() }
@@ -1626,7 +1625,6 @@ class TvDeviceTest {
         val cards = listOf(
             Shown("the editor", "editor") { method("editConfig", Int::class.javaPrimitiveType).invoke(a, 0) },
             Shown("the app picker", "picker") { method("appPicker").invoke(a) },
-            Shown("the licenses", "licenses") { method("openSourceLicenses").invoke(a) },
             Shown("Receive from phone", "receive") { method("receiveFromPhone").invoke(a) })
         for (card in cards) {
             onMain { card.start() }
@@ -1657,7 +1655,6 @@ class TvDeviceTest {
         val overlays = listOf(
             Shown("the editor", "editor") { method("editConfig", Int::class.javaPrimitiveType).invoke(a, 0) },
             Shown("the app picker", "picker") { method("appPicker").invoke(a) },
-            Shown("the licenses", "licenses") { method("openSourceLicenses").invoke(a) },
             Shown("a confirmation with an alternative", "confirm") {
                 method("showConfirm", CharSequence::class.java, CharSequence::class.java, CharSequence::class.java,
                     Runnable::class.java, Runnable::class.java, Runnable::class.java)
@@ -1705,57 +1702,6 @@ class TvDeviceTest {
             }
             closeWithBack(a, shown.tag, shown.what)
         }
-    }
-
-    // Settings, About, Open-source licenses lists the notices and the license texts
-    // the APK carries, and not the desktop's, in one card. With a remote, a text starts
-    // with the focus on it, its box shows the accent border, and Down scrolls it; Back
-    // and the arrow go back to the list, and from the list out.
-    @Test fun theOpenSourceLicensesOpenAndScrollWithTheArrows() {
-        val a = open()
-        leaveTouchMode(a)
-        render(a, 3)
-        ok(a, "settings:licenses")
-        val items = onMain {
-            descendants(root(a).findViewWithTag<View>("overlay:licenses")).filter { (it.tag as? String)?.matches(Regex("licenses:\\d+")) == true }
-                .map { (it as TextView).text.toString() }.toList()
-        }
-        assertEquals(listOf("THIRD_PARTY_NOTICES.md", "LICENSE"), items.take(2))
-        // By the file's name: the folder it is in was on every row from the core.
-        assertTrue("The core's license texts are listed", items.contains("nghttp2.txt"))
-        assertTrue("The app's license texts are listed", items.contains("EPL-1.0.txt"))
-        assertTrue("with no folder in a name", items.none { it.contains('/') })
-        assertFalse("The desktop's license texts stay out of the APK", items.any { it.startsWith("licenses/desktop/") })
-        eventually("A remote starts on the first row") { focusedKey(a) == "licenses:0" }
-        click(a, "licenses:0")
-        instrumentation.waitForIdleSync()
-        val scroll = byKey(a, "licenses:text") as ScrollView
-        onMain {
-            // The notices are Markdown written for 80 columns: shown without its marks (the # of the heading), a paragraph a line of its own for
-            // the box to wrap, and no source line broken in the middle of a sentence.
-            val shown = (scroll.getChildAt(0) as TextView).text.toString()
-            assertTrue(shown.take(60), shown.startsWith("Third-party notices\n\nFreeTunnel is licensed under the Apache License 2.0, given in full in LICENSE. Its downloads"))
-            assertFalse("No backticks", shown.contains('`'))
-            assertFalse("and no link syntax", shown.contains("](") )
-            assertTrue("The card's title is the file",
-                descendants(root(a).findViewWithTag<View>("overlay:licenses")).filterIsInstance<TextView>().any { it.text.toString() == "THIRD_PARTY_NOTICES.md" })
-            assertFocusLook(scroll, "the license text", theme(a))
-            assertEquals("The text is monospace", android.graphics.Typeface.MONOSPACE, (scroll.getChildAt(0) as TextView).typeface)
-        }
-        eventually("A remote starts on the text") { onMain { scroll.isFocused } }
-        instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_DOWN)
-        eventually("Down scrolls the text") { onMain { scroll.scrollY > 0 } }
-        // Back goes to the list, with the focus on the file that was open, and then out.
-        instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
-        eventually("Back goes back to the list") { overlayTag(a, "licenses") != null && onMain { root(a).findViewWithTag<View?>("licenses:text") == null } }
-        eventually("with the focus on the file that was open") { focusedKey(a) == "licenses:0" }
-        click(a, "licenses:1")
-        instrumentation.waitForIdleSync()
-        click(a, "licenses:back")
-        eventually("The arrow goes back to the list too") { onMain { root(a).findViewWithTag<View?>("licenses:text") == null } }
-        instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
-        eventually("Back from the list leaves the card") { overlayTag(a, "licenses") == null }
-        eventually("and the focus is back on what opened it") { focusedKey(a) == "settings:licenses" }
     }
 
     // Receive from phone. The link is DeepLinkImportTest's V2_PLAIN: vpn.example.com,
@@ -2939,19 +2885,12 @@ class TvDeviceTest {
         assertEquals("The page does not change", 2, onMain { field("page").getInt(a) })
     }
 
-    // The licenses are a card of the picker's size, 460 high, whether the list is up or a long text, and not the length of the window; the
-    // picker is never taller (it is shorter where a keyboard takes room), and says so while it is still looking.
-    @Test fun theLicensesAreACardOf460AndThePickerIsNeverTaller() {
+    // The picker is a card 460 high at most, and not the length of the window (it is shorter where a keyboard takes room), and says so
+    // while it is still looking.
+    @Test fun thePickerIsNeverTallerThan460() {
         val a = open()
         render(a, 3)
         fun height(tag: String) = onMain { (root(a).findViewWithTag<View>("overlay:$tag") as OverlayLayer).panel().height }
-        onMain { method("openSourceLicenses").invoke(a) }
-        instrumentation.waitForIdleSync()
-        assertEquals("The list is 460 high", dp(a, 460f), height("licenses").toFloat(), dp(a, 1.5f))
-        click(a, "licenses:0")
-        instrumentation.waitForIdleSync()
-        assertEquals("and so is a text, which is far longer", dp(a, 460f), height("licenses").toFloat(), dp(a, 1.5f))
-        closeWithBack(a, "licenses")
         onMain { method("appPicker").invoke(a) }
         instrumentation.waitForIdleSync()
         assertTrue("The picker is 460 at most: ${height("picker")}", height("picker") <= dp(a, 460f) + dp(a, 1.5f))
@@ -3750,7 +3689,7 @@ class TvDeviceTest {
         val a = open()
         render(a, 3)
         val keys = listOf("settings:language", "settings:theme", "switch:auto_connect", "switch:killswitch", "routes:restore", "route:0",
-            "routes:input", "switch:logging", "switch:check_updates_on_launch", "settings:update", "settings:site", "settings:core", "settings:licenses")
+            "routes:input", "switch:logging", "switch:check_updates_on_launch", "settings:update", "settings:site", "settings:core")
         onMain {
             val tops = keys.map { topOf(root(a).findViewWithTag<View>(it)) }
             // The footer's two links share a line, so the order is non-decreasing, and the rest are strictly one under the other.
@@ -4173,16 +4112,14 @@ class TvDeviceTest {
         assertEquals("FreeTunnel ${BuildConfig.VERSION_NAME}", textOf(a, "settings:site"))
         assertEquals(context.getString(R.string.settings_core) + BuildConfig.CORE_VERSION, textOf(a, "settings:core"))
         assertTrue("the core's version is the AAR's", BuildConfig.CORE_VERSION.matches(Regex("\\d+(\\.\\d+)*")))
-        assertEquals(context.getString(R.string.text_open_source_licenses), textOf(a, "settings:licenses"))
         onMain {
             val site = root(a).findViewWithTag<View>("settings:site")
             val core = root(a).findViewWithTag<View>("settings:core")
             val page = pageRoot(a)
             fun left(view: View) = IntArray(2).also { view.getLocationInWindow(it) }[0]
             val middle = (left(site) + left(core) + core.width) / 2f
-            // Together they are in the middle of the page, with the licenses link under them.
+            // Together they are in the middle of the page.
             assertEquals("centred", left(page) + page.width / 2f, middle, page.width * 0.03f)
-            assertTrue(topOf(root(a).findViewWithTag<View>("settings:licenses")) > topOf(site))
         }
         fun viewer(host: String, path: String) = instrumentation.addMonitor(
             IntentFilter(Intent.ACTION_VIEW).apply { addDataScheme("https"); addDataAuthority(host, null)

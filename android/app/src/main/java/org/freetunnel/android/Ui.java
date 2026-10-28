@@ -53,8 +53,8 @@ import android.widget.TextView;
  *
  * <p>What else differs from the desktop on purpose, and is to stay so (android/README.md, "Accepted differences from the desktop"): a TV's
  * overscan margin (48 at the sides, 27 above and below, so its rows, its cards and the empty Configs page's words sit differently), the opt-in
- * "Check for updates on launch" row, the Android VPN settings row and the sentences about the kill switch under it, the Open-source licenses
- * link and its card, "Receive from phone" first in a TV's add menu, the application field's placeholder (an app has no path to paste and
+ * "Check for updates on launch" row, the Android VPN settings row and the sentences about the kill switch under it,
+ * "Receive from phone" first in a TV's add menu, the application field's placeholder (an app has no path to paste and
  * nothing to drop on it), and the file field of the page a phone is served, whose words are the browser's.
  */
 final class Ui {
@@ -282,7 +282,7 @@ final class Ui {
     }
 
     /**
-     * A box of text that a remote scrolls with Up and Down (the log, a license): at its top an Up, and at its end a Down, go on to the control
+     * A box of text that a remote scrolls with Up and Down (the log): at its top an Up, and at its end a Down, go on to the control
      * beside it, as they do from any control, where the scroll view itself would keep them. Anywhere else the arrows scroll it.
      */
     static void leaveAtTheEnds(ScrollView box) {
@@ -402,7 +402,7 @@ final class Ui {
                 hotStrokeSet = true;
                 break;
             case BOX:
-                // A box of text that a remote scrolls, such as a license or the log: the desktop's surface, radius 8, which has no
+                // A box of text that a remote scrolls, such as the log: the desktop's surface, radius 8, which has no
                 // border under the pointer or with the focus there (the log's box never draws one). As any control that rests on
                 // surface, its focus is surfaceHover.
                 rest = t.surface;

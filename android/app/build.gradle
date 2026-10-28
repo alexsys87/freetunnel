@@ -86,9 +86,10 @@ android {
 // The third-party notices, from the repository, into the APK's assets:
 // THIRD_PARTY_NOTICES.md, LICENSE (the Apache License 2.0 that most of the
 // libraries use) and the license texts under licenses/common and
-// licenses/android. Settings, About, Open-source licenses shows them, and
-// scripts/check-apk-notices.sh checks a built APK for them. Copied at build
-// time rather than kept here as a second copy that could fall behind.
+// licenses/android. The app shows them nowhere (the desktop has no screen for
+// its notices either; they are files next to the program, as these are in the
+// APK), and scripts/check-apk-notices.sh checks a built APK for them. Copied at
+// build time rather than kept here as a second copy that could fall behind.
 abstract class CopyThirdPartyNotices extends DefaultTask {
     @InputFile @PathSensitive(PathSensitivity.NAME_ONLY)
     abstract RegularFileProperty getNotices()

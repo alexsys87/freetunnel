@@ -563,7 +563,7 @@ class UiComponentsDeviceTest {
         }
     }
 
-    // The parts of a card (the editor, the app picker, Receive from phone, the licenses): the header is 48 high with the arrow in a cell
+    // The parts of a card (the editor, the app picker, Receive from phone): the header is 48 high with the arrow in a cell
     // of its own and the title in Medium; the editor's text area has a Field's look in monospace 12 and grows from its minimum; its
     // toggle row is 32 high; and a box of text that a remote scrolls rests on surface and goes to surfaceHover, with no border.
     @Test fun aCardsHeaderTextAreaToggleRowAndBoxOfTextAreAsTheDesktopDrawsThem() {
@@ -606,7 +606,7 @@ class UiComponentsDeviceTest {
             assertEquals("It fills with surface while the toggle has the focus", theme.surface, fill(looks(row)["activated"]!!))
 
             val box = android.widget.ScrollView(context)
-            ui.focus(box, "licenses:text", Ui.Look.BOX)
+            ui.focus(box, "log:box", Ui.Look.BOX)
             val boxLooks = looks(box)
             assertEquals("A box of text rests on surface", theme.surface, fill(boxLooks["rest"]!!))
             assertEquals("without a border", theme.surface, edge(boxLooks["rest"]!!))

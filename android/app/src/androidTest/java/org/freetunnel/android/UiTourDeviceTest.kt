@@ -536,7 +536,7 @@ class UiTourDeviceTest {
         return view.width
     }
     // The rows of a list, fields and boxes of text are as wide as their place by design, as the desktop's are; the Home logo is 132 across.
-    private val rowKeys = Regex("(config:\\d+:select|home:pick:\\d+|select:\\d+|add:[a-z]+|picker:\\d+|licenses:\\d+|licenses:text|log:box|home:toggle|editor:cert|editor:name|editor:profile|editor:protocol|editor:certfile)")
+    private val rowKeys = Regex("(config:\\d+:select|home:pick:\\d+|select:\\d+|add:[a-z]+|picker:\\d+|log:box|home:toggle|editor:cert|editor:name|editor:profile|editor:protocol|editor:certfile)")
     private fun tooWide(): String? {
         val focused = act().currentFocus ?: return null
         val key = focused.tag as? String ?: return null
@@ -602,7 +602,6 @@ class UiTourDeviceTest {
         tourSplit()
         tourPicker()
         tourSettings()
-        tourLicenses()
         tourLogs()
         if (isTv) tourReceive() else unreachable("receive-from-phone", "the phone leg: Receive from phone is a TV's")
         tourEmpty()
@@ -945,23 +944,6 @@ class UiTourDeviceTest {
         }
         updater("state", AndroidUpdater.State.IDLE); updater("release", null); updater("failure", null)
         updater("failedCheck", false); updater("progress", 0)
-    }
-
-    private fun tourLicenses() {
-        screen("licenses-list") {
-            goTo(3)
-            activate("settings:licenses")
-            awaitOverlay("licenses")
-            shot("licenses-list", "Open-source licenses: the files the APK carries, as rows")
-        }
-        screen("licenses-text") {
-            goTo(3)
-            activate("settings:licenses")
-            awaitOverlay("licenses")
-            activate("licenses:0")
-            eventually("The text must show") { has("licenses:text") }
-            shot("licenses-text", "A license text in a box like the Logs': monospace, the box focused first so that Down scrolls")
-        }
     }
 
     // ---- Logs ----
