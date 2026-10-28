@@ -131,7 +131,11 @@ class FreeTunnelVpnService : VpnService() {
     private val main = Handler(Looper.getMainLooper())
     @Volatile private var permissionEpoch = 0L
     @Volatile private var destroyed = false
+    // The id of the latest start, recorded by onStartCommand once that start has been answered with startForeground.
     @Volatile private var latestStartId = 0
+    // The id of the start whose task the worker ran last, which is what the worker ends the service with. A start that is
+    // newer is still to be served, so ending the service with this id fails and leaves that start its service. Worker only.
+    private var servedStartId = 0
 
     override fun onCreate() {
         super.onCreate()
@@ -161,15 +165,21 @@ class FreeTunnelVpnService : VpnService() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // Every start is a startForegroundService (send, start, the tile, the receiver, the notification's actions, Android's
+        // Always-on), and the system wants startForeground for each one, whatever its action: a stop, a start that will be refused,
+        // a start with nothing to run. Nothing goes before it. A new start may arrive after stopForeground but before onDestroy,
+        // when onCreate is not called again, so every start acknowledges itself here.
+        startForeground(NOTIFICATION_ID, notification(stateText()))
+        // Recorded only now. A service that is ended with stopSelfResult(the id of the latest start) while that start still owes its
+        // startForeground fails the app with ForegroundServiceDidNotStartInTimeException ("Bringing down service while still waiting
+        // for start foreground"), and the worker, in the middle of a failure, may read this id the moment it is recorded.
         latestStartId = startId
         // A disconnect also cancels the reconnect planned for after an update.
         if (intent?.action == ACTION_STOP) prefs.edit { remove(RESUME_AFTER_UPDATE) }
-        // A new start may arrive after stopForeground but before onDestroy.
-        // onCreate is not called again in that window; acknowledge every FGS start.
-        startForeground(NOTIFICATION_ID, notification(stateText()))
         val epoch = permissionEpoch
         execute {
             if (destroyed || startId != latestStartId || epoch != permissionEpoch) return@execute
+            servedStartId = startId
             if (intent?.action == ACTION_STOP) {
                 close()
                 stopForeground(STOP_FOREGROUND_REMOVE)
@@ -378,7 +388,8 @@ class FreeTunnelVpnService : VpnService() {
             close()
             showFailure(reason)
             stopForeground(STOP_FOREGROUND_REMOVE)
-            stopSelfResult(latestStartId)
+            // Not the latest start: one that is newer than the one served last has asked for its own turn, and it keeps the service.
+            stopSelfResult(servedStartId)
         }
     }
 
