@@ -406,7 +406,8 @@ final class DeepLinkImport {
         return out.toString();
     }
 
-    private static String quoted(String text) {
+    /** A TOML basic string: quoted, with a backslash or a quote escaped and the control characters left out. */
+    static String quoted(String text) {
         StringBuilder out = new StringBuilder(text.length() + 2).append('"');
         for (int i = 0; i < text.length(); i++) {
             char c = text.charAt(i);
@@ -417,6 +418,9 @@ final class DeepLinkImport {
         return out.append('"').toString();
     }
 
+    /** A TOML array of basic strings. */
+    static String listText(List<String> values) { return list(values); }
+
     private static String list(List<String> values) {
         StringBuilder out = new StringBuilder("[");
         for (int i = 0; i < values.size(); i++) {
@@ -424,6 +428,28 @@ final class DeepLinkImport {
             out.append(quoted(values.get(i)));
         }
         return out.append(']').toString();
+    }
+
+    /**
+     * The text of a config for a server with these settings: what a link or an export becomes, and what the editor starts a new config
+     * from. pem is the certificates alone, each ending a line, or empty.
+     */
+    static String configText(String hostname, List<String> addresses, String username, String password, String clientRandom,
+                             List<String> dnsUpstreams, String customSni, boolean hasIpv6, boolean skipVerification, boolean http3,
+                             boolean antiDpi, String pem) {
+        Fields f = new Fields();
+        f.hostname = hostname;
+        f.addresses.addAll(addresses);
+        f.username = username;
+        f.password = password;
+        f.clientRandom = clientRandom;
+        f.dnsUpstreams.addAll(dnsUpstreams);
+        f.customSni = customSni;
+        f.hasIpv6 = hasIpv6;
+        f.skipVerification = skipVerification;
+        f.protocol = http3 ? 2 : 1;
+        f.antiDpi = antiDpi;
+        return toToml(f, pem);
     }
 
     // The PEM is the link's certificates alone, as Certificates.fromDer renders them.

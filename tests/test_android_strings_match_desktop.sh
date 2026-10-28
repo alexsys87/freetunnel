@@ -80,6 +80,24 @@ cat > "$TMP/table.jsonl" <<'TABLE'
 ["delete_config_question", "ConfigsPage", "Delete config “%1”?"]
 ["editor_name", "CreateConfigOverlay", "Name"]
 ["editor_name_placeholder", "CreateConfigOverlay", "Germany · Frankfurt"]
+["editor_host", "CreateConfigOverlay", "Server host"]
+["editor_addresses", "CreateConfigOverlay", "Address(es) · host:port (comma-separated)"]
+["editor_username", "CreateConfigOverlay", "Username"]
+["editor_password", "CreateConfigOverlay", "Password"]
+["editor_protocol", "CreateConfigOverlay", "Protocol"]
+["editor_dns", "CreateConfigOverlay", "DNS servers"]
+["editor_sni", "CreateConfigOverlay", "Custom SNI"]
+["editor_random", "CreateConfigOverlay", "Client random (hex)"]
+["editor_ipv6", "CreateConfigOverlay", "Allow IPv6"]
+["editor_skip_verification", "CreateConfigOverlay", "Skip certificate check"]
+["editor_anti_dpi", "CreateConfigOverlay", "Anti-DPI"]
+["editor_certificate", "CreateConfigOverlay", "Certificate (PEM) · optional"]
+["editor_load_certificate", "CreateConfigOverlay", "Load from file…"]
+["editor_error_missing", "Backend", "Fill in host, address, username and password"]
+["editor_error_address", "Backend", "Address must be host:port, e.g. 1.2.3.4:443"]
+["editor_error_dns", "Backend", "DNS must be an IP or DoT/DoH URL (e.g. 1.1.1.1, tls://8.8.8.8)"]
+["editor_error_random", "Backend", "Client random must be hexadecimal in whole bytes (an even number of digits, at most 64), optionally followed by /mask"]
+["editor_error_certificate", "Backend", "The certificate must be in PEM format, as one or more BEGIN CERTIFICATE blocks"]
 ["editor_discard_question", "CreateConfigOverlay", "Discard unsaved changes?"]
 ["editor_discard", "CreateConfigOverlay", "Discard"]
 ["picker_title", "AppPickerOverlay", "Add an application"]
@@ -231,7 +249,7 @@ receive_page_busy
 receive_page_wrong_code
 receive_page_locked_out
 
-## Importing and editing a config, where Android has its own words: the editor's raw TOML, a file or a link it cannot read, storage it cannot reach
+## Importing and editing a config, where Android has its own words: the editor's raw TOML, a file or a link it cannot read, a file picker that is missing, storage it cannot reach
 text_from_clipboard
 text_paste_complete_trusttunnel_toml
 text_show_toml_and_password
@@ -240,6 +258,7 @@ text_configuration
 text_file_is_too_large
 text_could_not_open_file
 text_no_file_picker
+editor_no_file_picker
 editor_toml
 text_invalid_trusttunnel_link
 text_unsupported_link_size
@@ -260,8 +279,9 @@ text_configurations_are_unavailable
 text_android_could_not_read_storage_saved_data_is_unchang
 text_could_not_save_configurations_data_on_disk_is_unchan
 
-## The app picker, which lists installed applications and has no file to choose instead; Export, which has no file picker on some TVs
+## The app picker, which lists installed applications and has no file to choose instead; the Split page's field for an application, which takes its name and not a path or a dropped file; Export, which has no file picker on some TVs
 picker_none
+split_apps_hint
 export_no_picker
 
 ## Logs and Settings: a log that cannot be read or is empty to copy, and a link with no browser to open it
