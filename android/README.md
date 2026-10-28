@@ -32,7 +32,7 @@ certificate is not an official release or an update compatibility contract.
   password. It is named after its `name`, or, when it has none, as other
   TOML files are: after the file, or "From clipboard" when pasted.
 - TOML, Android adapter and native configuration checks before saving.
-  The editor hides credentials by default and prevents screen capture.
+  The editor shows the password as dots and prevents screen capture.
 - AES-GCM encrypted profiles with Android Keystore. Read failures preserve
   ciphertext and prevent overwriting inaccessible storage. Backup/device transfer
   are excluded; the existing storage format and alias remain compatible.
@@ -237,9 +237,10 @@ the TV launcher with its banner. It works with a remote:
 - Home opens on the logo, which is its control, or on Reconnect while the kill
   switch blocks traffic. Back goes to Home first, onto that control, and leaves
   the app from there.
-- The configuration editor opens on the name. The focus never moves onto Show
-  TOML and password by itself, where an OK would show the password to the
-  room.
+- The configuration editor opens on the name. Up and Down leave a field of one
+  line for the control above or below it, as they leave any control (Android
+  13 and later would keep them inside the field for a keyboard's arrows); the
+  log's and a license's box are left with Up at its top and Down at its end.
 - Every dialog, menu and picker is the app's own overlay, in the same look and
   with the same focus (see Dialogs, menus and notices): a remote never meets a
   system dialog with a ring of its own. Back closes an overlay first.
@@ -253,8 +254,8 @@ switch then protects only while FreeTunnel runs. Where a TV has no file picker,
 or no screen for allowing VPN connections, the app says so instead of closing.
 A configuration gets onto a TV with Receive from phone, the first item in the
 menu under the + on Configs on a TV, through From file… where there is a file
-picker, or through Create new…, which also takes a `tt://` link, typed or
-pasted with a phone's keyboard, for example the Google TV app's.
+picker, or through Create new…, the form, which a phone's keyboard (the Google
+TV app's, for example) fills in.
 
 The banner is [art/tv-banner.svg](art/tv-banner.svg), rendered into
 `app/src/main/res/drawable-xhdpi/banner.png` by
@@ -292,24 +293,40 @@ window of ours to appear in.
   one was. Questions wait in line, and none takes
   another's place. Afterwards a toast says "Config added: …" and the page is
   where it was.
-- **Editor**: a card with ← and the title, the name, the TOML and Show TOML and
-  password as a toggle, and Cancel and Save at the bottom right. Back, ← and
-  Cancel ask "Discard unsaved changes?" when something was typed. The window
-  refuses screenshots while it is open. A keyboard that comes up takes room
-  from the card, which scrolls, and a turn of the screen keeps the card and
-  what was typed in it. What an import left out is a toast.
+- **Editor**: the desktop's form on a card with ← and the title: Name, Server
+  host, Address(es), Username and Password side by side (the password as dots),
+  Protocol and DNS servers, Custom SNI and Client random, the Split profile
+  (where a config's profile is chosen), the switches Allow IPv6, Skip
+  certificate check and Anti-DPI, and the Certificate in a box 70 high with
+  "Load from file…" (the system's file picker, so a TV with none says so), then
+  Cancel and Save, which scroll with the form. The checks and their words are
+  the desktop's. An edit changes the endpoint's values in the config and
+  leaves the rest of the file as it was written (the tunnel's routes, the rules
+  it brings, every other key); only a file whose endpoint cannot be edited in
+  place is written afresh. A new config is what a link with those settings
+  makes, and a name left empty is the host's. A field's placeholder goes while
+  it has the focus, as the desktop's does, and the cursor is the text colour.
+  Back, ← and Cancel ask "Discard unsaved changes?" when something was typed.
+  The window refuses screenshots while it is open. A keyboard that comes up
+  takes room from the card, which scrolls, and a turn of the screen keeps the
+  card and what was typed in it. What an import left out is a toast.
 - **Delete** and **Install update** ask with the same confirmation; Delete
   names the config, cut in the middle to 36 characters.
 - **Mode** and **Theme** open a list under their value, with the current choice
   in the accent and a check mark.
 - **App picker**: a search box and a row for each installed app, its name over
-  its package. A tap adds that one app and closes it. On a phone the search box
-  has the focus and the keyboard; on a TV the first row has the focus.
+  its package. A tap adds that one app and closes it. The search box has the
+  focus first, as the desktop's does, and on a phone the keyboard; Down goes on
+  to the rows. The same list is under the field on Split, below the
+  applications: what is typed there names the installed apps that match, up to
+  24, above the field with three rows showing, and Enter or a tap adds the
+  highlighted one (Up and Down move it, Back or Escape put the list away first).
 - **Open-source licenses**: the files, and a file's text in a box that the
   arrows scroll; Back and ← go back to the list.
 - **Notices** are the desktop's toast: one at a time, a new one replacing the
   old, at the bottom or, while an overlay is open, at the top, for 3 to 10
-  seconds according to its length, and a tap dismisses it. A storage that
+  seconds according to its length, and a tap dismisses it. It is over the
+  cards and under the popups and the confirmations, as the desktop's is. A storage that
   cannot be read or written is an amber banner at the top of Configs and in
   Settings, and a toast.
 
