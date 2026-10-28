@@ -3,10 +3,13 @@ package org.freetunnel.android
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Paint
 import android.graphics.Rect
+import android.graphics.Typeface
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.StateListDrawable
+import android.view.ContextThemeWrapper
 import android.view.View
 import android.view.View.MeasureSpec
 import android.widget.EditText
@@ -16,6 +19,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNotSame
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
@@ -188,12 +192,46 @@ class UiComponentsDeviceTest {
         onMain {
             val ui = ui()
             val name = ui.medium("DE · Frankfurt", 15f, Color.WHITE)
-            assertEquals(Ui.MEDIUM, name.typeface)
+            assertSame(Fonts.medium(context), name.typeface)
             assertFalse(name.typeface.isBold)
             val mono = ui.mono("log", 11f, Color.WHITE)
             assertFalse(mono.typeface.isBold)
             assertEquals(android.graphics.Typeface.MONOSPACE, mono.typeface)
             assertEquals("A section label is as it is typed", "Rules — bypass VPN", ui.sectionLabel("Rules — bypass VPN").text.toString())
+        }
+    }
+
+    // One typeface in both apps: Inter, Regular (400) for all text and Medium (500) where the desktop's is Medium, each a file of its own
+    // (assets/fonts/inter, which the build copies into res/font), and monospace only where the desktop has it. The theme names Regular, for
+    // the text that nothing sets.
+    @Test fun textIsSetInInterAndMonospaceOnlyWhereTheDesktopHasIt() {
+        onMain {
+            val ui = ui()
+            val regular = Fonts.regular(context)
+            val medium = Fonts.medium(context)
+            val sample = "Frankfurt premium \u00b7 \u041f\u0440\u0438\u0432\u0435\u0442, \u043c\u0438\u0440 0123456789"
+            fun width(face: Typeface) = Paint().apply { typeface = face; textSize = 100f }.measureText(sample)
+            assertNotSame("Medium is a file of its own, not Regular made heavier", regular, medium)
+            assertTrue("and Inter Medium sets this text wider than Inter Regular does", width(medium) > width(regular))
+            assertTrue("Regular is not the system's face", Math.abs(width(regular) - width(Typeface.DEFAULT)) > 1f)
+            assertTrue("nor is Medium the system's", Math.abs(width(medium) - width(Typeface.create("sans-serif-medium", Typeface.NORMAL))) > 1f)
+            assertFalse(regular.isBold)
+            assertFalse(medium.isBold)
+
+            assertSame("a label", regular, ui.label("Frankfurt", 14f, Color.WHITE).typeface)
+            assertSame("a button", regular, ui.button("Cancel", Ui.Kind.NEUTRAL, 76, "b:cancel").typeface)
+            assertSame("a link", regular, ui.link("Copy", 13f, Ui.LinkKind.ACCENT, "log:copy").typeface)
+            assertSame("a link with no key", regular, ui.link("Copy", 13f, Ui.LinkKind.ACCENT, null).typeface)
+            assertSame("a form's field", regular, ui.lineEdit().typeface)
+            assertSame("a page's input", regular, ui.pageInput("profile name", "profile:name").typeface)
+            assertSame("a title in Medium", medium, ui.medium("Frankfurt", 15f, Color.WHITE).typeface)
+            assertSame("Home's selector", medium, (ui.selector("DE", true, 0, "home:config").getChildAt(0) as TextView).typeface)
+            assertEquals("the log", Typeface.MONOSPACE, ui.mono("log", 11f, Color.WHITE).typeface)
+
+            // Text that nothing sets takes the theme's face: Inter Regular, as the desktop's application font is.
+            val plain = TextView(ContextThemeWrapper(context, R.style.AppTheme))
+            assertEquals("the theme's face is Inter Regular", width(regular), width(plain.typeface), 0.01f)
+            assertTrue("and not the system's", Math.abs(width(plain.typeface) - width(Typeface.DEFAULT)) > 1f)
         }
     }
 
@@ -586,7 +624,7 @@ class UiComponentsDeviceTest {
             for (state in listOf("rest", "pressed", "focused")) assertEquals("The arrow has no fill ($state): it only tints", Color.TRANSPARENT, fill(looks(arrow)[state]!!))
             assertEquals("Back", arrow.contentDescription.toString())
             val title = header.getChildAt(1) as TextView
-            assertEquals("The title is Medium, never bold", Ui.MEDIUM, title.typeface)
+            assertSame("The title is Medium, never bold", Fonts.medium(context), title.typeface)
             assertEquals("New config", title.text.toString())
 
             val area = EditText(context)
@@ -660,7 +698,7 @@ class UiComponentsDeviceTest {
             val name = selector.getChildAt(0) as TextView
             val arrow = selector.getChildAt(1) as android.widget.ImageView
             assertEquals("The ▾ is drawn, 8 across", dp(8), arrow.drawable.intrinsicWidth)
-            assertEquals("The name is Medium, never bold", Ui.MEDIUM, name.typeface)
+            assertSame("The name is Medium, never bold", Fonts.medium(context), name.typeface)
             assertEquals(theme.text, name.textColors.defaultColor)
             assertEquals("and the accent under the pointer", theme.accent, name.textColors.getColorForState(intArrayOf(android.R.attr.state_hovered), 0))
             assertEquals("The arrow follows it", theme.accent, arrow.imageTintList!!.getColorForState(intArrayOf(android.R.attr.state_hovered), 0))
@@ -698,13 +736,13 @@ class UiComponentsDeviceTest {
             assertEquals(dp(6), arrow.drawable.intrinsicWidth)
             assertEquals(dp(11), arrow.drawable.intrinsicHeight)
             assertSame(value[0], tile.getChildAt(1))
-            assertEquals("The number is Medium", Ui.MEDIUM, value[0]!!.typeface)
+            assertSame("The number is Medium", Fonts.medium(context), value[0]!!.typeface)
             assertEquals(theme.text, value[0]!!.currentTextColor)
             assertFalse("A tile is no control", tile.isFocusable || tile.isClickable)
             assertEquals("It rests on the tile colour", theme.tile, fill(tile.background))
 
             val badge = measured(ui.badge("connected", theme.success)) as TextView
-            assertEquals(Ui.MEDIUM, badge.typeface)
+            assertSame(Fonts.medium(context), badge.typeface)
             assertEquals(theme.success, badge.textColors.defaultColor)
             assertEquals("It does not change with a row's focus", theme.success, badge.textColors.getColorForState(intArrayOf(android.R.attr.state_focused), 0))
             val words = Math.ceil(badge.paint.measureText("connected").toDouble()).toInt()

@@ -886,8 +886,8 @@ class TvDeviceTest {
             // Its logo is whole for the selected config and at 0.4 for the others; its name is Medium for the selected one.
             assertTrue(near(1f, (row0.getChildAt(0) as ImageView).alpha))
             assertTrue(near(0.4f, (row1.getChildAt(0) as ImageView).alpha))
-            assertSame(Ui.MEDIUM, (row0.getChildAt(1) as TextView).typeface)
-            assertNotSame(Ui.MEDIUM, (row1.getChildAt(1) as TextView).typeface)
+            assertSame(Fonts.medium(context), (row0.getChildAt(1) as TextView).typeface)
+            assertSame("and Regular for the others", Fonts.regular(context), (row1.getChildAt(1) as TextView).typeface)
             // The three icons, 26 wide each.
             for (kind in listOf("export", "edit", "remove")) {
                 val icon = root(a).findViewWithTag<View>("config:0:$kind")
@@ -1341,8 +1341,10 @@ class TvDeviceTest {
             // A field of the desktop's keeps the caret at the end of what it was given.
             for (key in listOf("editor:name", "editor:host", "editor:addresses", "editor:username", "editor:password"))
                 assertEquals("$key has its caret at the end", text(key).length, (root(a).findViewWithTag<View>(key) as EditText).selectionStart)
-            // setInputType makes a password field monospace; the desktop's dots are in the font of its other fields.
-            assertNotEquals("in the font of the other fields, not monospace", android.graphics.Typeface.MONOSPACE, password.typeface)
+            // setInputType makes a password field monospace; the desktop's dots are in the font of its other fields: Inter Regular.
+            assertSame("in the font of the other fields, not monospace", Fonts.regular(context), password.typeface)
+            for (key in listOf("editor:name", "editor:host", "editor:addresses", "editor:username", "editor:dns", "editor:sni", "editor:random"))
+                assertSame("$key is in Inter Regular", Fonts.regular(context), root(a).findViewWithTag<EditText>(key).typeface)
             for (key in listOf("editor:dns", "editor:sni", "editor:random", "editor:cert")) assertEquals("$key is empty: the config has none", "", text(key))
             assertFalse("IPv6 is off: the config says so", root(a).findViewWithTag<ToggleView>("editor:ipv6").isChecked)
             assertFalse(root(a).findViewWithTag<ToggleView>("editor:skip").isChecked)
@@ -2642,7 +2644,10 @@ class TvDeviceTest {
             val width = panel.width
             assertTrue("The menu is at least 140 wide", width >= Math.round(140 * dp))
             // As wide as the widest label at 14 and 40 more, as the desktop sizes it (its 5 of margin at each side are in that).
-            val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { textSize = 14 * a.resources.displayMetrics.scaledDensity }
+            val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+                typeface = Fonts.regular(a)
+                textSize = 14 * a.resources.displayMetrics.scaledDensity
+            }
             val widest = listOf("Paste from clipboard", "From file…", "Create new…").maxOf { Math.ceil(paint.measureText(it).toDouble()).toInt() }
             assertEquals("The menu is its widest label and 40", Math.max(Math.round(140 * dp), widest + Math.round(40 * dp)).toFloat(), width.toFloat(), 3f)
             // A popup casts the desktop's shadow, drawn by its layer; the platform's elevation, at a fifth of the colour it is given, is not used.
