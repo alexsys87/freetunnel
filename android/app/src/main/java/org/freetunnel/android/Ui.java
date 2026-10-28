@@ -50,6 +50,12 @@ import android.widget.TextView;
  * chip goes to primaryHover (the desktop leaves it on the accent), and the update line, which has no hover look while it checks or
  * installs, goes to its hover colour and underlined with the focus (the remote's focus stays on it through the check). Each is the one
  * place a control that does nothing, or is already selected, is still somewhere a remote stops, and all are on purpose.
+ *
+ * <p>What else differs from the desktop on purpose, and is to stay so (android/README.md, "Accepted differences from the desktop"): a TV's
+ * overscan margin (48 at the sides, 27 above and below, so its rows, its cards and the empty Configs page's words sit differently), the opt-in
+ * "Check for updates on launch" row, the Android VPN settings row and the sentences about the kill switch under it, the Open-source licenses
+ * link and its card, "Receive from phone" first in a TV's add menu, the application field's placeholder (an app has no path to paste and
+ * nothing to drop on it), and the file field of the page a phone is served, whose words are the browser's.
  */
 final class Ui {
     /** What a control's rest, hover and focus look like. */

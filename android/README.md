@@ -337,6 +337,44 @@ window of ours to appear in.
   cannot be read or written is an amber banner at the top of Configs and in
   Settings, and a toast.
 
+### Accepted differences from the desktop
+
+The apps match qml/ screen for screen, in the light and the dark theme, in
+English and in Russian; `UiTourDeviceTest` takes a picture of each screen for
+the comparison. What differs on purpose, and is not to be changed to match it:
+
+- **A TV's overscan.** The page keeps 48 clear of the sides and 27 of the top
+  and bottom on a TV, as Android TV asks of an app, which some sets crop. The
+  desktop has no such margin, so a TV's config rows start 48 further in, a
+  card ends 27 above the bottom where the desktop's ends 12, and the empty
+  Configs page's words sit 13 higher. Everything else is measured from the
+  desktop's own numbers, which the margin is taken out of (the nav's padding,
+  the speed tiles' 44).
+- **Settings, Maintenance: "Check for updates on launch"**, an opt-in switch
+  that is off. The desktop checks silently after every launch, with no switch;
+  the app waits to be asked.
+- **Settings, under Kill switch: the Android VPN settings row** (Open), the two
+  sentences on Always-on VPN and Block connections without VPN, and on a TV with
+  no Always-on VPN the sentence that the kill switch then protects only while
+  FreeTunnel runs. Android's kill switch is partly the system's, so the app says
+  where to turn it on; the desktop's Settings has no such text.
+- **Settings, footer: the Open-source licenses link** and its card. The desktop
+  ships the notices as files in its downloads; an APK has no folder to open,
+  so the card shows them (the third-party notices and the license texts the
+  APK carries).
+- **Configs, add menu on a TV: Receive from phone**, first. A TV has no
+  practical way to paste or to pick a file, so this is how a config gets onto
+  it (see Receive from phone below). The desktop's menu has three items.
+- **Split, the application field's placeholder**: "application name, then
+  Enter". The desktop's says to drop an application there or paste its full
+  path; an Android app has neither a drag-and-drop from a file manager nor a
+  path to give, so its own words are right, and the app picker's rows are
+  packages.
+- **Receive from phone, the phone's page: the file field's own words** ("Choose
+  File", "No file chosen"). The browser draws that control, in the phone's
+  language and not the TV's. Putting the app's words on it needs a script to
+  say which file was chosen, and the page's CSP forbids scripts.
+
 ### Receive from phone
 
 The TV shows a QR code and an address such as
