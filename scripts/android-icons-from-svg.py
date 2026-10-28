@@ -15,6 +15,10 @@ android/app/src/main/res/drawable/ic_*.xml from those SVG files:
 Tinted icons are white in the file and take their colour from the view that shows
 them. The plus signs are not icons on the desktop either: it draws two rectangles,
 16 by 1.8 in a 22 box on Configs and 10 by 1.6 in a 14 box on Home, and so do these.
+Nor are the arrows and ticks (▾ ✓ ↓ ↑ ←): the desktop draws them as characters of its font, and
+Android's Roboto has none of them, so the font it falls back to draws them half the size and
+thinner. They are drawn here as shapes of the size the desktop's font gives them (measured
+from its renders: ▾ 7.5 by 7, ✓ 7.5 by 7, ↓ 6 by 10.5, ← 15 by 8.5).
 
   scripts/android-icons-from-svg.py           writes the drawables
   scripts/android-icons-from-svg.py --check   fails if one is out of date
@@ -48,6 +52,15 @@ DESKTOP_ONLY = set()
 PLUSES = {
     "ic_add": (22, 16, 1.8),
     "ic_add_home": (14, 10, 1.6),
+}
+
+# The characters the desktop draws as text: drawable -> (character, width, height, path data, stroke width, or None for a filled shape).
+GLYPHS = {
+    "ic_dropdown": ("▾", 8, 7, "M0.25,0 H7.75 L4,7 Z", None),
+    "ic_check": ("✓", 8, 7, "M0.9,3.9 L3,6 L7,1", 1.3),
+    "ic_arrow_down": ("↓", 6, 11, "M3,0.75 V10.25 M0.6,7.4 L3,10.25 L5.4,7.4", 1.4),
+    "ic_arrow_up": ("↑", 6, 11, "M3,10.25 V0.75 M0.6,3.6 L3,0.75 L5.4,3.6", 1.4),
+    "ic_back": ("←", 15, 9, "M0.75,4.5 H14.25 M4.25,0.75 L0.75,4.5 L4.25,8.25", 1.5),
 }
 
 NS = "{http://www.w3.org/2000/svg}"
@@ -225,6 +238,17 @@ def plus(box, arm, thickness):
         w=num(box), h=num(box), vw=num(box), vh=num(box), paths=paths)
 
 
+def glyph(character, w, h, d, stroke):
+    """A character the desktop draws as text, as a shape: filled, or a line of this width with round ends."""
+    if stroke is None:
+        shape = '    <path android:pathData="%s" android:fillColor="#ffffff"/>\n' % d
+    else:
+        shape = ('    <path android:pathData="%s" android:fillColor="@android:color/transparent" android:strokeColor="#ffffff" '
+                 'android:strokeWidth="%s" android:strokeLineCap="round" android:strokeLineJoin="round"/>\n' % (d, num(stroke)))
+    return ("<!-- Made by scripts/android-icons-from-svg.py: the desktop draws %s as a character, and this is it at the size its font "
+            "gives it. -->\n" % character) + VECTOR.format(w=num(w), h=num(h), vw=num(w), vh=num(h), paths=shape)
+
+
 def wanted(assets, res):
     """Every drawable this script owns: path -> text."""
     out = {}
@@ -238,6 +262,8 @@ def wanted(assets, res):
     out[Path(res) / (LOGO + ".xml")] = logo(Path(assets) / "logo.svg")
     for drawable, (box, arm, thickness) in PLUSES.items():
         out[Path(res) / (drawable + ".xml")] = plus(box, arm, thickness)
+    for drawable, (character, w, h, d, stroke) in GLYPHS.items():
+        out[Path(res) / (drawable + ".xml")] = glyph(character, w, h, d, stroke)
     return out
 
 
