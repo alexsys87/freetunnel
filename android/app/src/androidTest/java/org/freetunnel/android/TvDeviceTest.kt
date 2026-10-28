@@ -3561,7 +3561,7 @@ class TvDeviceTest {
             // Only the highlight moves, as on the desktop: a clickable row would be a focus stop with no key and no look.
             for (row in descendants(panel).filter { (it.tag as? String)?.startsWith("suggestion:") == true })
                 assertFalse("${row.tag} must not be a focus stop", row.isFocusable)
-            assertTrue("A name over a package", descendants(root(a).findViewWithTag<View>("suggestion:0")).filterIsInstance<TextView>().size == 2)
+            assertTrue("A name over a package", descendants(root(a).findViewWithTag<View>("suggestion:0")).filterIsInstance<TextView>().toList().size == 2)
             assertEquals("The first is highlighted: on surface", theme.surface, ((root(a).findViewWithTag<View>("suggestion:0")).background as GradientDrawable).color!!.defaultColor)
             assertEquals("and the next is not: on the card's colour", theme.bg, ((root(a).findViewWithTag<View>("suggestion:1")).background as GradientDrawable).color!!.defaultColor)
         }
@@ -3578,7 +3578,7 @@ class TvDeviceTest {
         // A package typed whole: Enter adds the first of what matches.
         onMain { appField().setText(target) }
         eventually("The suggestions are back") { overlayTag(a, "appsuggest") != null && onMain { root(a).findViewWithTag<View?>("suggestion:0") != null } }
-        val first = onMain { descendants(root(a).findViewWithTag<View>("suggestion:0")).filterIsInstance<TextView>().map { it.text.toString() }[1] }
+        val first = onMain { descendants(root(a).findViewWithTag<View>("suggestion:0")).filterIsInstance<TextView>().map { it.text.toString() }.toList()[1] }
         onMain { appField().onEditorAction(EditorInfo.IME_ACTION_DONE) }
         eventually("Enter adds the highlighted application") { profiles().apps(profiles().edited()).contains(first) }
         eventually("The list is put away, the field is empty and has the cursor for the next") {
