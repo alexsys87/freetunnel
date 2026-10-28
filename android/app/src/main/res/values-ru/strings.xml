@@ -45,10 +45,6 @@
     <string name="text_light_78">"Светлая"</string>
     <string name="text_dark_79">"Тёмная"</string>
     <string name="text_security">"Безопасность"</string>
-    <string name="text_android_vpn_settings">"Параметры VPN Android"</string>
-    <string name="text_open">"Открыть"</string>
-    <string name="text_vpn_settings_are_unavailable">"Настройки VPN недоступны"</string>
-    <string name="text_enable_always_on_vpn_and_block_connections_without_v">"Постоянный VPN и блокировку без соединения можно включить в системных настройках."</string>
     <string name="text_enable_logging">"Включить логирование"</string>
     <string name="text_copy">"Копировать"</string>
     <string name="text_log_copied">"Лог скопирован"</string>
@@ -90,7 +86,6 @@
     <string name="config_validation_error">Конфигурация отклонена: %1$s</string>
     <string name="legacy_rules_removed">Удалены неподдерживаемые правила старой превью-версии. Проверьте маршрутизацию.</string>
     <string name="imported_routing_rules">Правила выбранного конфига: %1$s. Они также влияют на маршрутизацию и включение полного VPN.</string>
-    <string name="lockdown_app_warning">Блокировка Android «Без VPN нет соединений» также отключит интернет приложениям, исключённым из VPN.</string>
     <string name="update_check">Проверить обновления</string>
     <string name="update_download">Скачать обновление</string>
     <string name="update_install">Установить обновление</string>
@@ -111,7 +106,6 @@
     <string name="update_allow_installs">Разрешите FreeTunnel устанавливать приложения в настройках Android (на некоторых телевизорах: «Безопасность и ограничения» › «Неизвестные источники»), затем снова нажмите на строку обновления в настройках.</string>
     <string name="text_no_file_picker">На этом устройстве нет выбора файлов. Вставьте ссылку из буфера или создайте конфигурацию вручную.</string>
     <string name="text_vpn_consent_unavailable">На этом устройстве нет экрана Android для разрешения VPN-подключений, поэтому FreeTunnel не может подключиться.</string>
-    <string name="text_no_always_on_here">На этом устройстве нет постоянного VPN, поэтому аварийное отключение защищает, только пока FreeTunnel работает.</string>
     <string name="text_receive_from_phone">Получить с телефона</string>
     <string name="text_receive_hint">Отсканируйте код или откройте адрес на телефоне в той же сети и отправьте ссылки или файлы TOML. Каждый нужно подтвердить здесь.</string>
     <string name="text_receive_no_network">У устройства нет адреса в домашней сети, по которому его найдёт телефон. Подключите его к Wi-Fi или Ethernet.</string>

@@ -45,10 +45,6 @@
     <string name="text_light_78">"Light"</string>
     <string name="text_dark_79">"Dark"</string>
     <string name="text_security">"Security"</string>
-    <string name="text_android_vpn_settings">"Android VPN settings"</string>
-    <string name="text_open">"Open"</string>
-    <string name="text_vpn_settings_are_unavailable">"VPN settings are unavailable"</string>
-    <string name="text_enable_always_on_vpn_and_block_connections_without_v">"Enable Always-on VPN and Block connections without VPN in Android settings for protection after the app stops."</string>
     <string name="text_enable_logging">"Enable logging"</string>
     <string name="text_copy">"Copy"</string>
     <string name="text_log_copied">"Log copied"</string>
@@ -90,7 +86,6 @@
     <string name="config_validation_error">Configuration rejected: %1$s</string>
     <string name="legacy_rules_removed">Unsupported rules from an older preview were removed. Review your routing rules.</string>
     <string name="imported_routing_rules">Rules in the selected configuration: %1$s. These also affect routing and the full VPN fallback.</string>
-    <string name="lockdown_app_warning">Android’s “Block connections without VPN” also blocks internet access for apps excluded by per-app routing.</string>
     <string name="update_check">Check for updates</string>
     <string name="update_download">Download update</string>
     <string name="update_install">Install update</string>
@@ -111,7 +106,6 @@
     <string name="update_allow_installs">Allow FreeTunnel to install apps in Android’s settings (on some TVs: Security &amp; restrictions › Unknown sources), then tap the update line in Settings again.</string>
     <string name="text_no_file_picker">This device has no file picker. Paste a link from the clipboard, or create the configuration manually.</string>
     <string name="text_vpn_consent_unavailable">This device has no Android screen for allowing VPN connections, so FreeTunnel can’t connect.</string>
-    <string name="text_no_always_on_here">This device has no Always-on VPN, so the kill switch protects only while FreeTunnel runs.</string>
     <string name="text_receive_from_phone">Receive from phone</string>
     <string name="text_receive_hint">Scan the code or open the address on a phone on the same network, and send links or TOML files. Each one is confirmed here.</string>
     <string name="text_receive_no_network">This device has no home network address for a phone to reach. Connect it to Wi-Fi or Ethernet.</string>

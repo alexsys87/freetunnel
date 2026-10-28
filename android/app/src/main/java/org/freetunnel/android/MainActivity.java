@@ -16,7 +16,6 @@ import android.animation.ArgbEvaluator;
 import android.animation.ValueAnimator;
 import android.database.Cursor;
 import android.provider.OpenableColumns;
-import android.provider.Settings;
 import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.graphics.Paint;
@@ -3305,10 +3304,10 @@ public final class MainActivity extends Activity {
     }
 
     // The Settings page, as the desktop's is (qml/pages/SettingsPage.qml), top to bottom: General (Language and Theme as Dropdowns,
-    // a line between the rows, and Connect on startup), Security (the storage banner, Kill switch, and Android's own Always-on
-    // row), Excluded routes (chips, and a field), Logging, Maintenance (the update line) and the footer. Left out are what only
-    // the desktop has: Launch at system startup, Hotkeys and the Windows-only ports row. Keys: settings:language, settings:theme,
-    // switch:auto_connect, switch:killswitch, settings:vpn, routes:restore, routes:clear, route:N, routes:input, switch:logging,
+    // a line between the rows, and Connect on startup), Security (the storage banner and Kill switch), Excluded routes (chips, and a
+    // field), Logging, Maintenance (the update line) and the footer. Left out are what only the desktop has: Launch at system startup,
+    // Hotkeys and the Windows-only ports row. Nothing is there of Android's own (Always-on VPN is explained in android/README.md).
+    // Keys: settings:language, settings:theme, switch:auto_connect, switch:killswitch, routes:restore, routes:clear, route:N, routes:input, switch:logging,
     // settings:update (with update:tick, update:arrow, update:dots and update:version beside it), and in the footer settings:site
     // and settings:core.
     private void settings(LinearLayout body) {
@@ -3340,30 +3339,6 @@ public final class MainActivity extends Activity {
         section(body, getString(R.string.text_security));
         storageBanner(body);
         addSwitch(body, getString(R.string.settings_kill_switch), getString(R.string.settings_kill_switch_hint), "killswitch", true);
-        // Most TVs have no Always-on VPN, and no screen for it. The manifest's queries
-        // keep package visibility from hiding the screen on a phone.
-        if (getPackageManager().resolveActivity(new Intent(Settings.ACTION_VPN_SETTINGS), 0) != null) {
-            LinearLayout systemVpn = row();
-            systemVpn.setMinimumHeight(dp(42));
-            systemVpn.addView(label(getString(R.string.text_android_vpn_settings), 14, t.text), weighted());
-            // The word is the control, not the row.
-            TextView open = ui.link(getString(R.string.text_open), 13, Ui.LinkKind.ACCENT, "settings:vpn");
-            // Some TVs have only a stub for it, which can still fail to open.
-            open.setOnClickListener(v -> {
-                try { startActivity(new Intent(Settings.ACTION_VPN_SETTINGS)); }
-                catch (Exception e) { toast(getString(R.string.text_vpn_settings_are_unavailable)); }
-            });
-            LinearLayout.LayoutParams openLp = lp(-2, -2);
-            // Its words end where the other rows' controls do, with the link's own padding beyond.
-            openLp.rightMargin = -dp(6);
-            systemVpn.addView(open, openLp);
-            body.addView(systemVpn, lp(-1, -2));
-            body.addView(ui.paragraph(getString(R.string.text_enable_always_on_vpn_and_block_connections_without_v),
-                    12, t.textFaint, 0), lp(-1, -2));
-            body.addView(ui.paragraph(getString(R.string.lockdown_app_warning), 12, t.textFaint, 0), lp(-1, -2));
-        } else {
-            body.addView(ui.paragraph(getString(R.string.text_no_always_on_here), 12, t.textFaint, 0), lp(-1, -2));
-        }
 
         // Excluded routes.
         excludedRoutes(body);

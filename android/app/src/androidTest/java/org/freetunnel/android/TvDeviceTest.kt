@@ -1152,15 +1152,6 @@ class TvDeviceTest {
         eventually("Back must leave the app") { onMain { a.isFinishing || !a.hasWindowFocus() } }
     }
 
-    @Test fun alwaysOnIsOfferedOnlyWhereAndroidHasIt() {
-        val a = open()
-        render(a, 3)
-        val screen = context.packageManager.resolveActivity(Intent(Settings.ACTION_VPN_SETTINGS), 0) != null
-        if (!isTv) assertTrue("Package visibility must not hide Android's VPN settings on a phone", screen)
-        assertEquals(screen, shows(a, context.getString(R.string.text_android_vpn_settings)))
-        assertEquals(!screen, shows(a, context.getString(R.string.text_no_always_on_here)))
-    }
-
     @Test fun onATvContentKeepsClearOfTheEdges() {
         val a = open()
         render(a, 4)
@@ -3773,28 +3764,6 @@ class TvDeviceTest {
             val language = descendants(root(a).findViewWithTag<View>("settings:language").parent as ViewGroup).filterIsInstance<TextView>().first()
             assertEquals("a toggle's label starts at the margin, like Language's", left(language).toFloat(), left(label).toFloat(), 2f)
         }
-    }
-
-    // Android's own row: the label is words, and the link, which is as wide as its word, is the control.
-    @Test fun onlyTheOpenLinkOfTheAndroidVpnSettingsRowIsFocusable() {
-        val screen = context.packageManager.resolveActivity(Intent(Settings.ACTION_VPN_SETTINGS), 0) != null
-        assumeTrue("This device has no Android VPN settings screen", screen)
-        val a = open()
-        leaveTouchMode(a)
-        render(a, 3)
-        onMain {
-            val open = root(a).findViewWithTag<TextView>("settings:vpn")
-            assertEquals(context.getString(R.string.text_open), open.text.toString())
-            assertTrue(open.isFocusable)
-            val words = Math.ceil(open.paint.measureText(open.text.toString()).toDouble()).toInt()
-            assertTrue("as wide as its word: ${open.width}", open.width <= words + open.paddingLeft + open.paddingRight + 1)
-            val row = open.parent as ViewGroup
-            for (i in 0 until row.childCount) if (row.getChildAt(i) !== open) assertFalse("nothing else in the row is a focus stop", row.getChildAt(i).isFocusable)
-            val label = descendants(row).filterIsInstance<TextView>().first { it !== open }
-            assertEquals(context.getString(R.string.text_android_vpn_settings), label.text.toString())
-        }
-        focusOn(a, "settings:vpn")
-        assertEquals("settings:vpn", focusedKey(a))
     }
 
     // Language is English or Русский, each in itself whatever the app speaks, and the one the app speaks is marked.

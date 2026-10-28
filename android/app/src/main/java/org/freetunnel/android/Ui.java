@@ -52,7 +52,7 @@ import android.widget.TextView;
  * place a control that does nothing, or is already selected, is still somewhere a remote stops, and all are on purpose.
  *
  * <p>What else differs from the desktop on purpose, and is to stay so (android/README.md, "Accepted differences from the desktop"): a TV's
- * overscan margin (48 at the sides, 27 above and below, so its rows, its cards and the empty Configs page's words sit differently), the Android VPN settings row and the sentences about the kill switch under it,
+ * overscan margin (48 at the sides, 27 above and below, so its rows, its cards and the empty Configs page's words sit differently),
  * "Receive from phone" first in a TV's add menu, the application field's placeholder (an app has no path to paste and
  * nothing to drop on it), and the file field of the page a phone is served, whose words are the browser's, and its paste box, which is
  * 16 px monospace where the desktop's certificate box is 12 (an iPhone zooms in on a field under 16).

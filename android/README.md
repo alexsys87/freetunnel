@@ -39,7 +39,9 @@ certificate is not an official release or an update compatibility contract.
 - A private VPN-consent activity and Quick Settings tile. Connection state is
   process-local, so a stopped process cannot leave a persisted Connected state.
 - Kill switch enabled by default. For protection while the process or TUN is
-  absent, enable Android **Always-on VPN** and **Block connections without VPN**.
+  absent, enable Android **Always-on VPN** and **Block connections without VPN**
+  (see [Always-on VPN](#always-on-vpn-and-block-connections-without-vpn) below: the
+  app's Settings says nothing about them, as the desktop's says nothing).
   Android controls crash restart; neither START_STICKY nor Always-on is a watchdog.
 - Replacement TUN established before releasing the previous one. Unsupported
   IPv6 is blocked; supported IPv6 imported from links uses global `2000::/3`.
@@ -114,9 +116,9 @@ Android-only list.
   Android 13 and up keeps the choice itself, with its own per-app language setting listing the same two,
   and before that the app wraps its contexts, the VPN service's notifications and the tile's words
   too, in the saved one), *Theme* (System, Light or Dark) and *Connect on startup*, with a line between the rows.
-- **Security**: *Kill switch*, with its subtitle, and the amber banner while storage fails. Android's own
-  row, *Android VPN settings* with an **Open** link, is only there where Android has that screen; the link
-  is the only focus stop in it. Without Always-on a note says the kill switch protects only while FreeTunnel runs.
+- **Security**: *Kill switch*, with its subtitle, and the amber banner while storage fails. Nothing of
+  Android's own is added to it: Always-on VPN is explained in
+  [Always-on VPN](#always-on-vpn-and-block-connections-without-vpn) below, not in the app.
 - **Excluded routes**: subnets that bypass the tunnel at the routing level, whatever the split rules say, as
   chips (the **×** takes one out at once) and a field that takes several at once, separated by spaces, commas
   or semicolons. What is no subnet is named, and a **/0**, which is every address and would take all its
@@ -251,8 +253,7 @@ the TV launcher with its banner. It works with a remote:
 - The split-tunnelling app picker also lists apps made only for TVs.
 
 Most TVs have no Always-on VPN, no Quick Settings tile and no notification
-shade. Where Android has no VPN settings screen, Settings says that the kill
-switch then protects only while FreeTunnel runs. Where a TV has no file picker,
+shade; there the kill switch protects only while FreeTunnel runs. Where a TV has no file picker,
 or no screen for allowing VPN connections, the app says so instead of closing.
 A configuration gets onto a TV with Receive from phone, the first item in the
 menu under the + on Configs on a TV, through From file… where there is a file
@@ -355,11 +356,6 @@ the comparison. What differs on purpose, and is not to be changed to match it:
   GitHub's unauthenticated API limit. The time of the last automatic check is
   kept, an attempt counts whatever it ends with, and **Check for updates** in
   Settings is never held to it.
-- **Settings, under Kill switch: the Android VPN settings row** (Open), the two
-  sentences on Always-on VPN and Block connections without VPN, and on a TV with
-  no Always-on VPN the sentence that the kill switch then protects only while
-  FreeTunnel runs. Android's kill switch is partly the system's, so the app says
-  where to turn it on; the desktop's Settings has no such text.
 - **Configs, add menu on a TV: Receive from phone**, first. A TV has no
   practical way to paste or to pick a file, so this is how a config gets onto
   it (see Receive from phone below). The desktop's menu has three items.
@@ -710,6 +706,27 @@ left out), as the desktop ships them as files next to the program, and the app h
 them. They are also in the repository. `scripts/check-apk-notices.sh` checks a built APK for
 them. A new or bumped dependency in `app/build.gradle`, or a new
 AAR, needs its entry there, or `scripts/check-third-party-notices.sh` fails.
+
+### Always-on VPN and Block connections without VPN
+
+The app's kill switch protects while FreeTunnel runs. For protection while the
+process or the tunnel is absent (after a crash, a force-stop or a reboot, before
+the app starts), Android's own system settings do the rest. The app has no row
+or link for them, as the desktop's Settings has none: turn them on in Android.
+
+1. Open Android's Settings → Network & internet → VPN (on some devices
+   Connections → More connection settings → VPN, or search Settings for "VPN").
+2. Tap the gear next to FreeTunnel.
+3. Turn on **Always-on VPN**, and then **Block connections without VPN**.
+
+Always-on starts the selected config's VPN when the device starts and when
+Android restarts the service; it is not a watchdog, and the system may not
+restart the process after a crash at once. **Block connections without VPN**
+(Android's lockdown) blocks all traffic while the VPN is down, which is what
+the kill switch asks the system for; it also blocks internet access for the apps
+that per-app routing excludes from the tunnel. Most Android TVs have no
+Always-on VPN and no screen for it; there the kill switch protects only while
+FreeTunnel runs.
 
 ### Failure handling and legacy rules
 

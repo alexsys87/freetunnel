@@ -193,14 +193,6 @@ vpn_blocked_title
 vpn_blocked_details
 config_validation_error
 
-## Android's Always-on VPN and its Block connections without VPN, which the desktop has no counterpart of
-text_android_vpn_settings
-text_open
-text_vpn_settings_are_unavailable
-text_enable_always_on_vpn_and_block_connections_without_v
-lockdown_app_warning
-text_no_always_on_here
-
 ## Split routing: Android cannot send applications and domains through the tunnel together, and keeps what an older preview saved
 text_applications_and_addresses_are_selected_full_vpn_pro
 text_no_through_vpn_rules_full_vpn_is_enabled
