@@ -12,7 +12,7 @@ import android.view.animation.DecelerateInterpolator;
 
 /**
  * The desktop's Toggle (qml/Toggle.qml): a track 38 by 22, fully round, accent while on
- * with no border, toggleOff with a 1 px border while off; a knob 16 across, 3 in from
+ * with no border, toggleOff with a 1 px border while off (the fill stops inside the border); a knob 16 across, 3 in from
  * the track's end, white while on and a step lighter than the track while off, which
  * slides across in 120 ms, easing out. Dimmed to 0.45 while disabled. A tap anywhere on
  * it flips it. The one on Logs is 34 by 20.
@@ -108,17 +108,20 @@ final class ToggleView extends View {
         float width = px(trackWidth);
         float height = px(trackHeight);
         float radius = height / 2;
-        rect.set(0, 0, width, height);
+        // Off, the track's fill stops inside its 1 px border, as a Qt Rectangle's does, and the border is the translucent black of the desktop's
+        // over whatever is behind the toggle: a rim a little darker than the page, in both themes. Stroked over the fill it was a little
+        // lighter than the page on the dark theme and much darker than it on the light. Both go as the track turns on.
+        float border = Math.max(1f, px(1));
+        float fillInset = border * (1f - progress);
+        rect.set(fillInset, fillInset, width - fillInset, height - fillInset);
         paint.setStyle(Paint.Style.FILL);
         paint.setColor(mix(theme.toggleOff, theme.accent, progress));
-        canvas.drawRoundRect(rect, radius, radius, paint);
+        canvas.drawRoundRect(rect, radius - fillInset, radius - fillInset, paint);
         if (progress < 1f) {
-            // The off track's border, 1 px inside it, goes as the track turns on.
-            float border = Math.max(1f, px(1));
             paint.setStyle(Paint.Style.STROKE);
             paint.setStrokeWidth(border);
             paint.setColor(Theme.withAlpha(theme.toggleOffBorder, Math.round((theme.toggleOffBorder >>> 24) * (1f - progress))));
-            rect.inset(border / 2, border / 2);
+            rect.set(border / 2, border / 2, width - border / 2, height - border / 2);
             canvas.drawRoundRect(rect, radius - border / 2, radius - border / 2, paint);
         }
         float knob = px(16);

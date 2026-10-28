@@ -44,7 +44,8 @@ final class UpdateArrowView extends View {
         paint.setStyle(Paint.Style.STROKE);
         paint.setStrokeCap(Paint.Cap.ROUND);
         paint.setStrokeJoin(Paint.Join.ROUND);
-        paint.setStrokeWidth(STROKE_DP * density);
+        // In dp: onDraw scales the canvas by the density, and a width in pixels would be scaled again.
+        paint.setStrokeWidth(STROKE_DP);
         paint.setColor(color);
         setFocusable(false);
         rebuild();
