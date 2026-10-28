@@ -53,7 +53,6 @@
     <string name="text_open_source_licenses">"Open-source licenses"</string>
     <string name="text_licenses_unavailable">"This build has no license texts"</string>
     <string name="text_copy">"Copy"</string>
-    <string name="text_log_is_empty">"Log is empty"</string>
     <string name="text_log_copied">"Log copied"</string>
     <string name="text_could_not_read_log">"Could not read log"</string>
     <string name="text_configurations_are_unavailable">"Configurations are unavailable"</string>

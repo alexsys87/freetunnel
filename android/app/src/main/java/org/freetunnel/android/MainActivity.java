@@ -3938,7 +3938,7 @@ public final class MainActivity extends Activity {
     private void copyLog() {
         String shown = shownLog();
         if (shown == null) { toast(getString(R.string.text_could_not_read_log)); return; }
-        if (shown.isEmpty()) { toast(getString(R.string.text_log_is_empty)); return; }
+        // An empty log is copied too, and said to be, as the desktop's Copy does (LogsPage.qml: copyToClipboard(logText()), "Log copied").
         ClipData clip = ClipData.newPlainText("FreeTunnel log", shown);
         // It lists where the connections went: a keyboard's clipboard history and the preview Android shows are asked to leave it out.
         if (Build.VERSION.SDK_INT >= 33) {

@@ -4316,10 +4316,13 @@ class TvDeviceTest {
         assertEquals("and the box is empty at once", "", shownLogOf(a))
         assertEquals("by changing the text alone, never by building the page again", generation, renderGeneration(a))
         assertTrue("with its placeholder", onMain { descendants(root(a)).filterIsInstance<TextView>().first { it.text.toString() == context.getString(R.string.logs_placeholder) }.isShown })
-        // Nothing to copy says so, and the clipboard keeps what it had.
+        // An empty log is copied as it is (the desktop's Copy puts logText() on the clipboard whatever it holds) and "Log copied" is said
+        // again: what was copied before is replaced by nothing, not kept.
         click(a, "log:copy")
-        eventually("An empty log says so") { context.getString(R.string.text_log_is_empty) in toastTexts(a) }
-        assertEquals(copied, onMain { clipboard.primaryClip?.getItemAt(0)?.coerceToText(context)?.toString() })
+        eventually("An empty log is copied, and the clipboard holds nothing of the old one") {
+            onMain { clipboard.primaryClip?.getItemAt(0)?.coerceToText(context)?.toString() } == ""
+        }
+        eventually("and it says so, as for any other") { context.getString(R.string.text_log_copied) in toastTexts(a) }
     }
 
     // The box follows the file while the page is shown, by changing its text alone, and stops when the page is left.

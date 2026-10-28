@@ -287,8 +287,7 @@ picker_none
 split_apps_hint
 export_no_picker
 
-## Logs and Settings: a log that cannot be read or is empty to copy, and a link with no browser to open it
-text_log_is_empty
+## Logs and Settings: a log that cannot be read to copy, and a link with no browser to open it
 text_could_not_read_log
 text_no_browser
 
