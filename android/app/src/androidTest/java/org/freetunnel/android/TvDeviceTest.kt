@@ -1337,6 +1337,12 @@ class TvDeviceTest {
             assertEquals("test", text("editor:password"))
             val password = root(a).findViewWithTag<EditText>("editor:password")
             assertTrue("The password is dots", password.transformationMethod is android.text.method.PasswordTransformationMethod)
+            // The desktop's ●, one for each character, and never the one just typed shown as itself.
+            assertEquals("each character is the desktop's ●", "\u25CF\u25CF\u25CF\u25CF",
+                password.transformationMethod.getTransformation(password.text, password).toString())
+            // A field of the desktop's keeps the caret at the end of what it was given.
+            for (key in listOf("editor:name", "editor:host", "editor:addresses", "editor:username", "editor:password"))
+                assertEquals("$key has its caret at the end", text(key).length, (root(a).findViewWithTag<View>(key) as EditText).selectionStart)
             // setInputType makes a password field monospace; the desktop's dots are in the font of its other fields.
             assertNotEquals("in the font of the other fields, not monospace", android.graphics.Typeface.MONOSPACE, password.typeface)
             for (key in listOf("editor:dns", "editor:sni", "editor:random", "editor:cert")) assertEquals("$key is empty: the config has none", "", text(key))

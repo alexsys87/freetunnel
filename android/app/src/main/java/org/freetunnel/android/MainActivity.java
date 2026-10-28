@@ -2257,8 +2257,10 @@ public final class MainActivity extends Activity {
         addresses.setHint("1.2.3.4:443");
         EditText username = ui.lineEdit();
         EditText password = ui.lineEdit();
-        // Dots, and no suggestions: the password is a secret.
+        // Dots, and no suggestions: the password is a secret. The dots are the desktop's ● and none is ever shown as the character it
+        // stands for (Ui.PasswordMask); set after setInputType, which replaces the transformation.
         password.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        password.setTransformationMethod(new Ui.PasswordMask());
         // setInputType makes a password field monospace, and the desktop's dots are in the font of its other fields.
         password.setTypeface(Typeface.DEFAULT);
         EditText dns = ui.lineEdit();
@@ -2285,6 +2287,9 @@ public final class MainActivity extends Activity {
         sni.setText(initial.customSni);
         random.setText(initial.clientRandom);
         certificate.setText(initial.certificate);
+        // A field of the desktop's holds its caret at the end of what setText gave it, so that a field reached by Tab, or by a remote's
+        // arrows, appends; Android's holds it at the start, and what is typed there goes before the name, the host, the user name.
+        for (EditText text : new EditText[] {name, host, addresses, username, password, dns, sni, random}) text.setSelection(text.getText().length());
         final String[] protocol = {initial.protocol};
         // The profile the config uses; a new one uses Default.
         final String[] chosenProfile = {editing == null ? SplitProfiles.DEFAULT : splitModel().effective(editing.profile)};

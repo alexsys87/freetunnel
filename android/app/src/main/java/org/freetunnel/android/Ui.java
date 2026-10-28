@@ -11,8 +11,10 @@ import android.graphics.drawable.GradientDrawable;
 import android.graphics.drawable.StateListDrawable;
 import android.graphics.text.LineBreaker;
 import android.os.Build;
+import android.text.GetChars;
 import android.text.Layout;
 import android.text.TextUtils;
+import android.text.method.PasswordTransformationMethod;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.KeyEvent;
@@ -235,6 +237,35 @@ final class Ui {
                 if (next != null && next != this && next.requestFocus(direction)) return true;
             }
             return super.onKeyDown(keyCode, event);
+        }
+    }
+    /**
+     * The echo of a password, as the desktop's: every character a ● (U+25CF, which Qt's PasswordMaskCharacter is on Windows and Linux),
+     * a larger circle than Android's own • and with room between them, and never the character just typed, which Android shows for a
+     * moment wherever the system's "Show passwords" is on (it is, by default) and the desktop never does. It is a
+     * PasswordTransformationMethod all the same, so that the system still treats the field as a secret: nothing in it is cut or copied.
+     * Set it after setInputType, which puts the system's own in its place.
+     */
+    static final class PasswordMask extends PasswordTransformationMethod {
+        static final char DOT = '\u25CF';
+
+        @Override public CharSequence getTransformation(CharSequence source, View view) { return new Dots(source); }
+
+        /** As many dots as the text has characters, following it as it changes. */
+        private static final class Dots implements CharSequence, GetChars {
+            private final CharSequence source;
+            Dots(CharSequence source) { this.source = source; }
+            @Override public int length() { return source.length(); }
+            @Override public char charAt(int index) { return DOT; }
+            @Override public CharSequence subSequence(int start, int end) {
+                char[] dots = new char[end - start];
+                getChars(start, end, dots, 0);
+                return new String(dots);
+            }
+            @Override public String toString() { return subSequence(0, length()).toString(); }
+            @Override public void getChars(int start, int end, char[] dest, int offset) {
+                for (int i = start; i < end; i++) dest[offset + i - start] = DOT;
+            }
         }
     }
     /** A field of one line, for a form to put in {@link #field}, with the arrows above. */

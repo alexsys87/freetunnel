@@ -865,4 +865,26 @@ class UiComponentsDeviceTest {
             assertEquals(dp(130) + dp(24) + dp(6), closeTop)
             assertEquals("with all of it showing where the window has room: ${closeHeight}", dp(132), closeHeight)
         }
+    }
+
+    // The password's echo is the desktop's ●, one for each character, never one shown as the character it stands for, and the field is
+    // still a password field to the system.
+    @Test fun aPasswordIsEchoedAsTheDesktopsDotsAndNeverShowsACharacter() {
+        onMain {
+            val mask = Ui.PasswordMask()
+            val typed = android.text.SpannableStringBuilder("p4ss")
+            val shown = mask.getTransformation(typed, View(context))
+            assertEquals("\u25CF\u25CF\u25CF\u25CF", shown.toString())
+            assertEquals(4, shown.length)
+            assertEquals('\u25CF', shown[3])
+            // It follows the text, which is what a field does when a character is added: the one just typed is a dot at once.
+            typed.append("!")
+            assertEquals("\u25CF\u25CF\u25CF\u25CF\u25CF", shown.toString())
+            assertEquals("\u25CF\u25CF", shown.subSequence(1, 3).toString())
+            val chars = CharArray(3)
+            (shown as android.text.GetChars).getChars(2, 5, chars, 0)
+            assertEquals("\u25CF\u25CF\u25CF", String(chars))
+            assertTrue("a password transformation to the system, so that nothing in the field is copied", mask is android.text.method.PasswordTransformationMethod)
+        }
+    }
 }
