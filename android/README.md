@@ -147,7 +147,8 @@ Android-only list.
 clipboard not to show what it copied, as the log lists where connections went); *Logging is off.* with **Turn on**;
 the log in a box that fills the page and scrolls in itself, *Logs will appear after connecting* in the middle of
 it while it is empty; and **Auto-scroll** at the foot. The box follows the file once a second, by changing its text
-alone, and holds off while text is selected. On a TV the text is not selectable, so the arrows scroll the box.
+alone, and holds off while text is selected. On a TV the text is not selectable, so the arrows scroll the box, and Up
+from its top goes to the link just above it (Copy, or Turn on), not to a tab.
 
 The log is the file the VPN service writes, one entry to a line, `yyyy-MM-dd HH:mm:ss<TAB>LEVEL<TAB>message`
 as the desktop writes it, and the page shows `HH:mm:ss LEVEL message`; a line written by an earlier version is shown

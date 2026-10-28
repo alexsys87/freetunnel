@@ -3759,6 +3759,10 @@ public final class MainActivity extends Activity {
             setLogText("");
         });
         copy.setOnClickListener(v -> copyLog());
+        // The control just above the box, which Up from the box's top goes to: Copy, or "Turn on" where the page says logging is off.
+        // Left to the focus search, it would take the nav tile that is straight above the middle of the box, over the links at its
+        // corners (it weighs a sideways step more than a step up).
+        View above = copy;
         // Logging off: nothing new will be written, so the page says so instead of showing old lines as if they were current.
         if (!prefs.getBoolean("logging", true)) {
             gap(body, 8);
@@ -3770,6 +3774,7 @@ public final class MainActivity extends Activity {
             turnOn.setOnClickListener(v -> { prefs.edit().putBoolean("logging", true).apply(); render(); });
             off.addView(turnOn, ui.linkLp(true));
             body.addView(off, lp(-1, -2));
+            above = turnOn;
         }
         gap(body, 8);
         // The box is the scroll view: surface, radius 8, and the field's accent border with the focus. Its text is clipped
@@ -3779,6 +3784,8 @@ public final class MainActivity extends Activity {
         logBox.setVerticalScrollBarEnabled(false);
         logBox.setPadding(dp(12), dp(12), dp(12), dp(12));
         ui.focus(logBox, "log:box", Ui.Look.BOX);
+        if (above.getId() == View.NO_ID) above.setId(View.generateViewId());
+        logBox.setNextFocusUpId(above.getId());
         // A remote scrolls it with the arrows, and leaves it with Up at the top and Down at the end.
         Ui.leaveAtTheEnds(logBox);
         logText = ui.mono("", 11, t.text);
