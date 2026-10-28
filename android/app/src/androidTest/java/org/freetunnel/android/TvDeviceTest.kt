@@ -279,7 +279,9 @@ class TvDeviceTest {
             // The buttons: the hover colour of the kind.
             key == "confirm:ok" -> assertEquals("$name: the red button goes to the darker red", theme.destructiveHover, look.focusedFill)
             key == "editor:save" -> assertEquals("$name: Save goes to the darker accent", theme.primaryHover, look.focusedFill)
-            key == "editor:cancel" -> assertEquals("$name: the editor's Cancel goes to surface", theme.surface, look.focusedFill)
+            // The editor's Cancel is the desktop's only button that dismisses a card (outlined on the page, surface under the pointer); the
+            // Receive card has no counterpart on the desktop and ends in a Close of the same look, in the same last row.
+            key == "editor:cancel" || key == "receive:close" -> assertEquals("$name: a card's dismissing button goes to surface", theme.surface, look.focusedFill)
             view is Button -> assertEquals("$name: a dialog's button goes to surfaceHover", theme.surfaceHover, look.focusedFill)
             // Chips: surfaceHover, and the selected one, which the desktop leaves as it is, a step darker.
             Regex("profile:\\d+|profile:add").matches(key) ->
@@ -1311,7 +1313,18 @@ class TvDeviceTest {
                     R.string.editor_ipv6, R.string.editor_skip_verification, R.string.editor_anti_dpi, R.string.editor_certificate, R.string.editor_load_certificate))
                 assertTrue("The editor says \"${context.getString(label)}\"", descendants(layer).filterIsInstance<TextView>().any { it.text.toString() == context.getString(label) })
             val placeholders = mapOf("editor:name" to context.getString(R.string.editor_name_placeholder), "editor:addresses" to "1.2.3.4:443", "editor:dns" to "1.1.1.1, 8.8.8.8")
-            for ((key, hint) in placeholders) assertEquals(hint, root(a).findViewWithTag<EditText>(key).hint.toString())
+            // A placeholder shows while the field is empty and has not the focus (Field.qml): a TV starts the editor on the name, whose
+            // placeholder waits until the focus has gone on.
+            for ((key, hint) in placeholders) {
+                val field = root(a).findViewWithTag<EditText>(key)
+                if (field.hasFocus()) assertNull("$key has the focus: its placeholder waits", field.hint)
+                else assertEquals(hint, field.hint.toString())
+            }
+            val started = placeholders.keys.map { root(a).findViewWithTag<EditText>(it) }.firstOrNull { it.hasFocus() }
+            started?.let { field ->
+                assertTrue(root(a).findViewWithTag<View>("editor:host").requestFocus())
+                assertEquals("and returns when the focus leaves", placeholders.getValue(field.tag as String), field.hint?.toString())
+            }
         }
     }
 
@@ -2403,7 +2416,10 @@ class TvDeviceTest {
         assertTrue("with the question as wide as the card less 28: ${sized("confirm:message")}", Math.abs(sized("confirm:message").first - (wide - 28 * density)) <= 2)
         click(a, "confirm:cancel")
         eventually("The card closes again") { overlayTag(a, "confirm") == null }
-        // Three buttons whose labels are far wider than any window: they give up their padding and elide, and the row is the card's width less 28.
+        // Three buttons, two of them with labels far wider than any window (the first is always Cancel): they give up their padding and elide.
+        // The desktop's buttonWidth is the label's width and 16, and no more than a third of the room the row has (the window less 52, and
+        // the two gaps), so the long two take a third each and Cancel only its own words; the card is that row and 28, which is short of the
+        // window less 24 as long as one of the buttons is short.
         val label = "A label that is much longer than the window is wide ".repeat(3)
         onMain {
             method("showConfirm", CharSequence::class.java, CharSequence::class.java, CharSequence::class.java,
@@ -2411,7 +2427,16 @@ class TvDeviceTest {
         }
         instrumentation.waitForIdleSync()
         val card = panel()
-        assertEquals("The card is as wide as the window less 24: ${card.width}", window() - 24 * density, card.width.toFloat(), 3f)
+        val share = (window() - 52 * density - 2 * 8 * density) / 3
+        val (cancelWidth, _) = sized("confirm:cancel")
+        val (altWidth, _) = sized("confirm:alt")
+        val (okWidth, _) = sized("confirm:ok")
+        assertEquals("A long label takes a third of the room: $altWidth", share, altWidth.toFloat(), 3f)
+        assertEquals("both of them: $okWidth", share, okWidth.toFloat(), 3f)
+        assertTrue("Cancel is its words and 16, not a third: $cancelWidth of $share", cancelWidth < share)
+        assertEquals("The card is its buttons, 8 apart, and 28: ${card.width}", cancelWidth + altWidth + okWidth + 2 * 8 * density + 28 * density,
+            card.width.toFloat(), 4f)
+        assertTrue("and no wider than the window less 24: ${card.width} of ${window()}", card.width <= window() - 24 * density + 1)
         onMain {
             for (key in listOf("confirm:cancel", "confirm:alt", "confirm:ok")) {
                 val button = root(a).findViewWithTag<TextView>(key)
@@ -2800,7 +2825,9 @@ class TvDeviceTest {
         val first = onMain {
             val layer = root(a).findViewWithTag<View>("overlay:picker")
             assertTrue("No checkboxes", descendants(layer).none { it is android.widget.CompoundButton })
-            assertTrue("No icons", descendants(layer).none { it is ImageView })
+            // The one picture on the card is the ← before the title (the desktop draws it as a glyph of text); a row has none of an application's.
+            assertTrue("No icons", descendants(layer).filterIsInstance<ImageView>().all { it.tag == "picker:back" })
+            assertTrue("and none in a row", descendants(layer.findViewWithTag<View>("picker:0")).none { it is ImageView })
             val texts = descendants(layer.findViewWithTag<View>("picker:0")).filterIsInstance<TextView>().toList()
             assertEquals("A name and a package", 2, texts.size)
             assertEquals("The package is cut at its left", TextUtils.TruncateAt.START, texts[1].ellipsize)

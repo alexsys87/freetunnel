@@ -774,9 +774,18 @@ class VpnDeviceTest {
                 }
                 instrumentation.waitForIdleSync()
             }
-            // Save starts a check, which waits behind the gate; Cancel closes the editor, nothing in it changed, and the check with it.
+            // Save of an editor in which nothing changed writes nothing and closes it (as the desktop's does), so the form is changed first. Save
+            // then starts a check, which waits behind the gate; Cancel asks whether to discard what was changed, and Discard closes the editor,
+            // and the check with it. The question takes no answer for the first 400 ms.
+            instrumentation.runOnMainSync {
+                val host = activity.window.decorView.findViewWithTag<android.widget.EditText?>("editor:host")
+                assertNotNull("The editor's editor:host must exist", host)
+                host!!.setText("other.example.com")
+            }
             click("editor:save")
             click("editor:cancel")
+            android.os.SystemClock.sleep(500)
+            click("confirm:ok")
             instrumentation.runOnMainSync {
                 val configs = MainActivity::class.java.getDeclaredField("configs").apply { isAccessible = true }.get(activity) as MutableList<*>
                 configs.removeAt(0)
