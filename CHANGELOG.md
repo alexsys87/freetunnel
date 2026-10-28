@@ -40,6 +40,11 @@ compare link at the bottom of its release notes.
   asks before adding it, as it does for a tt:// link. The config takes the
   name the file gives, or the file's own name, and leaves the subscription
   address out.
+- **The window uses the Inter font on Windows, macOS and Linux** in place of
+  the system's font. FreeTunnel ships the font itself, so text, Russian
+  included, looks the same everywhere. The tray menu, file dialogs and
+  notifications are drawn by the system and keep its font. The log and the
+  certificate box stay fixed-width.
 
 ### Fixed
 
