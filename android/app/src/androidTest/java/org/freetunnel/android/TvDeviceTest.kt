@@ -1618,7 +1618,10 @@ class TvDeviceTest {
     }
 
     // The ← of a card is a focus stop that shows its focus the way the desktop's shows the pointer: it turns from textDim to the text colour. It
-    // is a control of its own, so its tint follows its own states and not the header's, which is never focused, pressed or hovered.
+    // is a control of its own, so its tint follows its own states and not the header's, which is never focused, pressed or hovered. Where
+    // another control takes the focus first (the editor's name, the picker's search) the arrow is seen at rest in textDim, and then
+    // focused. Receive from phone has no other control, so a remote's focus is on its arrow from the moment the card opens, and it cannot
+    // be seen at rest: there the arrow has the focus on opening, and is in the text colour.
     @Test fun theBackArrowOfACardTurnsToTheTextColourWithTheFocus() {
         val a = open()
         leaveTouchMode(a)
@@ -1626,20 +1629,30 @@ class TvDeviceTest {
             Shown("the editor", "editor") { method("editConfig", Int::class.javaPrimitiveType).invoke(a, 0) },
             Shown("the app picker", "picker") { method("appPicker").invoke(a) },
             Shown("Receive from phone", "receive") { method("receiveFromPhone").invoke(a) })
+        // The card whose only stop is its arrow, and which a remote therefore starts on.
+        val opensOnTheArrow = setOf("receive")
         for (card in cards) {
             onMain { card.start() }
             instrumentation.waitForIdleSync()
             val key = "${card.tag}:back"
             val theme = theme(a)
+            if (card.tag in opensOnTheArrow) {
+                // The focus is given to a card's first stop once it is up, not as it is made.
+                eventually("${card.what}: the arrow has the focus when the card opens") {
+                    onMain { root(a).findViewWithTag<ImageView?>(key)?.isFocused == true }
+                }
+            } else {
+                onMain {
+                    val arrow = root(a).findViewWithTag<ImageView>(key)
+                    assertNotNull("${card.what} has a ← with the key $key", arrow)
+                    assertFalse("${card.what}: the arrow does not rest focused", arrow.isFocused)
+                    assertEquals("${card.what}: the arrow rests in textDim", theme.textDim, arrow.imageTintList!!.getColorForState(arrow.drawableState, 0))
+                }
+                focusOn(a, key)
+            }
             onMain {
                 val arrow = root(a).findViewWithTag<ImageView>(key)
                 assertNotNull("${card.what} has a ← with the key $key", arrow)
-                assertFalse("${card.what}: the arrow does not rest focused", arrow.isFocused)
-                assertEquals("${card.what}: the arrow rests in textDim", theme.textDim, arrow.imageTintList!!.getColorForState(arrow.drawableState, 0))
-            }
-            focusOn(a, key)
-            onMain {
-                val arrow = root(a).findViewWithTag<ImageView>(key)
                 assertTrue("${card.what}: the arrow has the focus", arrow.isFocused)
                 assertTrue("${card.what}: and its state says so", arrow.drawableState.contains(android.R.attr.state_focused))
                 assertEquals("${card.what}: the focused arrow is in the text colour", theme.text, arrow.imageTintList!!.getColorForState(arrow.drawableState, 0))
