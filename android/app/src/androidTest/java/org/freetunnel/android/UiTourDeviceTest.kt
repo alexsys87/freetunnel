@@ -5,6 +5,7 @@ import android.content.Intent
 import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.graphics.Color
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.net.VpnService
@@ -425,11 +426,41 @@ class UiTourDeviceTest {
                 how = " (the screenshot failed: drawn from the activity's view)"
             }
         }
+        assertBarsDim(name, bitmap!!)
         counter++
         val file = String.format(Locale.ROOT, "%02d-%s.png", counter, name)
         output!!.write(file, png(bitmap!!))
         shots.add(file)
         note("$file  $what$how")
+    }
+
+    // The strips under the status and navigation bars are the page's colour as it is drawn beside them: the page's own while nothing is
+    // open, and its dim under a card or a question, once or twice, as the desktop dims the whole of its window. From Android 15 on, with
+    // the app targeting it, the bars are drawn over the window and the backdrops did not reach under them: every dimmed picture of the
+    // phone had a bright band across the top and a band of another grey at the foot (BarScrim paints them now). The pixel is at the left
+    // edge, where the page has nothing drawn over its colour; the foot is the keyboard's, and not the app's, while a keyboard is up.
+    private fun assertBarsDim(name: String, picture: Bitmap) {
+        if (Build.VERSION.SDK_INT < 35) return
+        val state = onMain {
+            val given = act().window.decorView.rootWindowInsets
+            Triple(field("barDims").getInt(act()), given?.getInsets(android.view.WindowInsets.Type.systemBars()),
+                given?.isVisible(android.view.WindowInsets.Type.ime()) == true)
+        }
+        val (backdrops, bars, keyboard) = state
+        if (bars == null) return
+        fun differs(x: Int, y: Int) = Math.abs(Color.red(x) - Color.red(y)) > 3 || Math.abs(Color.green(x) - Color.green(y)) > 3 ||
+            Math.abs(Color.blue(x) - Color.blue(y)) > 3
+        val shown = if (backdrops == 0) "not dimmed" else "dimmed $backdrops time(s)"
+        if (bars.top > 0 && bars.top + 3 < picture.height) {
+            val strip = picture.getPixel(2, bars.top / 2)
+            val page = picture.getPixel(2, bars.top + 3)
+            if (differs(strip, page)) violate(name, "the strip under the status bar is #${Integer.toHexString(strip)}, and the page beside it, $shown, #${Integer.toHexString(page)}")
+        }
+        if (bars.bottom > 0 && !keyboard && bars.bottom + 3 < picture.height) {
+            val strip = picture.getPixel(2, picture.height - 1 - bars.bottom / 2)
+            val page = picture.getPixel(2, picture.height - bars.bottom - 4)
+            if (differs(strip, page)) violate(name, "the strip under the navigation bar is #${Integer.toHexString(strip)}, and the page beside it, $shown, #${Integer.toHexString(page)}")
+        }
     }
 
     private fun violate(name: String, problem: String) {

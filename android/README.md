@@ -633,7 +633,10 @@ On every screen the tour also asserts what the parity is about, and collects the
 one does not cost the pictures after it: only the activity's own window is shown (no dialog, no
 popup, nothing of another app), no view has a foreground (a ring), and the control that has the
 focus is no wider than what it holds plus its padding, unless it is a row of a list, a field or a
-box of text, a small cell or the Home logo (132 across, with no tile behind it). The pass fails at its end if there is any,
+box of text, a small cell or the Home logo (132 across, with no tile behind it). From Android 15 on it also reads the pixels
+under the status and navigation bars (the foot is the keyboard's while one is up): each is the page's colour as it is drawn beside the
+bar, dimmed once under a card and twice under a question over it, as the desktop's backdrops dim its whole window
+(`TvDeviceTest.theSystemBarsDimWithACardAndComeBack` reads the same, in the window as the app draws it). The pass fails at its end if there is any,
 and so does a VPN screen (connecting, connected, blocked) it could take and lost: only a VPN consent that was not granted
 leaves those as `UNREACHABLE`.
 

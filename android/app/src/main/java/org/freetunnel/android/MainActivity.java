@@ -138,10 +138,15 @@ public final class MainActivity extends Activity {
     private FrameLayout popupLayer;
     // What a TV may crop at the top and the bottom, which the host is padded by (and Home's foot sits inside of: see home()).
     private int overscanY;
-    // The status and navigation bars while a card or a confirmation dims the page: the dimmed colour, and where they are now.
-    private boolean barsDimmed;
+    // The status and navigation bars while a card or a confirmation dims the page: how many backdrops are over it (a card and a question
+    // over it are two), the colour that gives the page, and where the bars are on the way to it now. Before Android 15 the bars are the
+    // system's, outside the window or coloured by Window.setStatusBarColor; from there (the app targeting it) the window is edge to edge and
+    // the strips under the bars are painted by barScrim, on the decor's overlay (BarScrim).
+    private int barDims;
     private int barColor;
     private ValueAnimator barAnimator;
+    private final BarScrim barScrim = new BarScrim();
+    private boolean barScrimShown;
     // render() rebuilds every view. On a remote, the focused control's key and the
     // page's scroll position are carried over the rebuild (see restoreFocus).
     private ScrollView pageScroll;
@@ -389,7 +394,8 @@ public final class MainActivity extends Activity {
         host = new FrameLayout(this);
         // The overlays' layers reach the window's edges past this padding, and a layer is only drawn as far as its parent's padding by
         // default: the backdrop covers all of the window as the desktop's does, and no lighter frame is left round it where a TV's
-        // overscan margin or an edge-to-edge window's bars are.
+        // overscan margin is. (Under an edge-to-edge window's bars that did not hold on a phone with Android 15, whatever the layer's
+        // geometry says: BarScrim paints the strips there.)
         host.setClipToPadding(false);
         pageRoot = new LinearLayout(this);
         pageRoot.setOrientation(LinearLayout.VERTICAL);
@@ -420,6 +426,11 @@ public final class MainActivity extends Activity {
             return insets;
         });
         setContentView(host);
+        // The system's own scrim behind a three-button navigation bar (80% of a colour of its choosing) is gone: it was drawn over the
+        // dim of a card as a band of another grey, and what the bar shows is the window's, as on a gesture-navigation phone.
+        if (Build.VERSION.SDK_INT >= 29) getWindow().setNavigationBarContrastEnforced(false);
+        // The strips follow the window when it turns or resizes.
+        getWindow().getDecorView().addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> { if (barScrimShown) placeBarScrim(); });
     }
     // The padding that keeps the page, the popups and the toast clear of the edges. An
     // overlay's backdrop still covers all of the window, so its layer is as large as it
@@ -457,7 +468,7 @@ public final class MainActivity extends Activity {
         ui.update(dark);
         Theme t = t();
         if (barAnimator != null) barAnimator.cancel();
-        setBarColor(barsDimmed ? Theme.over(t.backdrop, t.bg) : t.bg);
+        setBarColor(dimmedPage(barDims));
         getWindow().getDecorView().setSystemUiVisibility(dark ? 0 : View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR | View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR);
         // The window itself too, so that nothing of the system theme's dark shows before a frame, or at an edge.
         getWindow().setBackgroundDrawable(new ColorDrawable(t.bg));
@@ -645,8 +656,9 @@ public final class MainActivity extends Activity {
     //    popup, which has a shadow), fading in over 130 ms as it slides down 8;
     //  - a place in a stack. While anything is open the page behind takes no focus and is
     //    hidden from accessibility, and so does every overlay below the top one;
-    //  - while a card or a confirmation is open, the status and navigation bars dim with the page, as
-    //    the backdrop does where a window is edge to edge;
+    //  - while a card or a confirmation is open, the status and navigation bars dim with the page, as the desktop's backdrop dims its whole
+    //    window: once for each backdrop over the page (a card and a question over it make two), as a colour of the bars where they are the
+    //    system's, and as strips painted over them where the window is edge to edge (dimBars, BarScrim);
     //  - a passive overlay, the suggestions under a field being typed in, is none of that: it has no
     //    backdrop that takes a touch, the page behind keeps the focus and what it hears, and the field
     //    keeps the keyboard; only Back and Escape, which close it first, treat it as an overlay at all;
@@ -816,11 +828,11 @@ public final class MainActivity extends Activity {
     // (the suggestions under a field) is not one that does this: it is not modal.
     private void updateOverlayState() {
         Overlay topModal = null;
-        boolean dimsBars = false;
+        int dims = 0;
         for (Overlay open : overlays) {
             if (open.passive) continue;
             topModal = open;
-            if (open.kind != OverlayLayer.Kind.POPUP) dimsBars = true;
+            if (open.kind != OverlayLayer.Kind.POPUP) dims++;
         }
         boolean any = topModal != null;
         if (any != pageBlocked) {
@@ -835,7 +847,7 @@ public final class MainActivity extends Activity {
             layer.setDescendantFocusability(topmost ? ViewGroup.FOCUS_BEFORE_DESCENDANTS : ViewGroup.FOCUS_BLOCK_DESCENDANTS);
             layer.setImportantForAccessibility(topmost ? View.IMPORTANT_FOR_ACCESSIBILITY_AUTO : View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
         }
-        dimBars(dimsBars);
+        dimBars(dims);
         placeToast();
     }
 
@@ -845,24 +857,68 @@ public final class MainActivity extends Activity {
         return false;
     }
 
-    // The status and navigation bars are the system's, outside the window before Android 15 and over it from then on: where they are
-    // outside, the backdrop cannot dim them, and they stayed bright round a dimmed page. They take the colour the backdrop gives the page
-    // over the same 130 ms. Where the window is edge to edge the layers cover them already, and setting a colour is no more than ignored.
-    private void dimBars(boolean dim) {
-        if (dim == barsDimmed) return;
-        barsDimmed = dim;
+    // The page's colour under this many backdrops, each black at 0.45 over what is below it: the dim of the desktop's whole window, which
+    // a card makes once and a question over a card makes twice.
+    private int dimmedPage(int dims) {
         Theme t = t();
-        int to = dim ? Theme.over(t.backdrop, t.bg) : t.bg;
+        int color = t.bg;
+        for (int i = 0; i < dims; i++) color = Theme.over(t.backdrop, color);
+        return color;
+    }
+
+    // The status and navigation bars take the dim of the backdrops with the page, over the same 130 ms. Before Android 15 they are the
+    // system's, outside the window or coloured by the window's own setting, and take it as a colour. From Android 15 on, with the app
+    // targeting it (the phone leg), the window is edge to edge: the bars are drawn over it, their colours cannot be set, and the
+    // backdrops, which are views of the window, did not reach under them, so that a strip of the undimmed page was left above a dimmed
+    // page and the navigation bar's own scrim (a band of a third grey) below it. There the strips are BarScrim's.
+    private void dimBars(int dims) {
+        if (dims == barDims) return;
+        barDims = dims;
+        int to = dimmedPage(dims);
         if (barAnimator != null) barAnimator.cancel();
-        barAnimator = ValueAnimator.ofObject(new ArgbEvaluator(), barColor == 0 ? t.bg : barColor, to);
+        barAnimator = ValueAnimator.ofObject(new ArgbEvaluator(), barColor == 0 ? t().bg : barColor, to);
         barAnimator.setDuration(130);
         barAnimator.addUpdateListener(a -> setBarColor((Integer) a.getAnimatedValue()));
         barAnimator.start();
     }
     private void setBarColor(int color) {
         barColor = color;
-        getWindow().setStatusBarColor(color);
-        getWindow().setNavigationBarColor(color);
+        if (Build.VERSION.SDK_INT >= 35) {
+            // The platform's colours are ignored here, and the navigation bar's one is the base of a scrim: nothing of them may show.
+            getWindow().setStatusBarColor(Color.TRANSPARENT);
+            getWindow().setNavigationBarColor(Color.TRANSPARENT);
+            paintBarScrim(color);
+        } else {
+            getWindow().setStatusBarColor(color);
+            getWindow().setNavigationBarColor(color);
+        }
+    }
+    // The strips under the bars, as this colour: on the decor's overlay while the page is dimmed, and gone when it is not.
+    private void paintBarScrim(int color) {
+        boolean needed = color != t().bg;
+        if (!needed) {
+            if (barScrimShown) { getWindow().getDecorView().getOverlay().remove(barScrim); barScrimShown = false; }
+            return;
+        }
+        barScrim.setColor(color);
+        if (!barScrimShown) { getWindow().getDecorView().getOverlay().add(barScrim); barScrimShown = true; }
+        placeBarScrim();
+    }
+    // Where the bars are, from the insets the window was given (not the host's padding, which the page and the keyboard also make): the
+    // status bar, the navigation bar wherever it is, and a cutout.
+    private void placeBarScrim() {
+        View decor = getWindow().getDecorView();
+        Rect bars = new Rect();
+        if (Build.VERSION.SDK_INT >= 30) {
+            WindowInsets given = decor.getRootWindowInsets();
+            if (given != null) {
+                android.graphics.Insets all = given.getInsets(WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout());
+                bars.set(all.left, all.top, all.right, all.bottom);
+            }
+        }
+        barScrim.setBounds(0, 0, decor.getWidth(), decor.getHeight());
+        barScrim.setInsets(bars);
+        barScrim.invalidateSelf();
     }
 
     // The control a popup belongs to, in the layer's coordinates, or null where it is gone.
