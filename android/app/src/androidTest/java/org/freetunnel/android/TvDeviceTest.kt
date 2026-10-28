@@ -3469,6 +3469,9 @@ class TvDeviceTest {
             assertEquals("as wide as the field", input.width.toFloat(), panel.width.toFloat(), 2f)
             assertNull("It casts no shadow: the desktop's list has none", layer.shadow())
             assertEquals("The field keeps the focus", input, a.currentFocus)
+            // Only the highlight moves, as on the desktop: a clickable row would be a focus stop with no key and no look.
+            for (row in descendants(panel).filter { (it.tag as? String)?.startsWith("suggestion:") == true })
+                assertFalse("${row.tag} must not be a focus stop", row.isFocusable)
             assertTrue("A name over a package", descendants(root(a).findViewWithTag<View>("suggestion:0")).filterIsInstance<TextView>().size == 2)
             assertEquals("The first is highlighted: on surface", theme.surface, ((root(a).findViewWithTag<View>("suggestion:0")).background as GradientDrawable).color!!.defaultColor)
             assertEquals("and the next is not: on the card's colour", theme.bg, ((root(a).findViewWithTag<View>("suggestion:1")).background as GradientDrawable).color!!.defaultColor)
@@ -3859,6 +3862,31 @@ class TvDeviceTest {
         updater("failedCheck", false)
         updateShows(a, AndroidUpdater.State.ERROR)
         assertEquals(context.getString(R.string.update_error_verification), textOf(a, "settings:update"))
+    }
+
+    // The arrow (or the dots) is a target for the pointer only: the remote's stop is the words. A clickable view is a focus stop from API 26
+    // unless it says it is not, and a stop with no key and no look is an invisible focus, which Down from the toggle above would land on.
+    @Test fun theUpdateArrowIsNoFocusStopWhateverItShows() {
+        officialBuild()
+        updater("release", release())
+        val a = open()
+        leaveTouchMode(a)
+        render(a, 3)
+        val slot = onMain { field("updateSlot").get(a) as View }
+        for ((state, failedCheck) in listOf(AndroidUpdater.State.AVAILABLE to false, AndroidUpdater.State.CHECKING to false,
+                AndroidUpdater.State.DOWNLOADING to false, AndroidUpdater.State.ERROR to true)) {
+            updater("failure", if (state == AndroidUpdater.State.ERROR) UpdatePolicy.Failure.NETWORK else null)
+            updater("failedCheck", failedCheck)
+            updateShows(a, state)
+            onMain {
+                assertTrue("$state: the arrow or the dots are shown", slot.isShown)
+                assertTrue("$state: and a click on it still does what the words do", slot.isClickable)
+                assertFalse("$state: but it is no focus stop", slot.isFocusable)
+                for (view in descendants(slot)) assertFalse("$state: nor is ${view.javaClass.simpleName} in it", view.isFocusable)
+                for (view in descendants(root(a)).filter { it.isShown && it.isClickable && it.isFocusable })
+                    assertTrue("$state: ${view.javaClass.simpleName} is a stop with no key", view.tag is String)
+            }
+        }
     }
 
     // The desktop bends the arrow of an offer, and leans a retry arrow, only while the pointer is over the arrow (updIconMa): over the words it

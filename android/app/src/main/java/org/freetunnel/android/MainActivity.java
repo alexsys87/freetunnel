@@ -3107,6 +3107,9 @@ public final class MainActivity extends Activity {
                 row.addView(pkg, lp(-1, -2));
                 row.setTag("suggestion:" + i);
                 row.setOnClickListener(v -> take(index));
+                // Only the highlight moves, as on the desktop: a clickable view is a focus stop from API 26, and a stop here would have no key
+                // and no look, and take the focus from the field, which closes the list.
+                row.setFocusable(false);
                 row.setOnHoverListener((v, event) -> {
                     if (event.getActionMasked() == MotionEvent.ACTION_HOVER_ENTER) highlight(index, false);
                     return false;
@@ -3406,6 +3409,8 @@ public final class MainActivity extends Activity {
         // remote, which has the words.
         updateSlot.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
         updateSlot.setOnClickListener(v -> { if (updateLine().clickable()) doUpdateAction(); });
+        // A clickable view is a focus stop from API 26 unless it says it is not: this one has no key and no look to show a focus with.
+        updateSlot.setFocusable(false);
         updateSlot.setOnHoverListener((v, event) -> {
             int action = event.getActionMasked();
             if (action == MotionEvent.ACTION_HOVER_ENTER) setUpdateHot(updateLine().clickable());
