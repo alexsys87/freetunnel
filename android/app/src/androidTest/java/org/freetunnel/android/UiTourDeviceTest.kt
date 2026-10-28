@@ -699,8 +699,16 @@ class UiTourDeviceTest {
             // Blocked: the core says it is off, with the kill switch on, and the next try is far off, so that it stays blocked for the picture.
             // The desktop's Home says Connecting… then (its backend is connecting while its tunnel reconnects), with the logo pulsing.
             serviceField("backoff").set(vpnOwner(), ReconnectBackoff(600_000, 600_000))
+            val drawn = onMain { field("renderGeneration").getInt(act()) }
             client.onStateChanged(0)
             eventually("Traffic must be blocked", 20_000) { FreeTunnelVpnService.state(context) == 6 }
+            // The app draws Configs again for the new state, from its receiver, and puts the focus back on the tab that had it when that is
+            // drawn. A key sent before then goes to that tab and not to Home's, whichever was focused for it meanwhile (the other states
+            // above are waited out with a sleep; this one is waited for).
+            eventually("The page must be drawn again for the new state") {
+                onMain { field("renderGeneration").getInt(act()) > drawn && !field("restorePending").getBoolean(act()) }
+            }
+            settle()
             goTo(0)
             eventually("Home must say Connecting…") {
                 onMain { (root().findViewWithTag<View?>("home:status") as? android.widget.TextView)?.text?.toString() == context.getString(R.string.text_connecting) }

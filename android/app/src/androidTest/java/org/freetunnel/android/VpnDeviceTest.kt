@@ -991,7 +991,8 @@ class VpnDeviceTest {
             context.startForegroundService(Intent(context, FreeTunnelVpnService::class.java))
             val cm = context.getSystemService(ConnectivityManager::class.java)
             eventually { network()?.let { cm.getLinkProperties(it)?.mtu == 1200 } == true }
-            assertNotEquals(0, FreeTunnelVpnService.state(context))
+            // The tunnel is up before the core is made and the state says connecting: the one is read, then the other is waited for.
+            eventually { FreeTunnelVpnService.state(context) != 0 }
         } finally {
             FreeTunnelVpnService.stop(context)
             sink.close(); accepting.join(500); sockets.forEach { it.close() }
