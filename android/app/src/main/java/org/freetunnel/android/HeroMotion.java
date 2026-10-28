@@ -61,7 +61,7 @@ final class HeroMotion {
      *
      * @param box the 132 by 132 control, which rises, pulses and shrinks under a press
      * @param logo the picture in it, whose opacity is the state's
-     * @param line the room under the logo for the status and Reconnect, as a view whose height is set here
+     * @param line the room under the logo for the status, as a view whose height is set here
      * @param status the status line, which fades in
      * @param riseOffsetPx how far down the logo sits with no session
      * @param lineHeightPx the room the line takes while there is a session

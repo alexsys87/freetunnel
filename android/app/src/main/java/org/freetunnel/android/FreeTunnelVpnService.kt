@@ -82,7 +82,8 @@ class FreeTunnelVpnService : VpnService() {
         }
         @JvmStatic fun stop(context: Context) { send(context, ACTION_STOP) }
         // The same request as the notification's Reconnect: with no config it
-        // reconnects the profile in use.
+        // reconnects the profile in use. Nothing in the app's screens sends it (the desktop's Home has no such
+        // control, and the service reconnects by itself); device tests do.
         @JvmStatic fun reconnect(context: Context) { send(context, ACTION_START) }
         // A process killed while blocked leaves its alert behind, and only the
         // service's next onCreate would clear it. The state lives in this

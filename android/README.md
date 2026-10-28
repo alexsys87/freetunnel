@@ -66,13 +66,16 @@ Both are the desktop's pages ([HomePage.qml](../qml/pages/HomePage.qml),
   cancels a connection on its way up, or disconnects. It is at half strength
   with no session, at 0.7 while connecting or disconnecting and whole while
   connected, sits 12 dp lower with no session and rises when one starts, pulses
-  while connecting and disconnecting, and shrinks to 0.96 while pressed or
+  while connecting (reconnecting too) and disconnecting, and shrinks to 0.96 while pressed or
   while OK is held. Under it, while there is a session, one line: Connecting…,
   Disconnecting…, or the time the connection has been up, `HH:MM:SS` as the
-  desktop shows it. While the kill switch blocks traffic the line says so in the
-  warn colour, with a Reconnect link under it, an accent link like Logs' *Turn on*
-  (the desktop has no such state, and nothing but the logo is a button on Home).
-  The connection coming up is shown by the logo and the line alone: there is no
+  desktop shows it. While the kill switch blocks traffic the service is
+  reconnecting by itself, with its backoff, and Home says what the desktop's
+  says while its tunnel reconnects: Connecting…, in the same colour, with the
+  logo at 0.7 and pulsing. There is no link to reconnect now, as there is no
+  such control on the desktop: nothing but the logo is a button on Home, and a
+  tap on it disconnects, as it does a tunnel that is up or on its way up.
+  The notification keeps its Reconnect and Disconnect actions. The connection coming up is shown by the logo and the line alone: there is no
   notice for a check of the config or for a rebuild of the VPN, as there is none
   on the desktop, whose notices are errors and what an import did. With no
   config the logo, "Add a config" and + all open Configs with its add menu.
@@ -238,9 +241,8 @@ the TV launcher with its banner. It works with a remote:
   scroll position stay where they were; when the control that had the focus is
   gone (a deletion's last chip, Clear all, the last config) it goes to what is
   beside it, not to the tab at the top.
-- Home opens on the logo, which is its control, or on Reconnect while the kill
-  switch blocks traffic. Back goes to Home first, onto that control, and leaves
-  the app from there.
+- Home opens on the logo, which is its control. Back goes to Home first, onto
+  that control, and leaves the app from there.
 - The configuration editor opens on the name. Up and Down leave a field of one
   line for the control above or below it, as they leave any control (Android
   13 and later would keep them inside the field for a keyboard's arrows); the
@@ -652,7 +654,7 @@ theme (dark, light, and dark in Russian) driven with a remote's keys, the focus 
 pressed on it; the phone leg also goes through it by taps in each theme (`touch-dark`,
 `touch-light`), with no focus to show. Each pass seeds three configs, sets `theme_mode` and recreates the
 activity, and visits Home (disconnected, the selector and the logo focused, the dropdown, a toast, then
-connecting, connected, disconnecting and the kill switch's blocked state with Reconnect, through a
+connecting, connected, disconnecting and the kill switch's blocked state (Connecting…), through a
 local server that accepts and never answers, as `VpnDeviceTest` does), the nav with a focused
 tile, Configs (the list with pings, a row, its icons, the add, export and delete menus, empty), the
 editor (new, edit, the discard question), the import question and the Replace question,
@@ -744,8 +746,8 @@ appears starts the delays again at 1 s: the next attempt comes 1 s later, or 1 s
 after the attempt in progress fails. The delays don't run while the phone sleeps,
 and nothing wakes it. The app, the tile and the notification keep showing that
 traffic is blocked until the connection is back. One alert, "Connection lost —
-traffic is blocked", appears per episode, with Reconnect and Disconnect, and the
-home screen offers Reconnect too. The log records each reason, and the reconnect,
+traffic is blocked", appears per episode, with Reconnect and Disconnect (Home has
+neither, as the desktop's has not: it says Connecting…, and its logo disconnects). The log records each reason, and the reconnect,
 once per episode. A connection that drops within 10 s of reconnecting by itself
 continues the episode: the delay keeps growing and the alert comes back silently.
 Opening the app clears an alert left by a process that was killed while blocked.

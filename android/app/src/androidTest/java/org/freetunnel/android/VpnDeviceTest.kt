@@ -649,43 +649,45 @@ class VpnDeviceTest {
         }
     }
 
-    @Test fun blockedHomeScreenOffersReconnect() = withSink { config ->
+    // The desktop's Home has no control to reconnect now: while its tunnel reconnects it says Connecting… and the logo is the one control.
+    // Here the service reconnects by itself with its backoff (the next try is far off, so that only a tap could end this), Home says
+    // the same, keeps the alert of the live episode, and a tap on the logo disconnects, as it does a tunnel that is up or connecting.
+    @Test fun blockedHomeScreenSaysConnectingHasNoReconnectAndTheLogoDisconnects() = withSink { config ->
         FreeTunnelVpnService.start(context, config)
         eventually { network() != null && tunName() != null && nativeClient() != null }
-        // Only the button may start the next connection here.
         useBackoff(ReconnectBackoff(600_000, 600_000))
         inject(nativeClient()!!, 0)
         eventually { FreeTunnelVpnService.state(context) == 6 && alert(49) != null }
-        val name = tunName()
         val activity = instrumentation.startActivitySync(Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) as MainActivity
-        // Reconnect is a link, as Logs' "Turn on" is: the desktop's Home has no button besides the logo.
-        fun reconnectButton(): android.widget.TextView? {
-            var found: android.widget.TextView? = null
-            instrumentation.runOnMainSync { found = activity.window.decorView.findViewWithTag("home:reconnect") }
+        fun home(tag: String): android.view.View? {
+            var found: android.view.View? = null
+            instrumentation.runOnMainSync { found = activity.window.decorView.findViewWithTag(tag) }
             return found
         }
-        val (states, receiver) = recordStates()
         try {
             instrumentation.waitForIdleSync()
             // Long enough for a cancel from onResume to take effect.
             SystemClock.sleep(500)
             assertNotNull("Opening the app must keep the alert of a live episode", alert(49))
-            val button = reconnectButton()
-            assertNotNull("State 6 must offer Reconnect on the home screen", button)
-            assertFalse("and as a link, not a button", button is android.widget.Button)
-            assertEquals(context.getString(R.string.vpn_reconnect), button!!.text.toString())
-            val gaps = tunGaps {
-                instrumentation.runOnMainSync { assertTrue(button.performClick()) }
-                // An explicit Reconnect establishes a new TUN. Android hands the
-                // same VPN network over to it, so the interface is what changes.
-                eventually { tunName().let { it != null && it != name } }
-                eventually { reconnectButton() == null }
+            val status = home("home:status") as android.widget.TextView?
+            assertNotNull("State 6 shows the line under the logo", status)
+            assertEquals("and it says what the desktop's Home says while it reconnects",
+                context.getString(R.string.text_connecting), status!!.text.toString())
+            var extras = -1
+            instrumentation.runOnMainSync {
+                val page = MainActivity::class.java.getDeclaredField("pageRoot").apply { isAccessible = true }.get(activity) as android.view.ViewGroup
+                fun count(view: android.view.View): Int = (if (view.isShown && (view is android.widget.Button || view is Ui.LinkText)) 1 else 0) +
+                    (if (view is android.view.ViewGroup) (0 until view.childCount).sumOf { count(view.getChildAt(it)) } else 0)
+                extras = count(page)
             }
-            assertEquals("The explicit Reconnect must hand over without a gap", 0, gaps)
-            assertNotEquals(0, FreeTunnelVpnService.state(context))
-            assertFalse("Reconnect must never publish disconnected", states.contains(0))
+            assertEquals("Home has no link or button of its own to reconnect now", 0, extras)
+            // The logo disconnects: the tunnel is released and the alert goes with the episode.
+            val logo = home("home:toggle")
+            assertNotNull(logo)
+            instrumentation.runOnMainSync { assertTrue(logo!!.performClick()) }
+            eventually { FreeTunnelVpnService.state(context) == 0 }
+            eventually { alert(49) == null }
         } finally {
-            context.unregisterReceiver(receiver)
             instrumentation.runOnMainSync { activity.finish() }
         }
     }

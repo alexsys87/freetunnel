@@ -309,8 +309,8 @@ class TvDeviceTest {
     }
 
     @Test fun everyControlIsAFocusStopWithAKeyAndTheDesktopFocusLook() {
-        // Reconnect shows only while traffic is blocked, and Settings' update action
-        // only in an official build.
+        // Home is looked at while traffic is blocked too (it has no more controls then), and Settings' update action
+        // is only in an official build.
         serviceState(6)
         officialBuild()
         val a = open()
@@ -331,7 +331,11 @@ class TvDeviceTest {
             }
         }
         render(a, 0)
-        assertNotNull(onMain { root(a).findViewWithTag<View>("home:reconnect") })
+        // While traffic is blocked the desktop's Home has the logo, the selector and the +, as it has at any other time: no link of
+        // Android's own to reconnect now (the service does that by itself, with its backoff).
+        assertEquals(setOf("home:toggle", "home:config", "home:add"),
+            onMain { descendants(pageRoot(a)).filter { it.isShown && it.isFocusable }.mapNotNull { it.tag as? String }.toSet() })
+        assertTrue("and no link or button", onMain { descendants(pageRoot(a)).none { it.isShown && (it is Ui.LinkText || it is Button) } })
         render(a, 3)
         assertNotNull(onMain { root(a).findViewWithTag<View>("settings:update") })
     }
@@ -366,7 +370,6 @@ class TvDeviceTest {
     // The focus is around what a control holds, never across the screen: Home's selector, the links
     // and the values of the dropdowns hug their words.
     @Test fun theSelectorAndTheLinksAreNoWiderThanTheirWords() {
-        serviceState(6)
         officialBuild()
         val a = open()
         leaveTouchMode(a)
@@ -389,7 +392,7 @@ class TvDeviceTest {
                     root(a).findViewWithTag<View?>(key)?.let { assertTrue("$key spans the screen", it.width < root(a).width / 2) }
             }
         }
-        assertTrue("There are links to check", links >= 6)
+        assertTrue("There are links to check", links >= 5)
     }
 
     @Test fun theArrowsReachEveryControl() {
@@ -428,11 +431,11 @@ class TvDeviceTest {
         focusOn(a, "config:1:edit")
         // Nothing on Home has that key, as after Back from Configurations on a TV.
         render(a, 0)
-        eventually("Reconnect first, while traffic is blocked") { focusedKey(a) == "home:reconnect" }
+        eventually("The logo first, while traffic is blocked as at any other time") { focusedKey(a) == "home:toggle" }
         serviceState(0)
         onMain { field("vpnState").setInt(a, 0) }
         render(a, 0)
-        eventually("then Connect") { focusedKey(a) == "home:toggle" }
+        eventually("and with no session") { focusedKey(a) == "home:toggle" }
         render(a, 2)
         eventually("and the page's tab elsewhere") { focusedKey(a) == "tab:2" }
         // A remote's keys: Right from a row reaches its icons one after another, Left comes back, and Down is the next row.
@@ -523,7 +526,9 @@ class TvDeviceTest {
         assertEquals("Nothing under the logo while it is off", "", statusLine(a).text.toString())
         eventually("and it is dim") { near(0.5f, logoOf(a).alpha) }
         assertTrue(near(0f, statusLine(a).alpha))
-        for (state in listOf(1, 3, 4, 5)) {
+        // 6 is traffic blocked by the kill switch while the service reconnects by itself: the desktop's backend is "connecting" while its tunnel
+        // reconnects, and its Home says Connecting… in textDim with the logo pulsing, so this does too.
+        for (state in listOf(1, 3, 4, 5, 6)) {
             vpnShows(a, state)
             assertEquals("State $state", context.getString(R.string.text_connecting), statusLine(a).text.toString())
             assertEquals(theme.textDim, statusLine(a).currentTextColor)
@@ -539,27 +544,15 @@ class TvDeviceTest {
             started.setLong(null, 0L)
         }
         eventually("Connected is 1.0") { near(1f, logoOf(a).alpha) }
-        // While traffic is blocked: why, in warn, and Reconnect under it, an accent link as Logs' "Turn on" is: no button, no fill.
+        // Blocked is one of those: no link to reconnect now, and no button either, for the logo is the only control.
         vpnShows(a, 6)
-        assertEquals(context.getString(R.string.vpn_traffic_blocked), statusLine(a).text.toString())
-        assertEquals(theme.warn, statusLine(a).currentTextColor)
-        onMain {
-            val reconnect = root(a).findViewWithTag<View>("home:reconnect")
-            assertTrue("Reconnect is a link", reconnect is Ui.LinkText)
-            assertEquals(context.getString(R.string.vpn_reconnect), (reconnect as TextView).text.toString())
-            assertEquals("in the accent", theme.accent, reconnect.textColors.defaultColor)
-            assertEquals("13 sp", android.util.TypedValue.applyDimension(android.util.TypedValue.COMPLEX_UNIT_SP, 13f, a.resources.displayMetrics),
-                reconnect.textSize, 1.5f)
-            assertTrue("and the only thing on Home that is not the logo, the selector and its +", descendants(pageRoot(a)).none { it is Button })
-            val line = root(a).findViewWithTag<View>("home:status")
-            assertTrue("under the line: ${topOf(reconnect)} below ${topOf(line)}", topOf(reconnect) >= topOf(line) + line.height)
-        }
+        onMain { assertTrue("Nothing on Home is a button or a link: the logo, the selector and its + are all", descendants(pageRoot(a)).none { it is Button || it is Ui.LinkText }) }
         eventually("Blocked is 0.7") { near(0.7f, logoOf(a).alpha) }
+        eventually("and the logo pulses, as when it connects") { onMain { hero(a).isPulsing } }
         // From Disconnect until the service says it is off.
         vpnShows(a, 2, stopping = true)
         assertEquals(context.getString(R.string.text_disconnecting), statusLine(a).text.toString())
         eventually("Disconnecting is 0.7") { near(0.7f, logoOf(a).alpha) }
-        assertNull("There is no Reconnect then", onMain { root(a).findViewWithTag<View?>("home:reconnect") })
     }
 
     // The logo rises when a session starts and the line takes its room over the same 280 ms; with none it sits 12 lower.

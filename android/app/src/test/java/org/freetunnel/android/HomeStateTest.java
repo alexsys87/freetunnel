@@ -17,9 +17,10 @@ public final class HomeStateTest {
         assertEquals(0.7f, HomeState.alpha(0, true), 0f);
     }
 
-    @Test public void itPulsesWhileConnectingAndDisconnectingButNotWhileBlockedOrUp() {
-        for (int state : new int[]{1, 3, 4, 5}) assertTrue("state " + state, HomeState.pulsing(state, false));
-        for (int state : new int[]{0, 2, 6}) assertFalse("state " + state, HomeState.pulsing(state, false));
+    // The desktop's backend is "connecting" while its tunnel reconnects, and its logo pulses then: so does a blocked one here.
+    @Test public void itPulsesWhileConnectingReconnectingAndDisconnectingButNotWhileOffOrUp() {
+        for (int state : new int[]{1, 3, 4, 5, 6}) assertTrue("state " + state, HomeState.pulsing(state, false));
+        for (int state : new int[]{0, 2}) assertFalse("state " + state, HomeState.pulsing(state, false));
         assertTrue(HomeState.pulsing(2, true));
         assertTrue(HomeState.pulsing(6, true));
     }
@@ -30,11 +31,10 @@ public final class HomeStateTest {
         assertTrue(HomeState.sessionActive(0, true));
     }
 
-    @Test public void theLineSaysConnectingDisconnectingTheTimeOrWhyTrafficIsBlocked() {
+    @Test public void theLineSaysConnectingDisconnectingOrTheTimeAndTrafficBlockedIsConnectingAsOnTheDesktop() {
         assertEquals(HomeState.Line.NONE, HomeState.line(0, false));
-        for (int state : new int[]{1, 3, 4, 5}) assertEquals("state " + state, HomeState.Line.CONNECTING, HomeState.line(state, false));
+        for (int state : new int[]{1, 3, 4, 5, 6}) assertEquals("state " + state, HomeState.Line.CONNECTING, HomeState.line(state, false));
         assertEquals(HomeState.Line.TIMER, HomeState.line(2, false));
-        assertEquals(HomeState.Line.BLOCKED, HomeState.line(6, false));
         // Stopping wins over whatever state the service still reports.
         for (int state = 0; state <= 6; state++) assertEquals("state " + state, HomeState.Line.DISCONNECTING, HomeState.line(state, true));
     }

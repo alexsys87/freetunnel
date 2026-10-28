@@ -37,7 +37,7 @@ STRING = re.compile(r'"((?:\\.|[^"\\\n])*)"')
 # but it may not drop one from its list. A name ending in - is the start of several (one for each state of the update row).
 TOUR_SCREENS = (
     'home-disconnected', 'home-empty', 'home-selector-focused', 'home-config-dropdown', 'home-connecting', 'home-connected',
-    'home-blocked-reconnect', 'home-toast', 'nav-focused-tile', 'configs-list', 'configs-row-focused', 'configs-icon-focused',
+    'home-blocked', 'home-toast', 'nav-focused-tile', 'configs-list', 'configs-row-focused', 'configs-icon-focused',
     'configs-add-menu', 'configs-export-menu', 'configs-delete-confirm', 'configs-empty', 'split-profiles-rules',
     'split-after-recommended', 'split-mode-dropdown', 'split-new-profile-input', 'split-through-vpn-notice', 'app-picker',
     'settings-top', 'settings-theme-dropdown', 'settings-bottom-update-', 'logs', 'logs-off',

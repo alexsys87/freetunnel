@@ -253,7 +253,7 @@ public final class MainActivity extends Activity {
         buildHost();
         // A keyboard or a remote used on a phone: its first key leaves touch mode, and Android then gives the focus to the first control
         // in the window, the Home tab, and a rebuild keeps it there. The page has a control of its own to land on, the one a TV's window
-        // lands on when it starts outside touch mode (focusTarget): the logo on Home, Reconnect while traffic is blocked, the tab elsewhere.
+        // lands on when it starts outside touch mode (focusTarget): the logo on Home, the tab elsewhere.
         // Only where nothing has the focus: a field that was being typed in keeps it.
         host.getViewTreeObserver().addOnTouchModeChangeListener(inTouchMode -> {
             if (inTouchMode || isDestroyed() || getCurrentFocus() != null) return;
@@ -580,8 +580,7 @@ public final class MainActivity extends Activity {
     private static final Pattern NUMBERED_KEY = Pattern.compile("([a-z]+):(\\d{1,5})(:[a-z]+)?");
     // The control with this key. When it is gone, such as after a deletion, the nearest
     // one before it: config:2:edit, then config:1:edit and config:0:edit; and where there is none of its kind, what is beside
-    // where it was (see neighbours). Otherwise the page's own: Reconnect while traffic is blocked, else Connect, on Home, and the
-    // page's tab elsewhere.
+    // where it was (see neighbours). Otherwise the page's own: the logo on Home, and the page's tab elsewhere.
     private View focusTarget(String key) {
         View found = key == null ? null : host.findViewWithTag(key);
         Matcher numbered = NUMBERED_KEY.matcher(key == null ? "" : key);
@@ -596,7 +595,6 @@ public final class MainActivity extends Activity {
                 if (found != null) break;
             }
         }
-        if (found == null && page == 0) found = pageRoot.findViewWithTag("home:reconnect");
         if (found == null) found = pageRoot.findViewWithTag(page == 0 ? "home:toggle" : "tab:" + page);
         return found;
     }
@@ -1329,9 +1327,10 @@ public final class MainActivity extends Activity {
 
     // Home, as the desktop's HomePage draws it. The logo is the control: a click connects, cancels a connection that is
     // coming up or disconnects one that is up, and with no config to connect it opens the add menu on Configs.
-    // Under it, while there is a session, one line: Connecting…, Disconnecting…, the time the connection has been up or,
-    // while traffic is blocked, why, with Reconnect under it. Then the selector, which opens the config dropdown right here,
-    // and +. At the foot, two tiles with the speeds. Keys: home:toggle (the logo), home:reconnect, home:config, home:add.
+    // Under it, while there is a session, one line: Connecting…, Disconnecting… or the time the connection has been up. While traffic
+    // is blocked the service is reconnecting by itself, which the desktop's Home shows as Connecting… (its backend is connecting then),
+    // and the logo is still the control: a click disconnects. Then the selector, which opens the config dropdown right here,
+    // and +. At the foot, two tiles with the speeds. Keys: home:toggle (the logo), home:config, home:add.
     // The logo's look follows the state (HeroMotion); the line under it and the speeds change once a second
     // without a render() (tickHome).
     private HeroMotion hero = new HeroMotion();
@@ -1437,20 +1436,11 @@ public final class MainActivity extends Activity {
         column.addView(line, lp(-1, 0));
         LinearLayout content = column();
         content.setGravity(Gravity.CENTER_HORIZONTAL);
-        TextView status = ui.medium(statusText(kind), 15, kind == HomeState.Line.BLOCKED ? t.warn : t.textDim);
+        TextView status = ui.medium(statusText(kind), 15, t.textDim);
         status.setGravity(Gravity.CENTER);
         status.setMaxWidth(pageWidthPx() - dp(36));
         status.setTag("home:status");
         content.addView(status, lp(-2, -2));
-        if (kind == HomeState.Line.BLOCKED) {
-            // The service retries on its own; this reconnects now. The desktop has no such state, and nothing but the logo is
-            // a button on Home: this is the accent link of Logs' "Turn on" (13), under the line. It is also the way in on
-            // Android TV, which has no tile and makes notification actions hard to reach, so a remote lands on it first
-            // (focusTarget). The connection coming up again is its own sign: the line turns to Connecting… and the logo pulses.
-            TextView reconnect = ui.link(getString(R.string.vpn_reconnect), 13, Ui.LinkKind.ACCENT, "home:reconnect");
-            reconnect.setOnClickListener(v -> FreeTunnelVpnService.reconnect(this));
-            content.addView(reconnect, lp(-2, -2));
-        }
         // As high as it needs whatever room the line has been given so far: while the line grows, it shows whole, as the desktop's does.
         content.measure(View.MeasureSpec.makeMeasureSpec(pageWidthPx(), View.MeasureSpec.AT_MOST), View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
         FrameLayout.LayoutParams contentLp = new FrameLayout.LayoutParams(-1, content.getMeasuredHeight());
@@ -1501,7 +1491,6 @@ public final class MainActivity extends Activity {
             case CONNECTING: return getString(R.string.text_connecting);
             case DISCONNECTING: return getString(R.string.text_disconnecting);
             case TIMER: return SessionTime.format(SystemClock.elapsedRealtime() - sessionStart());
-            case BLOCKED: return getString(R.string.vpn_traffic_blocked);
             default: return "";
         }
     }

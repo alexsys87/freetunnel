@@ -6,11 +6,11 @@ package org.freetunnel.android;
  * animation goes on:
  *
  * <ul>
- * <li>its opacity follows the state in 220 ms: 0.5 off, 0.7 while connecting or disconnecting, 1.0 connected;
+ * <li>its opacity follows the state in 220 ms: 0.5 off, 0.7 while connecting (reconnecting too) or disconnecting, 1.0 connected;
  * <li>with no session it sits 12 lower, and when one starts it rises over 280 ms, easing out, while the line under it
- * (the status and, when blocked, Reconnect) takes the room it needs over the same 280 ms, so that the selector below
+ * (the status) takes the room it needs over the same 280 ms, so that the selector below
  * does not jump;
- * <li>while connecting or disconnecting it pulses, to 1.05 and then between 0.97 and 1.05, 750 ms each way and
+ * <li>while connecting (reconnecting too) or disconnecting it pulses, to 1.05 and then between 0.97 and 1.05, 750 ms each way and
  * sine-eased, and eases back to 1.0 in 120 ms when it stops;
  * <li>a press scales it to 0.96 in 120 ms, easing out, and it comes back the same way;
  * <li>with a remote's focus it is held at 1.05, the pulse's peak, in the same 120 ms: the desktop has nothing under the pointer

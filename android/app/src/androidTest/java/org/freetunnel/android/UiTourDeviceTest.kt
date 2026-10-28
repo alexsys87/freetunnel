@@ -655,7 +655,7 @@ class UiTourDeviceTest {
     // callback told what the core would tell (as VpnDeviceTest does). A state that cannot be reached here is logged and not drawn.
     private fun tourVpnStates() {
         val all = listOf("home-connecting", "home-connected", "home-disconnecting", "home-config-dropdown-connected",
-            "configs-list-connected", "home-blocked-reconnect")
+            "configs-list-connected", "home-blocked")
         if (VpnService.prepare(context) != null) {
             for (name in all) unreachable(name, "the VPN consent is not granted (adb shell appops set org.freetunnel.android ACTIVATE_VPN allow)")
             return
@@ -696,17 +696,20 @@ class UiTourDeviceTest {
             goTo(1)
             shot("configs-list-connected", "Configs while connected: the selected config's badge says connected"); done.add("configs-list-connected")
 
-            // Blocked: the core says it is off, with the kill switch on, and the next try is far off, so that only Reconnect starts one.
+            // Blocked: the core says it is off, with the kill switch on, and the next try is far off, so that it stays blocked for the picture.
+            // The desktop's Home says Connecting… then (its backend is connecting while its tunnel reconnects), with the logo pulsing.
             serviceField("backoff").set(vpnOwner(), ReconnectBackoff(600_000, 600_000))
             client.onStateChanged(0)
             eventually("Traffic must be blocked", 20_000) { FreeTunnelVpnService.state(context) == 6 }
             goTo(0)
-            eventually("Reconnect must be offered") { has("home:reconnect") }
-            if (remote) focusOn("home:reconnect")
-            shot("home-blocked-reconnect", "Home with traffic blocked (state 6): why, and Reconnect with the first focus"); done.add("home-blocked-reconnect")
+            eventually("Home must say Connecting…") {
+                onMain { (root().findViewWithTag<View?>("home:status") as? android.widget.TextView)?.text?.toString() == context.getString(R.string.text_connecting) }
+            }
+            if (remote) focusOn("home:toggle")
+            shot("home-blocked", "Home with traffic blocked (state 6): Connecting…, as the desktop's says while it reconnects, and the logo with the first focus"); done.add("home-blocked")
         } catch (t: Throwable) {
-            // The consent was granted, or this is not reached, so these screens can be taken here: one that is lost is the app's fault (Reconnect
-            // not offered, a service that does not connect), and fails the tour with the others, as a screen of the pages does. Only the missing
+            // The consent was granted, or this is not reached, so these screens can be taken here: one that is lost is the app's fault (a Home that
+            // does not show the blocked state, a service that does not connect), and fails the tour with the others, as a screen of the pages does. Only the missing
             // consent, above, is a screen that cannot be reached.
             val line = t.stackTrace.firstOrNull { it.className.contains("UiTourDeviceTest") }?.lineNumber
             for (name in all) if (name !in done) {
