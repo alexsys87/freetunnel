@@ -437,6 +437,27 @@ final class DeepLinkImport {
     static String configText(String hostname, List<String> addresses, String username, String password, String clientRandom,
                              List<String> dnsUpstreams, String customSni, boolean hasIpv6, boolean skipVerification, boolean http3,
                              boolean antiDpi, String pem) {
+        return toToml(fieldsOf(hostname, addresses, username, password, clientRandom, dnsUpstreams, customSni, hasIpv6, skipVerification,
+                http3, antiDpi), pem);
+    }
+
+    /**
+     * The [endpoint] table of that text alone, each key on a line and the last ending one: what the editor puts in place of a file's own
+     * endpoint where it cannot change it in place (ConfigForm).
+     */
+    static String endpointText(String hostname, List<String> addresses, String username, String password, String clientRandom,
+                               List<String> dnsUpstreams, String customSni, boolean hasIpv6, boolean skipVerification, boolean http3,
+                               boolean antiDpi, String pem) {
+        return endpointTable(fieldsOf(hostname, addresses, username, password, clientRandom, dnsUpstreams, customSni, hasIpv6,
+                skipVerification, http3, antiDpi), pem);
+    }
+
+    /** The [listener.tun] table a new config has: the routes of a full tunnel, with the private ranges left out of it. */
+    static String tunnelText() { return TUNNEL; }
+
+    private static Fields fieldsOf(String hostname, List<String> addresses, String username, String password, String clientRandom,
+                                   List<String> dnsUpstreams, String customSni, boolean hasIpv6, boolean skipVerification, boolean http3,
+                                   boolean antiDpi) {
         Fields f = new Fields();
         f.hostname = hostname;
         f.addresses.addAll(addresses);
@@ -449,15 +470,25 @@ final class DeepLinkImport {
         f.skipVerification = skipVerification;
         f.protocol = http3 ? 2 : 1;
         f.antiDpi = antiDpi;
-        return toToml(f, pem);
+        return f;
     }
+
+    private static final String TUNNEL = "[listener.tun]\nbound_if = \"\"\nmtu_size = 1500\nchange_system_dns = true\n"
+            + "included_routes = [\"0.0.0.0/0\", \"2000::/3\"]\n"
+            + "excluded_routes = [\"0.0.0.0/8\", \"10.0.0.0/8\", \"169.254.0.0/16\", "
+            + "\"172.16.0.0/12\", \"192.168.0.0/16\", \"224.0.0.0/3\"]\n";
 
     // The PEM is the link's certificates alone, as Certificates.fromDer renders them.
     private static String toToml(Fields f, String pem) {
+        return "loglevel = \"info\"\nvpn_mode = \"general\"\nkillswitch_enabled = true\n"
+                + "post_quantum_group_enabled = true\n"
+                + "\n" + endpointTable(f, pem)
+                + "\n" + TUNNEL;
+    }
+
+    private static String endpointTable(Fields f, String pem) {
         StringBuilder out = new StringBuilder();
-        out.append("loglevel = \"info\"\nvpn_mode = \"general\"\nkillswitch_enabled = true\n");
-        out.append("post_quantum_group_enabled = true\n");
-        out.append("\n[endpoint]\n");
+        out.append("[endpoint]\n");
         out.append("hostname = ").append(quoted(f.hostname)).append('\n');
         out.append("addresses = ").append(list(f.addresses)).append('\n');
         out.append("username = ").append(quoted(f.username)).append('\n');
@@ -471,10 +502,6 @@ final class DeepLinkImport {
         out.append("anti_dpi = ").append(f.antiDpi).append('\n');
         if (pem.isEmpty()) out.append("certificate = \"\"\n");
         else out.append("certificate = \"\"\"\n").append(pem).append("\"\"\"\n");
-        out.append("\n[listener.tun]\nbound_if = \"\"\nmtu_size = 1500\nchange_system_dns = true\n");
-        out.append("included_routes = [\"0.0.0.0/0\", \"2000::/3\"]\n");
-        out.append("excluded_routes = [\"0.0.0.0/8\", \"10.0.0.0/8\", \"169.254.0.0/16\", ");
-        out.append("\"172.16.0.0/12\", \"192.168.0.0/16\", \"224.0.0.0/3\"]\n");
         return out.toString();
     }
 

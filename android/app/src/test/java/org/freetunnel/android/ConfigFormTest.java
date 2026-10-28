@@ -4,9 +4,13 @@ import static org.freetunnel.android.CertificateVectors.CA_PEM;
 import static org.freetunnel.android.CertificateVectors.LEAF_PEM;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import org.junit.Test;
+import org.tomlj.Toml;
+import org.tomlj.TomlParseResult;
 
 import java.util.Arrays;
 
@@ -133,6 +137,61 @@ public final class ConfigFormTest {
         String text = ConfigForm.write("loglevel = \"info\"\n", f);
         assertSame(f, ConfigForm.read(text));
         assertTrue(text.contains("[listener.tun]\n"));
+    }
+
+    // The endpoint written as an inline table cannot be edited in place. The file is kept as it was but for the endpoint, as the desktop's
+    // keepWhatTheFormDoesNotShow keeps it: the tunnel's routes, the rules, the other root keys, the other tables and the endpoint's own other keys.
+    private static final String INLINE = ""
+            + "# A provider's file\n"
+            + "vpn_mode = \"selective\"\nkillswitch_enabled = true\n"
+            + "dns_upstreams = [\"8.8.8.8\"]\n"
+            + "exclusions = [\"example.org\"]\n"
+            + "endpoint = { hostname = \"old.example.com\", addresses = [\"5.6.7.8:443\"], username = \"bob\", password = \"old\", "
+            + "upstream_fallback_protocol = \"http2\", extra = { depth = 2, list = [1, 2] } }\n"
+            + "\n[listener.tun]\nbound_if = \"\"\nmtu_size = 1400\nincluded_routes = [\"0.0.0.0/0\"]\nexcluded_routes = [\"10.0.0.0/8\"]\n"
+            + "\n[routing]\n# about this\nlimit = 7\n";
+
+    @Test public void anInlineEndpointIsReplacedAndTheRestOfTheFileIsKept() {
+        ConfigForm.Fields f = ConfigForm.read(INLINE);
+        assertEquals("old.example.com", f.hostname);
+        assertEquals("8.8.8.8", f.dns);
+        f.hostname = "new.example.com";
+        f.dns = "1.1.1.1";
+        f.antiDpi = true;
+        String text = ConfigForm.write(INLINE, f);
+        assertNotNull("The file can be written back", text);
+        assertFalse(text, text.contains("old.example.com"));
+        for (String kept : new String[]{"# A provider's file\n", "vpn_mode = \"selective\"\n", "exclusions = [\"example.org\"]\n",
+                "mtu_size = 1400\n", "excluded_routes = [\"10.0.0.0/8\"]\n", "[routing]\n# about this\nlimit = 7\n"})
+            assertTrue(kept + " in " + text, text.contains(kept));
+        assertFalse("The DNS list is in the endpoint only", text.contains("dns_upstreams = [\"8.8.8.8\"]"));
+        TomlParseResult parsed = Toml.parse(text);
+        assertFalse(text, parsed.hasErrors());
+        assertEquals("new.example.com", parsed.getString("endpoint.hostname"));
+        assertEquals("http2", parsed.getString("endpoint.upstream_fallback_protocol"));
+        assertEquals(Long.valueOf(2), parsed.getLong("endpoint.extra.depth"));
+        assertEquals(Long.valueOf(1400), parsed.getLong("listener.tun.mtu_size"));
+        assertEquals(Long.valueOf(7), parsed.getLong("routing.limit"));
+        assertSame(f, ConfigForm.read(text));
+    }
+
+    @Test public void aFileWithNoTunnelGetsTheDefaultOneAndKeepsItsOtherKeys() {
+        String file = "loglevel = \"debug\"\nsomething = 1\n";
+        ConfigForm.Fields f = server();
+        String text = ConfigForm.write(file, f);
+        assertNotNull(text);
+        assertTrue(text, text.startsWith("loglevel = \"debug\"\nsomething = 1\n"));
+        assertTrue(text, text.contains("[listener.tun]\n"));
+        assertSame(f, ConfigForm.read(text));
+    }
+
+    @Test public void aFileThatCannotBeKeptWholeIsRefusedNotRewritten() {
+        // A quoted key with an escape in it is a key the line reader does not read, so the file's text cannot be carried over.
+        String file = "\"a\\\"b\" = 1\nendpoint = { hostname = \"h\" }\n";
+        assertFalse(Toml.parse(file).hasErrors());
+        assertNull(ConfigForm.write(file, server()));
+        // A text that is no config at all holds nothing to keep.
+        assertNotNull(ConfigForm.write("not toml at all [", server()));
     }
 
     @Test public void aTypedNameIsHeldToFiftyCharactersAndAHostIsClippedByCodePoints() {

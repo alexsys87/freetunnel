@@ -303,9 +303,14 @@ window of ours to appear in.
   Cancel and Save, which scroll with the form. The checks and their words are
   the desktop's. An edit changes the endpoint's values in the config and
   leaves the rest of the file as it was written (the tunnel's routes, the rules
-  it brings, every other key); only a file whose endpoint cannot be edited in
-  place is written afresh. A new config is what a link with those settings
-  makes, and a name left empty is the host's. A field's placeholder goes while
+  it brings, every other key). A file whose endpoint cannot be edited in place
+  (an inline table, say) is kept as it is but for the endpoint, which the form's
+  replaces, with the endpoint's other keys put back in it, as the desktop's
+  keepWhatTheFormDoesNotShow keeps them; where even that cannot be shown to lose
+  nothing, the save is refused with a message and the config stays as it was.
+  A new config is what a link with those settings makes. A name left empty is
+  the host's, cut to 50 characters; a name that was typed over 50 characters is
+  refused ("The name is too long: 50 characters at most"). A field's placeholder goes while
   it has the focus, as the desktop's does, and the cursor is the text colour.
   Back, ← and Cancel ask "Discard unsaved changes?" when something was typed.
   The window refuses screenshots while it is open. A keyboard that comes up

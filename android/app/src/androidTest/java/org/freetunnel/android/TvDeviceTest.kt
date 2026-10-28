@@ -1426,6 +1426,22 @@ class TvDeviceTest {
         assertEquals("a".repeat(50), saved().last().getString("name"))
     }
 
+    // A file whose text the editor cannot carry over whole (here a key with an escape in its name, which its line reader does not read) is
+    // not rewritten from the form behind the user's back: the save is refused, with a message, and the config is as it was.
+    @Test fun aConfigTheEditorCannotWriteBackWholeIsLeftAsItIsWithAMessage() {
+        val unreadable = "\"a\\\"b\" = 1\n" + source
+        val profiles = org.json.JSONArray().put(org.json.JSONObject().put("name", "Odd").put("toml", unreadable))
+        assertTrue(ConfigStore.write(prefs, profiles.toString()))
+        val a = open()
+        onMain { method("editConfig", Int::class.javaPrimitiveType).invoke(a, 0) }
+        instrumentation.waitForIdleSync()
+        onMain { root(a).findViewWithTag<EditText>("editor:host").setText("other.example.com") }
+        click(a, "editor:save")
+        assertEquals(listOf(context.getString(R.string.editor_error_unwritable)), toastTexts(a))
+        assertNotNull("The editor stays", overlayTag(a, "editor"))
+        assertEquals("and the config is as it was", unreadable, saved().first().getString("toml"))
+    }
+
     // "Load from file…" puts what a file holds in the certificate box; a file that is empty changes nothing.
     @Test fun aCertificateFileFillsTheCertificateBoxAndAnEmptyOneChangesNothing() {
         val a = open()

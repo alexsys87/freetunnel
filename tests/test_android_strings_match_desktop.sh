@@ -262,6 +262,7 @@ text_file_is_too_large
 text_could_not_open_file
 text_no_file_picker
 editor_no_file_picker
+editor_error_unwritable
 text_invalid_trusttunnel_link
 text_unsupported_link_size
 text_unsupported_link_version

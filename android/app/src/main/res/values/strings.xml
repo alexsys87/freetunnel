@@ -178,6 +178,7 @@
     <string name="editor_error_name_too_long">"The name is too long: %1$d characters at most"</string>
     <string name="editor_file_empty">"That file is empty"</string>
     <string name="editor_file_too_large">"That file is over 1 MB, too large to be a certificate"</string>
+    <string name="editor_error_unwritable">"This config has settings the editor can’t save without changing them. Nothing was saved."</string>
     <string name="editor_no_file_picker">This device has no file picker. Paste the certificate into the field.</string>
     <string name="editor_discard_question">"Discard unsaved changes?"</string>
     <string name="editor_discard">"Discard"</string>

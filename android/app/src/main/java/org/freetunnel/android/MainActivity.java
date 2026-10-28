@@ -2368,6 +2368,8 @@ public final class MainActivity extends Activity {
             final String n = typed.isEmpty() ? ConfigForm.clippedName(f.hostname.trim()) : typed;
             final boolean certificateTrimmed = ConfigForm.certificates(f.certificate).dropped;
             final String text = ConfigForm.write(editing == null ? null : editing.toml, f);
+            // The file has something the form does not show that this cannot write back unchanged: it is left as it is.
+            if (text == null) { toast(getString(R.string.editor_error_unwritable)); return; }
             checking[0] = true;
             if (save.isInTouchMode()) save.setEnabled(false);
             // Checked as an import: what is written is a whole config, and the file it was made from, or a certificate pasted whole

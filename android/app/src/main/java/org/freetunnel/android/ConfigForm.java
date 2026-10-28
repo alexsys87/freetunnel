@@ -9,9 +9,11 @@ import java.net.InetAddress;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -19,8 +21,10 @@ import java.util.regex.Pattern;
  * The editor's form (qml/CreateConfigOverlay.qml) and the text of the config it reads from and writes to. The form owns the fields it shows
  * and nothing else, as the desktop's does (keepWhatTheFormDoesNotShow in BackendConfigCreate.cpp): an edit changes the values of the
  * endpoint's keys in the file and leaves the rest as it was written, with its comments, its routes ([listener.tun]), the rules a file brings
- * (exclusions) and every key the form has no field for. Only where that cannot be done, a file whose endpoint is not a table of its own,
- * is the text written afresh, as a link's is. A new config is the same text a link makes.
+ * (exclusions) and every key the form has no field for. Where that cannot be done in place (an endpoint written as an inline table, say),
+ * the file is kept as it was but for its endpoint, which the form's replaces, with the endpoint's other keys put back in it: nothing the
+ * form does not show is lost, and where that cannot be shown to hold, {@link #write} refuses (null) rather than rewrite the file
+ * silently. A new config is the same text a link makes.
  *
  * <p>The checks are the desktop's (Backend::emitCreateConfigError): the four required fields, an address as host:port, a DNS list of
  * addresses and DoT/DoH URLs, a client random in whole bytes of hex, and a certificate that holds a certificate.
@@ -204,15 +208,149 @@ final class ConfigForm {
     // ---- Writing ----
 
     /**
-     * The config's text with these fields: the file's own with the form's keys given the form's values, or, for a new config (null), or where
-     * the file's endpoint cannot be edited in place, the text a link makes. The form is checked ({@link #problem}) before this.
+     * The config's text with these fields: the file's own with the form's keys given the form's values, or, for a new config (null), or a
+     * text that is no config at all (it holds nothing to keep), the text a link makes. Where the file's endpoint cannot be edited in place
+     * the file is kept as it is but for the endpoint ({@link #rewrite}); and where even that cannot be shown to lose nothing, null: the
+     * save is refused, and the file is as it was. The form is checked ({@link #problem}) before this.
      */
     static String write(String existing, Fields f) {
         Certificates.Kept certificate = certificates(f.certificate);
-        String edited = existing == null ? null : edit(existing, f, certificate.pem);
-        if (edited != null) return edited;
+        if (existing != null) {
+            String edited = edit(existing, f, certificate.pem);
+            if (edited != null) return edited;
+            if (parse(existing) != null) return rewrite(existing, f, certificate.pem);
+        }
         return DeepLinkImport.configText(f.hostname.trim(), addressList(f.addresses), f.username.trim(), f.password, clientRandomForCore(f.clientRandom),
                 dnsList(f.dns), f.customSni, f.allowIpv6, f.skipVerification, "http3".equals(f.protocol), f.antiDpi, certificate.pem);
+    }
+
+    /** The endpoint's keys the form shows, which it writes: the rest of the endpoint is the file's. */
+    private static final Set<String> FORM_KEYS = new HashSet<>(Arrays.asList("hostname", "addresses", "username", "password", "client_random",
+            "custom_sni", "has_ipv6", "skip_verification", "upstream_protocol", "anti_dpi", "certificate", "dns_upstreams"));
+    /** What a rewrite takes out of the file: the endpoint, and the DNS list at the top, which the endpoint's list is read before. */
+    private static final Set<List<String>> REPLACED = new HashSet<>(Arrays.asList(
+            Collections.singletonList("endpoint"), Collections.singletonList("dns_upstreams")));
+
+    /**
+     * Where the endpoint cannot be edited in place (written as an inline table or in a form the line reader does not read, or with
+     * something in it that cannot be written back): the file as it is, with its endpoint and DNS list taken out and the form's endpoint put
+     * after it, with every key the old one had that the form has no field for. As the desktop's keepWhatTheFormDoesNotShow carries
+     * the tunnel's [listener.tun], the other root and endpoint keys and the other tables, so does this, with the file's own text. A tunnel
+     * the file does not have is the default. The result is read back and compared with the file, apart from what the form owns, so that
+     * whatever this misread is never written; null then.
+     */
+    private static String rewrite(String existing, Fields f, String pem) {
+        TomlTable old = parse(existing);
+        if (old == null) return null;
+        String rest = TomlLines.without(existing, REPLACED);
+        if (rest == null) return null;
+        StringBuilder text = new StringBuilder(rest);
+        if (text.length() > 0 && text.charAt(text.length() - 1) != '\n') text.append('\n');
+        text.append('\n').append(DeepLinkImport.endpointText(f.hostname.trim(), addressList(f.addresses), f.username.trim(), f.password,
+                clientRandomForCore(f.clientRandom), dnsList(f.dns), f.customSni, f.allowIpv6, f.skipVerification, "http3".equals(f.protocol), f.antiDpi, pem));
+        TomlTable endpoint = old.getTable("endpoint");
+        if (endpoint != null) {
+            for (String key : sorted(endpoint)) {
+                if (FORM_KEYS.contains(key)) continue;
+                String value = valueText(endpoint.get(Collections.singletonList(key)));
+                if (value == null) return null;
+                text.append(keyText(key)).append(" = ").append(value).append('\n');
+            }
+        }
+        boolean hadTunnel = old.get(Arrays.asList("listener", "tun")) instanceof TomlTable;
+        if (!hadTunnel) text.append('\n').append(DeepLinkImport.tunnelText());
+        String result = text.toString();
+        TomlTable written = parse(result);
+        if (written == null) return null;
+        String before = signature(old, false);
+        return before != null && before.equals(signature(written, !hadTunnel)) && same(read(result), f, pem) ? result : null;
+    }
+
+    // What the file holds that the form does not own, as one text, to tell by whether a rewrite changed any of it. The endpoint counts only
+    // for the keys it has beyond the form's, and the tunnel not at all when a rewrite added the default one. Null for a value that cannot
+    // be written down.
+    private static String signature(TomlTable root, boolean withoutTunnel) {
+        StringBuilder out = new StringBuilder();
+        for (String key : sorted(root)) {
+            if (key.equals("dns_upstreams")) continue;
+            Object value = root.get(Collections.singletonList(key));
+            String text;
+            if (key.equals("endpoint") && value instanceof TomlTable) text = inlineTable((TomlTable) value, FORM_KEYS);
+            else if (key.equals("listener") && withoutTunnel && value instanceof TomlTable) text = inlineTable((TomlTable) value, Collections.singleton("tun"));
+            else text = valueText(value);
+            if (text == null) return null;
+            if ((key.equals("endpoint") || (key.equals("listener") && withoutTunnel)) && text.equals("{}")) continue;
+            out.append(keyText(key)).append('=').append(text).append(';');
+        }
+        return out.toString();
+    }
+
+    private static List<String> sorted(TomlTable table) {
+        List<String> keys = new ArrayList<>(table.keySet());
+        Collections.sort(keys);
+        return keys;
+    }
+
+    // A TOML value as one line of text, or null for a kind this does not write. Tables are written inline, with their keys in order.
+    private static String valueText(Object value) {
+        if (value instanceof String) return basic((String) value);
+        if (value instanceof Boolean || value instanceof Long || value instanceof Integer) return value.toString();
+        if (value instanceof Double) {
+            double d = (Double) value;
+            if (Double.isNaN(d)) return "nan";
+            if (Double.isInfinite(d)) return d > 0 ? "inf" : "-inf";
+            return Double.toString(d);
+        }
+        if (value instanceof TomlTable) return inlineTable((TomlTable) value, Collections.<String>emptySet());
+        if (value instanceof TomlArray) {
+            TomlArray array = (TomlArray) value;
+            StringBuilder out = new StringBuilder("[");
+            for (int i = 0; i < array.size(); i++) {
+                String item = valueText(array.get(i));
+                if (item == null) return null;
+                if (i > 0) out.append(", ");
+                out.append(item);
+            }
+            return out.append(']').toString();
+        }
+        // The dates and times: the text the parser's own types give for them, which the read-back checks.
+        return value instanceof java.time.temporal.Temporal ? value.toString() : null;
+    }
+
+    private static String inlineTable(TomlTable table, Set<String> skip) {
+        StringBuilder out = new StringBuilder("{");
+        boolean first = true;
+        for (String key : sorted(table)) {
+            if (skip.contains(key)) continue;
+            String value = valueText(table.get(Collections.singletonList(key)));
+            if (value == null) return null;
+            out.append(first ? " " : ", ").append(keyText(key)).append(" = ").append(value);
+            first = false;
+        }
+        return out.append(first ? "}" : " }").toString();
+    }
+
+    private static String keyText(String key) {
+        return BARE_KEY.matcher(key).matches() ? key : basic(key);
+    }
+
+    private static final Pattern BARE_KEY = Pattern.compile("[A-Za-z0-9_-]+");
+
+    // A basic string, written whole: what DeepLinkImport.quoted leaves out of a value of the form is kept here, since this is the file's.
+    private static String basic(String text) {
+        StringBuilder out = new StringBuilder(text.length() + 2).append('"');
+        for (int i = 0; i < text.length(); i++) {
+            char c = text.charAt(i);
+            if (c == '\\' || c == '"') out.append('\\').append(c);
+            else if (c == '\n') out.append("\\n");
+            else if (c == '\t') out.append("\\t");
+            else if (c == '\r') out.append("\\r");
+            else if (c == '\b') out.append("\\b");
+            else if (c == '\f') out.append("\\f");
+            else if (c < 0x20 || c == 0x7f) out.append(String.format("\\u%04X", (int) c));
+            else out.append(c);
+        }
+        return out.append('"').toString();
     }
 
     // In place, or null. Each key of [endpoint] the file has is given its new value where it is; each it has not is added under the
