@@ -200,6 +200,13 @@ class TvDeviceTest {
         yield(view)
         if (view is ViewGroup) for (i in 0 until view.childCount) yieldAll(descendants(view.getChildAt(i)))
     }
+    // pageRoot holds the bar of tabs, which render() makes first, and the page under it. This is the page alone.
+    private fun pageBelowTheTabs(a: MainActivity): Sequence<View> =
+        pageRoot(a).let { page -> (1 until page.childCount).asSequence().flatMap { descendants(page.getChildAt(it)) } }
+    // A link or a button that is a control of its own. The selector's name is a Ui.LinkText as well, as the text inside the selector, which is
+    // the control (it is the selector that is focusable and clicked, and the name has neither), so it is not one.
+    private fun linksAndButtons(views: Sequence<View>): List<View> =
+        views.filter { it.isShown && (it is Button || it is Ui.LinkText && (it.isFocusable || it.isClickable)) }.toList()
     private fun shows(a: MainActivity, text: String): Boolean = onMain {
         ArrayList<View>().also { a.window.decorView.findViewsWithText(it, text, View.FIND_VIEWS_WITH_TEXT) }.isNotEmpty()
     }
@@ -334,8 +341,8 @@ class TvDeviceTest {
         // While traffic is blocked the desktop's Home has the logo, the selector and the +, as it has at any other time: no link of
         // Android's own to reconnect now (the service does that by itself, with its backoff).
         assertEquals(setOf("home:toggle", "home:config", "home:add"),
-            onMain { descendants(pageRoot(a)).filter { it.isShown && it.isFocusable }.mapNotNull { it.tag as? String }.toSet() })
-        assertTrue("and no link or button", onMain { descendants(pageRoot(a)).none { it.isShown && (it is Ui.LinkText || it is Button) } })
+            onMain { pageBelowTheTabs(a).filter { it.isShown && it.isFocusable }.mapNotNull { it.tag as? String }.toSet() })
+        assertEquals("and no link or button", emptyList<View>(), onMain { linksAndButtons(pageBelowTheTabs(a)) })
         render(a, 3)
         assertNotNull(onMain { root(a).findViewWithTag<View>("settings:update") })
     }
@@ -517,8 +524,8 @@ class TvDeviceTest {
         eventually("The words on Home lead there as well") { onMain { field("page").getInt(a) } == 1 && overlayTag(a, "addmenu") != null }
     }
 
-    // The logo's opacity and the line under it are the state's: nothing off, Connecting…, the time, why traffic is blocked with the
-    // accent link Reconnect under it (the desktop has no such state, and nothing but the logo is a button on Home), and Disconnecting…
+    // The logo's opacity and the line under it are the state's: nothing off, Connecting… (also while traffic is blocked and the service
+    // reconnects by itself: the desktop has no such state, and nothing but the logo is a button on Home), the time, and Disconnecting…
     @Test fun theLogoAndTheLineUnderItFollowTheStateOfTheVpn() {
         val a = open()
         val theme = theme(a)
@@ -546,7 +553,7 @@ class TvDeviceTest {
         eventually("Connected is 1.0") { near(1f, logoOf(a).alpha) }
         // Blocked is one of those: no link to reconnect now, and no button either, for the logo is the only control.
         vpnShows(a, 6)
-        onMain { assertTrue("Nothing on Home is a button or a link: the logo, the selector and its + are all", descendants(pageRoot(a)).none { it is Button || it is Ui.LinkText }) }
+        assertEquals("Nothing on Home is a button or a link: the logo, the selector and its + are all", emptyList<View>(), onMain { linksAndButtons(pageBelowTheTabs(a)) })
         eventually("Blocked is 0.7") { near(0.7f, logoOf(a).alpha) }
         eventually("and the logo pulses, as when it connects") { onMain { hero(a).isPulsing } }
         // From Disconnect until the service says it is off.

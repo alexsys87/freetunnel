@@ -676,7 +676,10 @@ class VpnDeviceTest {
             var extras = -1
             instrumentation.runOnMainSync {
                 val page = MainActivity::class.java.getDeclaredField("pageRoot").apply { isAccessible = true }.get(activity) as android.view.ViewGroup
-                fun count(view: android.view.View): Int = (if (view.isShown && (view is android.widget.Button || view is Ui.LinkText)) 1 else 0) +
+                // A link that is a control of its own. The selector's name is a Ui.LinkText too, inside the selector, which is the control
+                // (focusable and clicked; the name is neither), so it does not count.
+                fun count(view: android.view.View): Int =
+                    (if (view.isShown && (view is android.widget.Button || view is Ui.LinkText && (view.isFocusable || view.isClickable))) 1 else 0) +
                     (if (view is android.view.ViewGroup) (0 until view.childCount).sumOf { count(view.getChildAt(it)) } else 0)
                 extras = count(page)
             }
