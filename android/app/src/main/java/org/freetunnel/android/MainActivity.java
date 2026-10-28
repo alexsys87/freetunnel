@@ -2196,6 +2196,8 @@ public final class MainActivity extends Activity {
         EditText password = ui.lineEdit();
         // Dots, and no suggestions: the password is a secret.
         password.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        // setInputType makes a password field monospace, and the desktop's dots are in the font of its other fields.
+        password.setTypeface(Typeface.DEFAULT);
         EditText dns = ui.lineEdit();
         dns.setHint("1.1.1.1, 8.8.8.8");
         EditText sni = ui.lineEdit();
@@ -2356,10 +2358,14 @@ public final class MainActivity extends Activity {
             ConfigForm.Fields f = fields.get();
             int problem = ConfigForm.problem(f);
             if (problem != 0) { toast(getString(problem)); return; }
-            // A name left empty is the host's, as on the desktop.
+            // A name left empty is the host's, cut to the limit by code points as a name nobody typed is. A name that was typed is taken
+            // whole or refused, as on the desktop; a config that already has a longer name (links and files could give any) keeps it.
             String typed = name.getText().toString().trim();
-            final String named = typed.isEmpty() ? f.hostname.trim() : typed;
-            final String n = named.length() > 80 ? named.substring(0, 80) : named;
+            if (ConfigForm.nameTooLong(typed) && (editing == null || !typed.equals(editing.name.trim()))) {
+                toast(getString(R.string.editor_error_name_too_long, ConfigForm.NAME_LIMIT));
+                return;
+            }
+            final String n = typed.isEmpty() ? ConfigForm.clippedName(f.hostname.trim()) : typed;
             final boolean certificateTrimmed = ConfigForm.certificates(f.certificate).dropped;
             final String text = ConfigForm.write(editing == null ? null : editing.toml, f);
             checking[0] = true;
@@ -2410,6 +2416,8 @@ public final class MainActivity extends Activity {
         toast(getString(R.string.editor_no_file_picker));
     }
     // A file the editor cannot read changes nothing, and says so: a file that is not text, or that is empty, must not wipe what was pasted.
+    // The desktop's limit (kMaxUserTextFileBytes) and words.
+    private static final int CERTIFICATE_FILE_LIMIT = 1024 * 1024;
     private void readCertificate(Uri uri, EditText target) {
         try (InputStream input = getContentResolver().openInputStream(uri); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
             if (input == null) { toast(getString(R.string.text_could_not_open_file)); return; }
@@ -2418,11 +2426,12 @@ public final class MainActivity extends Activity {
             int total = 0;
             while ((n = input.read(bytes)) != -1) {
                 total += n;
-                if (total > 256 * 1024) { toast(getString(R.string.text_file_is_too_large)); return; }
+                if (total > CERTIFICATE_FILE_LIMIT) { toast(getString(R.string.editor_file_too_large)); return; }
                 out.write(bytes, 0, n);
             }
             String pem = out.toString(StandardCharsets.UTF_8.name());
-            if (!pem.trim().isEmpty() && target.isAttachedToWindow()) target.setText(pem);
+            if (pem.trim().isEmpty()) { toast(getString(R.string.editor_file_empty)); return; }
+            if (target.isAttachedToWindow()) target.setText(pem);
         } catch (Exception e) {
             toast(getString(R.string.text_could_not_open_file));
         }

@@ -1289,6 +1289,8 @@ class TvDeviceTest {
             assertEquals("test", text("editor:password"))
             val password = root(a).findViewWithTag<EditText>("editor:password")
             assertTrue("The password is dots", password.transformationMethod is android.text.method.PasswordTransformationMethod)
+            // setInputType makes a password field monospace; the desktop's dots are in the font of its other fields.
+            assertNotEquals("in the font of the other fields, not monospace", android.graphics.Typeface.MONOSPACE, password.typeface)
             for (key in listOf("editor:dns", "editor:sni", "editor:random", "editor:cert")) assertEquals("$key is empty: the config has none", "", text(key))
             assertFalse("IPv6 is off: the config says so", root(a).findViewWithTag<ToggleView>("editor:ipv6").isChecked)
             assertFalse(root(a).findViewWithTag<ToggleView>("editor:skip").isChecked)
@@ -1394,6 +1396,36 @@ class TvDeviceTest {
         assertNotNull("A tunnel to put it through", parsed.getTable("listener.tun"))
     }
 
+    // A typed name over 50 characters is refused with the desktop's words (the name is a file's name there); a host standing in for a name
+    // that was left empty is cut to 50, as a name nobody typed is.
+    @Test fun aTypedNameOverFiftyCharactersIsRefusedAndAHostStandingInForOneIsClipped() {
+        val a = open()
+        onMain { method("editConfig", Int::class.javaPrimitiveType).invoke(a, -1) }
+        instrumentation.waitForIdleSync()
+        fun typeInto(key: String, text: String) = onMain { root(a).findViewWithTag<EditText>(key).setText(text) }
+        typeInto("editor:host", "a".repeat(60) + ".example.com"); typeInto("editor:addresses", "1.2.3.4:443")
+        typeInto("editor:username", "u"); typeInto("editor:password", "p")
+        typeInto("editor:name", "n".repeat(51))
+        val before = saved().size
+        click(a, "editor:save")
+        assertEquals(listOf(context.getString(R.string.editor_error_name_too_long, 50)), toastTexts(a))
+        assertNotNull("A refusal keeps the editor", overlayTag(a, "editor"))
+        typeInto("editor:name", "n".repeat(50))
+        click(a, "editor:save")
+        (field("validationWorker").get(a) as ExecutorService).submit {}.get(30, TimeUnit.SECONDS)
+        eventually("Fifty is allowed") { overlayTag(a, "editor") == null }
+        assertEquals("n".repeat(50), saved().last().getString("name"))
+        onMain { method("editConfig", Int::class.javaPrimitiveType).invoke(a, -1) }
+        instrumentation.waitForIdleSync()
+        typeInto("editor:host", "a".repeat(60) + ".example.com"); typeInto("editor:addresses", "1.2.3.4:443")
+        typeInto("editor:username", "u"); typeInto("editor:password", "p")
+        click(a, "editor:save")
+        (field("validationWorker").get(a) as ExecutorService).submit {}.get(30, TimeUnit.SECONDS)
+        eventually("A host is cut, not refused") { overlayTag(a, "editor") == null }
+        assertEquals(before + 2, saved().size)
+        assertEquals("a".repeat(50), saved().last().getString("name"))
+    }
+
     // "Load from file…" puts what a file holds in the certificate box; a file that is empty changes nothing.
     @Test fun aCertificateFileFillsTheCertificateBoxAndAnEmptyOneChangesNothing() {
         val a = open()
@@ -1410,6 +1442,16 @@ class TvDeviceTest {
             assertEquals(pem, onMain { box.text.toString() })
             onMain { read.invoke(a, android.net.Uri.fromFile(empty), box) }
             assertEquals("An empty file wipes nothing", pem, onMain { box.text.toString() })
+            // and says so, in the desktop's words (Backend::readTextFile)
+            assertEquals(listOf(context.getString(R.string.editor_file_empty)), toastTexts(a))
+            // The desktop's limit is 1 MB, and its words say that.
+            val large = java.io.File(dir, "large.pem").apply { writeBytes(ByteArray(1024 * 1024 + 1) { 97 }) }
+            onMain { read.invoke(a, android.net.Uri.fromFile(large), box) }
+            assertEquals("A file over 1 MB changes nothing", pem, onMain { box.text.toString() })
+            assertEquals(listOf(context.getString(R.string.editor_file_too_large)), toastTexts(a))
+            val big = java.io.File(dir, "big.pem").apply { writeBytes(ByteArray(260 * 1024) { 98 }) }
+            onMain { read.invoke(a, android.net.Uri.fromFile(big), box) }
+            assertEquals("and one of 260 KB, which was refused at 256, is read", 260 * 1024, onMain { box.text.length })
         } finally {
             dir.deleteRecursively()
         }

@@ -47,6 +47,17 @@ final class ConfigForm {
         boolean antiDpi;
     }
 
+    /** The longest config name, in characters (code points), as the desktop's kMaxConfigNameLength: the name is a file's name there. */
+    static final int NAME_LIMIT = 50;
+
+    /** Whether a name is over the limit, counted in code points: a character beyond the first plane is one, though it is two UTF-16 units. */
+    static boolean nameTooLong(String name) { return name.codePointCount(0, name.length()) > NAME_LIMIT; }
+
+    /** A name nobody typed (a host standing in for one) cut to the limit, never through a character (ConfigPaths::clippedConfigName). */
+    static String clippedName(String name) {
+        return nameTooLong(name) ? name.substring(0, name.offsetByCodePoints(0, NAME_LIMIT)) : name;
+    }
+
     private static final Pattern DIGITS = Pattern.compile("\\d{1,5}");
     private static final Pattern IPV4 = Pattern.compile("(?:(?:25[0-5]|2[0-4]\\d|1?\\d?\\d)\\.){3}(?:25[0-5]|2[0-4]\\d|1?\\d?\\d)");
     private static final Pattern IPV6 = Pattern.compile("[0-9A-Fa-f:.]+");

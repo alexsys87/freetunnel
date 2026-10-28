@@ -175,6 +175,9 @@
     <string name="editor_error_dns">"DNS must be an IP or DoT/DoH URL (e.g. 1.1.1.1, tls://8.8.8.8)"</string>
     <string name="editor_error_random">"Client random must be hexadecimal in whole bytes (an even number of digits, at most 64), optionally followed by /mask"</string>
     <string name="editor_error_certificate">"The certificate must be in PEM format, as one or more BEGIN CERTIFICATE blocks"</string>
+    <string name="editor_error_name_too_long">"The name is too long: %1$d characters at most"</string>
+    <string name="editor_file_empty">"That file is empty"</string>
+    <string name="editor_file_too_large">"That file is over 1 MB, too large to be a certificate"</string>
     <string name="editor_no_file_picker">This device has no file picker. Paste the certificate into the field.</string>
     <string name="editor_discard_question">"Discard unsaved changes?"</string>
     <string name="editor_discard">"Discard"</string>

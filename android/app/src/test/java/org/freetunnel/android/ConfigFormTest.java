@@ -135,6 +135,23 @@ public final class ConfigFormTest {
         assertTrue(text.contains("[listener.tun]\n"));
     }
 
+    @Test public void aTypedNameIsHeldToFiftyCharactersAndAHostIsClippedByCodePoints() {
+        assertEquals(50, ConfigForm.NAME_LIMIT);
+        String fifty = "a".repeat(50);
+        assertFalse(ConfigForm.nameTooLong(fifty));
+        assertTrue(ConfigForm.nameTooLong(fifty + "a"));
+        // An emoji is two UTF-16 units and one character: fifty of them are 100 units and within the limit.
+        String emoji = new String(Character.toChars(0x1F600));
+        assertFalse(ConfigForm.nameTooLong(emoji.repeat(50)));
+        assertTrue(ConfigForm.nameTooLong(emoji.repeat(51)));
+        assertEquals(fifty, ConfigForm.clippedName(fifty + "bcd"));
+        // Cut after the fiftieth character, never between the halves of one.
+        String clipped = ConfigForm.clippedName("x".repeat(49) + emoji + "tail");
+        assertEquals("x".repeat(49) + emoji, clipped);
+        assertEquals(50, clipped.codePointCount(0, clipped.length()));
+        assertEquals("short.example.com", ConfigForm.clippedName("short.example.com"));
+    }
+
     @Test public void theCertificateIsTheCertificatesAlone() {
         ConfigForm.Fields f = server();
         f.certificate = "Bag Attributes\n" + CA_PEM + "\n" + LEAF_PEM;

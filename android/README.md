@@ -298,7 +298,8 @@ window of ours to appear in.
   Protocol and DNS servers, Custom SNI and Client random, the Split profile
   (where a config's profile is chosen), the switches Allow IPv6, Skip
   certificate check and Anti-DPI, and the Certificate in a box 70 high with
-  "Load from file…" (the system's file picker, so a TV with none says so), then
+  "Load from file…" (the system's file picker, so a TV with none says so; a
+  file that is empty or over 1 MB says so, in the desktop's words), then
   Cancel and Save, which scroll with the form. The checks and their words are
   the desktop's. An edit changes the endpoint's values in the config and
   leaves the rest of the file as it was written (the tunnel's routes, the rules
