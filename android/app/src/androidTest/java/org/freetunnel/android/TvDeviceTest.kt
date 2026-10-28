@@ -1431,10 +1431,11 @@ class TvDeviceTest {
             instrumentation.waitForIdleSync()
             assertFalse("$state: the action must ignore OK", onMain { action.isClickable })
             assertEquals("$state: the focus must stay", "settings:update", focusedKey(a))
-            // While it does nothing it has no hover look, as on the desktop: plain in the text colour, not underlined, even with the focus.
+            // While it does nothing it has no pointer look, as on the desktop, but the focus that stays on it must show: the hover colour,
+            // underlined. A focus that looks like no focus is a lost one.
             onMain {
-                assertEquals("$state: not underlined", 0, action.paintFlags and android.graphics.Paint.UNDERLINE_TEXT_FLAG)
-                assertEquals("$state: in the text colour", theme(a).text, action.currentTextColor)
+                assertTrue("$state: the focus must show as an underline", action.paintFlags and android.graphics.Paint.UNDERLINE_TEXT_FLAG != 0)
+                assertEquals("$state: in the colour of the focus", theme(a).accent, action.currentTextColor)
             }
         }
         updater("state", AndroidUpdater.State.IDLE)
@@ -1478,6 +1479,38 @@ class TvDeviceTest {
                 }
             }
             closeWithBack(a, shown.tag, shown.what)
+        }
+    }
+
+    // The ← of a card is a focus stop that shows its focus the way the desktop's shows the pointer: it turns from textDim to the text colour. It
+    // is a control of its own, so its tint follows its own states and not the header's, which is never focused, pressed or hovered.
+    @Test fun theBackArrowOfACardTurnsToTheTextColourWithTheFocus() {
+        val a = open()
+        leaveTouchMode(a)
+        val cards = listOf(
+            Shown("the editor", "editor") { method("editConfig", Int::class.javaPrimitiveType).invoke(a, 0) },
+            Shown("the app picker", "picker") { method("appPicker").invoke(a) },
+            Shown("the licenses", "licenses") { method("openSourceLicenses").invoke(a) },
+            Shown("Receive from phone", "receive") { method("receiveFromPhone").invoke(a) })
+        for (card in cards) {
+            onMain { card.start() }
+            instrumentation.waitForIdleSync()
+            val key = "${card.tag}:back"
+            val theme = theme(a)
+            onMain {
+                val arrow = root(a).findViewWithTag<ImageView>(key)
+                assertNotNull("${card.what} has a ← with the key $key", arrow)
+                assertFalse("${card.what}: the arrow does not rest focused", arrow.isFocused)
+                assertEquals("${card.what}: the arrow rests in textDim", theme.textDim, arrow.imageTintList!!.getColorForState(arrow.drawableState, 0))
+            }
+            focusOn(a, key)
+            onMain {
+                val arrow = root(a).findViewWithTag<ImageView>(key)
+                assertTrue("${card.what}: the arrow has the focus", arrow.isFocused)
+                assertTrue("${card.what}: and its state says so", arrow.drawableState.contains(android.R.attr.state_focused))
+                assertEquals("${card.what}: the focused arrow is in the text colour", theme.text, arrow.imageTintList!!.getColorForState(arrow.drawableState, 0))
+            }
+            closeWithBack(a, card.tag, card.what)
         }
     }
 

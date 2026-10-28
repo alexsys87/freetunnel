@@ -41,10 +41,11 @@ import android.widget.TextView;
  * never a foreground, never a fill across empty width: a control's focus is its background
  * (or its colour), in its own shape and radius. See {@link #focus}.
  *
- * <p>The two places a remote's focus shows what the desktop's pointer does not, because the control would otherwise have none: the
- * current page's nav tile grows to 1.08 like the others (the desktop leaves it as it is under the pointer), and the selected profile
- * chip goes to primaryHover (the desktop leaves it on the accent). Both are the one place a control that does nothing, or is already
- * selected, is still somewhere a remote stops, and both are on purpose.
+ * <p>The three places a remote's focus shows what the desktop's pointer does not, because the control would otherwise have none: the
+ * current page's nav tile grows to 1.08 like the others (the desktop leaves it as it is under the pointer), the selected profile
+ * chip goes to primaryHover (the desktop leaves it on the accent), and the update line, which has no hover look while it checks or
+ * installs, goes to its hover colour and underlined with the focus (the remote's focus stays on it through the check). Each is the one
+ * place a control that does nothing, or is already selected, is still somewhere a remote stops, and all are on purpose.
  */
 final class Ui {
     /** What a control's rest, hover and focus look like. */
@@ -199,9 +200,21 @@ final class Ui {
         v.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
         return v;
     }
-    /** The same, in the colours of the control it is in: at rest, under the pointer and with the focus. */
+    /**
+     * The same, in the colours of the control it is in: at rest, under the pointer and with the focus. For a glyph that is a child of a
+     * focusable control, which it takes the states of; a glyph that is the control itself (the ←) uses {@link #ownGlyph}.
+     */
     ImageView followGlyph(int drawable, int rest, int hot, int focused) {
         return followTint(glyph(drawable, rest), rest, hot, focused);
+    }
+    /**
+     * A glyph that is the focus stop itself (the ←): its tint changes with its own states, never its parent's, which a header or a row
+     * never has focused, pressed or hovered; duplicating those would leave a remote's focus on it unseen.
+     */
+    ImageView ownGlyph(int drawable, int rest, int hot, int focused) {
+        ImageView v = glyph(drawable, rest);
+        v.setImageTintList(colors(rest, hot, focused));
+        return v;
     }
 
     /**
@@ -511,8 +524,10 @@ final class Ui {
 
     /**
      * A link that underlines while it is pressed, hovered or focused: the desktop's, which has the pointer for the first two. While it is
-     * dormant (the update row while it checks or installs, which cannot be clicked) it has no hover look at all, as the desktop's has none:
-     * plain, in the colour it rests in, never underlined.
+     * dormant (the update row while it checks or installs, which cannot be clicked) it has no pointer look at all, as the desktop's has
+     * none: plain, in the colour it rests in, never underlined. A remote's focus, though, stays on it (the update row keeps it through
+     * the check, and a focus that shows nothing is a focus lost), so the focus look stays: the third place the focus shows what the
+     * pointer does not (see {@link Ui}).
      */
     static final class LinkText extends TextView {
         private ColorStateList colors;
@@ -522,23 +537,31 @@ final class Ui {
 
         @Override public void setTextColor(ColorStateList states) {
             colors = states;
-            super.setTextColor(dormant && states != null ? ColorStateList.valueOf(states.getColorForState(new int[0], states.getDefaultColor())) : states);
+            super.setTextColor(dormant && states != null ? withoutThePointer(states) : states);
+        }
+
+        /** The colours with the pressed and hovered ones gone: the colour at rest, and the focus's own. */
+        private static ColorStateList withoutThePointer(ColorStateList states) {
+            int rest = states.getColorForState(new int[0], states.getDefaultColor());
+            int focused = states.getColorForState(new int[]{android.R.attr.state_focused}, rest);
+            return new ColorStateList(new int[][]{{android.R.attr.state_focused}, {}}, new int[]{focused, rest});
         }
 
         void setDormant(boolean value) {
             if (dormant == value) return;
             dormant = value;
             if (colors != null) setTextColor(colors);
+            // The underline follows the state again (drawableStateChanged).
             refreshDrawableState();
-            if (value) setPaintFlags(getPaintFlags() & ~Paint.UNDERLINE_TEXT_FLAG);
         }
 
         @Override protected void drawableStateChanged() {
             super.drawableStateChanged();
             boolean hot = false;
-            if (!dormant)
-                for (int state : getDrawableState())
-                    if (state == android.R.attr.state_pressed || state == android.R.attr.state_hovered || state == android.R.attr.state_focused) hot = true;
+            for (int state : getDrawableState()) {
+                if (state == android.R.attr.state_focused) hot = true;
+                else if (!dormant && (state == android.R.attr.state_pressed || state == android.R.attr.state_hovered)) hot = true;
+            }
             int flags = getPaintFlags();
             int next = hot ? flags | Paint.UNDERLINE_TEXT_FLAG : flags & ~Paint.UNDERLINE_TEXT_FLAG;
             if (next != flags) setPaintFlags(next);
@@ -723,7 +746,7 @@ final class Ui {
      * desktop's arrow is 6 short of its hit area at every side).
      */
     ImageView backArrow(String key, CharSequence description, View.OnClickListener back) {
-        ImageView arrow = followGlyph(R.drawable.ic_back, t.textDim, t.text, t.text);
+        ImageView arrow = ownGlyph(R.drawable.ic_back, t.textDim, t.text, t.text);
         arrow.setPadding(dp(6), dp(6), dp(6), dp(6));
         arrow.setContentDescription(description);
         arrow.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_AUTO);

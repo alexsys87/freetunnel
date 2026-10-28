@@ -534,15 +534,23 @@ class UiComponentsDeviceTest {
             assertEquals(0, hot.paintFlags and underline)
             hot.isHovered = true
             assertTrue("hovered", hot.paintFlags and underline != 0)
-            // A line that does nothing at the moment (the update row while it checks) has no hover look: plain in the text colour, not underlined.
+            // A line that does nothing at the moment (the update row while it checks) has no pointer look: plain in the text colour, not
+            // underlined. A remote's focus stays on it, though, and shows: the hover colour, underlined (the third place the focus shows what
+            // the pointer does not).
             val dormant = ui.link("Checking…", 14f, Ui.LinkKind.TEXT, "settings:update") as Ui.LinkText
             dormant.setDormant(true)
-            assertEquals("A dormant link stays in the colour it rests in", theme.text, dormant.textColors.getColorForState(focused, 0))
+            assertEquals("A dormant link rests in its colour", theme.text, dormant.textColors.getColorForState(intArrayOf(), 0))
+            assertEquals("and stays in it under the pointer", theme.text, dormant.textColors.getColorForState(intArrayOf(android.R.attr.state_pressed), 0))
+            assertEquals("and under a hover", theme.text, dormant.textColors.getColorForState(intArrayOf(android.R.attr.state_hovered), 0))
+            assertEquals("but not with the focus, which must show", theme.accent, dormant.textColors.getColorForState(focused, 0))
             dormant.isPressed = true
-            assertEquals("and is not underlined", 0, dormant.paintFlags and underline)
+            assertEquals("and is not underlined under the pointer", 0, dormant.paintFlags and underline)
             dormant.isPressed = false
+            dormant.isHovered = true
+            assertEquals("nor hovered", 0, dormant.paintFlags and underline)
+            dormant.isHovered = false
             dormant.setDormant(false)
-            assertEquals("Awake it is the link it was", theme.accent, dormant.textColors.getColorForState(focused, 0))
+            assertEquals("Awake it is the link it was", theme.accent, dormant.textColors.getColorForState(intArrayOf(android.R.attr.state_pressed), 0))
             dormant.isPressed = true
             assertTrue(dormant.paintFlags and underline != 0)
             // The link in a row of a page adds nothing to the row's height: its padding hangs outside it.
@@ -571,6 +579,9 @@ class UiComponentsDeviceTest {
             assertEquals("The arrow is textDim", theme.textDim, tint.defaultColor)
             assertEquals("and the text colour under the pointer", theme.text, tint.getColorForState(intArrayOf(android.R.attr.state_pressed), 0))
             assertEquals("and with a remote's focus", theme.text, tint.getColorForState(intArrayOf(android.R.attr.state_focused), 0))
+            // It is the focus stop itself: its tint follows its own states, never the header's, which is never focused, pressed or hovered.
+            assertFalse("The arrow does not take the header's states", arrow.isDuplicateParentStateEnabled)
+            assertTrue("and is a stop", arrow.isFocusable)
             for (state in listOf("rest", "pressed", "focused")) assertEquals("The arrow has no fill ($state): it only tints", Color.TRANSPARENT, fill(looks(arrow)[state]!!))
             assertEquals("Back", arrow.contentDescription.toString())
             val title = header.getChildAt(1) as TextView
