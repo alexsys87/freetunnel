@@ -34,7 +34,7 @@ public final class RussiaListTest {
     }
 
     @Test public void aByteOrderMarkIsNotPartOfTheFirstRule() {
-        assertEquals(Arrays.asList("a.example"), RussiaList.parse("﻿a.example\n"));
+        assertEquals(Arrays.asList("a.example"), RussiaList.parse("\uFEFFa.example\n"));
     }
 
     @Test public void nothingInItIsNoRules() {

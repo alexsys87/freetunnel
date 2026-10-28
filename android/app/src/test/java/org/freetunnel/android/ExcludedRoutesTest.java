@@ -71,7 +71,7 @@ public final class ExcludedRoutesTest {
 
     @Test public void aLineIsARouteUnlessItIsBlankOrBeginsWithAHash() {
         assertEquals(Arrays.asList("10.0.0.0/8", "fd00::/8"), ExcludedRoutes.parse("# header\n\n  10.0.0.0/8  \r\n# 1.2.3.4/32\nfd00::/8\n   \n  # indented"));
-        assertEquals(Arrays.asList("10.0.0.0/8"), ExcludedRoutes.parse("﻿10.0.0.0/8\n"));
+        assertEquals(Arrays.asList("10.0.0.0/8"), ExcludedRoutes.parse("\uFEFF10.0.0.0/8\n"));
         assertTrue(ExcludedRoutes.parse("# only\n\n").isEmpty());
     }
 

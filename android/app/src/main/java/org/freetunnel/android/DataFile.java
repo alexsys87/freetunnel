@@ -20,7 +20,7 @@ final class DataFile {
 
     /** The entries in a file's text, in its order. The same reading as the desktop's (cmake/SharedData.cmake), line by line. */
     static List<String> parse(String text) {
-        String body = text.startsWith("﻿") ? text.substring(1) : text;
+        String body = text.startsWith("\uFEFF") ? text.substring(1) : text;
         List<String> entries = new ArrayList<>();
         for (String line : body.split("\n")) {
             String entry = line.trim();
