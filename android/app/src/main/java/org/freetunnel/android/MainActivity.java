@@ -1969,13 +1969,14 @@ public final class MainActivity extends Activity {
     //
     // A card like the app picker's: ←, the title, the QR code on its own white tile (black on
     // white in both themes, so that a phone can read it), the address in monospace 16 to type on a
-    // laptop, the hint, and a row with Close, which has the focus first, and, once something has
-    // come, "Received: N" in textFaint at its left. The screen stays on while it is open: a
+    // laptop, a short hint, all of it centred, and, once something has come, "Received: N" in
+    // textFaint under them. The card has no button: ← closes it, as it does the desktop's cards that have
+    // one, and a remote's first stop is that arrow. The screen stays on while it is open: a
     // screensaver would stop the activity, and the receiver with it. The card and the port stay
-    // open while the TV asks about what came, so that the phone can send the next, until Close,
-    // Back, ←, the time, three wrong codes or leaving the app. What came and was not answered yet
+    // open while the TV asks about what came, so that the phone can send the next, until Back, ←,
+    // the time, three wrong codes or leaving the app. What came and was not answered yet
     // is still asked about when the port closes, except when the app is left. Keys: receive:back
-    // and receive:close.
+    // and receive:count.
     private void receiveFromPhone() {
         stopReceiver();
         InetAddress address = lanAddress();
@@ -1991,13 +1992,15 @@ public final class MainActivity extends Activity {
         LinearLayout card = column();
         card.addView(ui.cardHeader(getString(R.string.text_receive_from_phone), "receive:back", getString(R.string.text_back),
                 v -> closeOverlay(shown[0])), lp(-1, -2));
-        LinearLayout box = column(); box.setGravity(Gravity.CENTER_HORIZONTAL); box.setPadding(dp(18), dp(4), dp(18), dp(4));
+        // Under the header's 48 with nothing between, as the editor's form is, and 12 to the card's foot.
+        LinearLayout box = column(); box.setGravity(Gravity.CENTER_HORIZONTAL); box.setPadding(dp(18), 0, dp(18), dp(12));
         // Drawn at its own size, a whole number of pixels a module, so it is never blurred. The most
         // that fits: a TV only 540 dp high has the card's other lines to make room for. A card is as tall as the window less 40 above (or
-        // the bar or the overscan) and 12 below (or the same), and 292 of it is not the code (OverlayLayer).
+        // the bar or the overscan) and 12 below (or the same), and 190 of it is not the code: the header 48, the gaps 30, the address 21,
+        // the hint's three lines 48, the count's line 16 and the 12 under it, and some to spare (OverlayLayer).
         float density = getResources().getDisplayMetrics().density;
         int room = host.getHeight() > 0 ? Math.round(host.getHeight() / density - Math.max(40f, host.getPaddingTop() / density)
-                - Math.max(12f, host.getPaddingBottom() / density)) - 292 : 220;
+                - Math.max(12f, host.getPaddingBottom() / density)) - 190 : 220;
         LinkReceiver.Qr qr = LinkReceiver.qr(r.url(), dp(Math.max(130, Math.min(220, room))));
         ImageView code = new ImageView(this);
         code.setImageBitmap(Bitmap.createBitmap(qr.pixels, qr.side, qr.side, Bitmap.Config.ARGB_8888));
@@ -2013,27 +2016,25 @@ public final class MainActivity extends Activity {
         TextView url = ui.mono(r.url(), 16, t.text);
         url.setGravity(Gravity.CENTER); box.addView(url, lp(-1, -2));
         gap(box, 10);
-        box.addView(label(getString(R.string.text_receive_hint), 13, t.textDim), lp(-1, -2));
+        // Centred as the address above it is: two short sentences, not a paragraph (the warnings are on the phone's page and in the README).
+        TextView hint = label(getString(R.string.text_receive_hint), 13, t.textDim);
+        hint.setGravity(Gravity.CENTER_HORIZONTAL);
+        box.addView(hint, lp(-1, -2));
+        gap(box, 10);
+        // How many have come, once one has: a line of its own, which is there from the start (empty), so that the card does not change
+        // size, and move, when the first text comes.
+        TextView counted = label("", 12, t.textFaint);
+        counted.setTag("receive:count");
+        counted.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
+        counted.setGravity(Gravity.CENTER);
+        box.addView(counted, lp(-1, -2));
+        receivedLine = counted;
         ScrollView scroll = new ScrollView(this);
         scroll.setVerticalScrollBarEnabled(false);
         // Nothing in it to take the focus: left focusable, it would be a stop with no sign of it.
         scroll.setFocusable(false);
         scroll.addView(box);
         card.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
-        // The card's one button is the editor's Cancel (a secondary one), as the only other card with a button to dismiss it has.
-        Button close = ui.button(getString(R.string.text_close), Ui.Kind.SECONDARY, 88, "receive:close");
-        close.setOnClickListener(v -> closeOverlay(shown[0]));
-        LinearLayout buttons = row(); buttons.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
-        buttons.setPadding(dp(18), dp(6), dp(18), dp(12));
-        // How many have come, once one has: in the row of the button, where it takes no more of the card's height.
-        TextView counted = label("", 12, t.textFaint);
-        counted.setTag("receive:count");
-        counted.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
-        counted.setGravity(Gravity.CENTER_VERTICAL | Gravity.START);
-        buttons.addView(counted, new LinearLayout.LayoutParams(0, dp(32), 1));
-        receivedLine = counted;
-        buttons.addView(close, lp(-2, 32));
-        card.addView(buttons, lp(-1, -2));
         // No screensaver while the phone is used instead of the remote.
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         Overlay overlay = showOverlay("receive", OverlayLayer.Kind.CARD, card, null, () -> {
@@ -2044,8 +2045,8 @@ public final class MainActivity extends Activity {
         shown[0] = overlay;
         // As wide as the app picker, which it is modelled on, and no card of the desktop's is wider.
         overlay.width(dp(420));
-        // A remote starts on Close, not on the back arrow above the code.
-        overlay.defaultKey = "receive:close";
+        // A remote starts on the back arrow, which is all the card has to stop on: Back does the same as it.
+        overlay.defaultKey = "receive:back";
         // These arrive on the receiver's thread. A text it took is the TV's to answer, whether or not its card is
         // still up, unless the app was left in between.
         r.start(new LinkReceiver.Listener() {

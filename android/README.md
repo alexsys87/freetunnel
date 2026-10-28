@@ -349,7 +349,10 @@ send it says so and shows the form again, so the phone can send another. The
 TV shows each text it received, one at a time in the order they were sent,
 with the address it came from, and adds it only once you confirm, as for any
 other import; the card stays open under the question, with "Received: N" in
-its corner, until you close it. A TOML file without a name of its own is named
+its corner, until you close it. The card has no button: its ← and Back close
+it, as the desktop's cards that have a ← are closed, and a remote's first stop
+on it is that arrow. Its hint is two short sentences (the warning about the
+network is on the phone's page and below). A TOML file without a name of its own is named
 after its file, as one picked on the TV is; a link names itself. If choosing a
 file does nothing, as in the browser some QR code scanner apps open pages in,
 open the address in Chrome or Safari instead.
@@ -359,7 +362,7 @@ open the address in Chrome or Safari instead.
   carrier-grade NAT or IPv6-only address, and only while its card is open:
   5 minutes at most from when the card opens, which no send extends, and not
   past Home or a screensaver. The screen stays on while the card is open, and
-  Close, Back, the arrow, the time, three wrong codes and leaving the app stop
+  Back, the arrow, the time, three wrong codes and leaving the app stop
   the port. What it had already received stays queued for your confirmation
   when the port closes in any of those ways but the last: leaving the app
   drops what is still waiting for its turn.
@@ -395,7 +398,8 @@ open the address in Chrome or Safari instead.
   config chosen, Replace building the VPN again for the text before it): no
   text is lost to another check, and none makes another stale.
 - It does not work while the phone's VPN is on, over mobile data, or on a guest
-  network that keeps its devices apart.
+  network that keeps its devices apart: if the page does not open, turn off the
+  phone's VPN (the card does not say so; its hint is short on purpose).
 
 ## Build and signing
 

@@ -1017,8 +1017,9 @@ public final class LinkReceiverTest {
         }
     }
 
-    // The time and the strikes are said in words too (the card's hint, the timeout notices, the lockout notice, the README and the
+    // The time and the strikes are said in words too (the timeout notices, the lockout notice, the README and the
     // release notes), and every other test counts with the constants, so that a change to one of them alone passes them all.
+    // (The TV's card says neither: it has two short sentences, and the warnings are on the phone's page, which the next test holds.)
     @Test public void theTimeIsFiveMinutesAndThreeWrongCodesStopItAsTheTextsSay() throws Exception {
         assertEquals(5 * 60 * 1000L, LinkReceiver.LIFETIME_MS);
         assertEquals(3, LinkReceiver.MAX_WRONG_CODES);
@@ -1031,7 +1032,7 @@ public final class LinkReceiverTest {
             // "5 minutes" and "5 минут", "3 times" and "3 раза".
             String minutes = values.equals("values") ? "5 minutes" : "5 \u043C\u0438\u043D\u0443\u0442";
             String times = values.equals("values") ? "3 times" : "3 \u0440\u0430\u0437\u0430";
-            for (String name : new String[]{"text_receive_hint", "text_receive_timed_out", "text_receive_timed_out_after_texts"}) {
+            for (String name : new String[]{"text_receive_timed_out", "text_receive_timed_out_after_texts"}) {
                 java.util.regex.Matcher text = java.util.regex.Pattern.compile("<string name=\"" + name + "\">([^<]*)</string>").matcher(xml);
                 assertTrue(values + " " + name, text.find());
                 assertTrue(values + " " + name + ": " + text.group(1), text.group(1).contains(minutes));
@@ -1039,6 +1040,27 @@ public final class LinkReceiverTest {
             java.util.regex.Matcher locked = java.util.regex.Pattern.compile("<string name=\"text_receive_locked_out\">([^<]*)</string>").matcher(xml);
             assertTrue(values, locked.find());
             assertTrue(values + ": " + locked.group(1), locked.group(1).contains(times));
+        }
+    }
+
+    // The card on the TV is two short sentences and keeps the warning about the network out of it: the page the phone opens says that
+    // the text crosses the network unencrypted, and to send it only over one that is trusted, in each language.
+    @Test public void thePhonesPageSaysTheTextCrossesTheNetworkUnencrypted() throws Exception {
+        java.io.File res = null;
+        for (String dir : new String[]{"src/main/res", "app/src/main/res", "android/app/src/main/res"})
+            if (new java.io.File(dir, "values/strings.xml").isFile()) res = new java.io.File(dir);
+        assertNotNull("The resources are found from the module's directory", res);
+        for (String values : new String[]{"values", "values-ru"}) {
+            String xml = new String(java.nio.file.Files.readAllBytes(new java.io.File(res, values + "/strings.xml").toPath()), StandardCharsets.UTF_8);
+            java.util.regex.Matcher note = java.util.regex.Pattern.compile("<string name=\"receive_page_note\">([^<]*)</string>").matcher(xml);
+            assertTrue(values, note.find());
+            String unencrypted = values.equals("values") ? "unencrypted" : "\u0431\u0435\u0437 \u0448\u0438\u0444\u0440\u043E\u0432\u0430\u043D\u0438\u044F";
+            String trusted = values.equals("values") ? "network you trust" : "\u0434\u043E\u0432\u0435\u0440\u0435\u043D\u043D\u043E\u0439 \u0441\u0435\u0442\u0438";
+            assertTrue(values + ": " + note.group(1), note.group(1).contains(unencrypted) && note.group(1).contains(trusted));
+            // And the card's own hint is no paragraph: two sentences, with neither the warning nor the tip about the phone's VPN.
+            java.util.regex.Matcher hint = java.util.regex.Pattern.compile("<string name=\"text_receive_hint\">([^<]*)</string>").matcher(xml);
+            assertTrue(values, hint.find());
+            assertTrue(values + ": " + hint.group(1), hint.group(1).split("(?<=[.!?])\\s+").length <= 2 && hint.group(1).length() <= 160);
         }
     }
 

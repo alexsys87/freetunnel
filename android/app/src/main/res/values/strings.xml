@@ -117,7 +117,7 @@
     <string name="text_vpn_consent_unavailable">This device has no Android screen for allowing VPN connections, so FreeTunnel can’t connect.</string>
     <string name="text_no_always_on_here">This device has no Always-on VPN, so the kill switch protects only while FreeTunnel runs.</string>
     <string name="text_receive_from_phone">Receive from phone</string>
-    <string name="text_receive_hint">Scan the code with a phone on the same network, or open the address in a browser there, and send a tt:// link or a TOML file. If the page doesn’t open, turn off the phone’s VPN. Use a network you trust: the link crosses it unencrypted. Send as many as you like while this is open, for up to 5 minutes. Each one is shown here to confirm.</string>
+    <string name="text_receive_hint">Scan the code or open the address on a phone on the same network, and send links or TOML files. Each one is confirmed here.</string>
     <string name="text_receive_no_network">This device has no home network address for a phone to reach. Connect it to Wi-Fi or Ethernet.</string>
     <string name="text_receive_failed">Couldn’t receive from a phone. Try again.</string>
     <string name="text_receive_timed_out">Nothing arrived in 5 minutes. Open Receive from phone again for a new code.</string>
@@ -206,7 +206,6 @@
     <string name="split_notice_both">"“%1$s” uses the profile “%2$s”, which lists both applications and domains. Android cannot send both through the tunnel at once, so the full tunnel stays on. Keep rules of one kind in that profile."</string>
     <string name="editor_split_profile">"Split profile"</string>
     <string name="text_back">"Back"</string>
-    <string name="text_close">"Close"</string>
     <string name="text_disconnecting">"Disconnecting…"</string>
     <string name="text_mb_per_s">" MB/s"</string>
     <string name="config_badge_connected">"connected"</string>

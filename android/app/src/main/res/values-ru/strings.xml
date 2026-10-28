@@ -117,7 +117,7 @@
     <string name="text_vpn_consent_unavailable">На этом устройстве нет экрана Android для разрешения VPN-подключений, поэтому FreeTunnel не может подключиться.</string>
     <string name="text_no_always_on_here">На этом устройстве нет постоянного VPN, поэтому аварийное отключение защищает, только пока FreeTunnel работает.</string>
     <string name="text_receive_from_phone">Получить с телефона</string>
-    <string name="text_receive_hint">Отсканируйте код телефоном в той же сети или откройте адрес в его браузере и отправьте ссылку tt:// или TOML-файл. Если страница не открывается, выключите VPN на телефоне. Только в доверенной сети: ссылка передаётся по ней без шифрования. Пока это окно открыто, можно отправить несколько — до 5 минут. Каждую нужно подтвердить здесь.</string>
+    <string name="text_receive_hint">Отсканируйте код или откройте адрес на телефоне в той же сети и отправьте ссылки или файлы TOML. Каждый нужно подтвердить здесь.</string>
     <string name="text_receive_no_network">У устройства нет адреса в домашней сети, по которому его найдёт телефон. Подключите его к Wi-Fi или Ethernet.</string>
     <string name="text_receive_failed">Не удалось получить с телефона. Попробуйте ещё раз.</string>
     <string name="text_receive_timed_out">За 5 минут ничего не пришло. Откройте «Получить с телефона» снова, чтобы получить новый код.</string>
@@ -206,7 +206,6 @@
     <string name="split_notice_both">"«%1$s» использует профиль «%2$s», в котором есть и приложения, и домены. Android не может направить через туннель и те и другие сразу, поэтому остаётся полный туннель. Оставьте в профиле правила одного вида."</string>
     <string name="editor_split_profile">"Профиль раздельного туннеля"</string>
     <string name="text_back">"Назад"</string>
-    <string name="text_close">"Закрыть"</string>
     <string name="text_disconnecting">"Отключение…"</string>
     <string name="text_mb_per_s">" МБ/с"</string>
     <string name="config_badge_connected">"подключён"</string>

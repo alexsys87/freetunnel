@@ -280,8 +280,8 @@ class TvDeviceTest {
             key == "confirm:ok" -> assertEquals("$name: the red button goes to the darker red", theme.destructiveHover, look.focusedFill)
             key == "editor:save" -> assertEquals("$name: Save goes to the darker accent", theme.primaryHover, look.focusedFill)
             // The editor's Cancel is the desktop's only button that dismisses a card (outlined on the page, surface under the pointer); the
-            // Receive card has no counterpart on the desktop and ends in a Close of the same look, in the same last row.
-            key == "editor:cancel" || key == "receive:close" -> assertEquals("$name: a card's dismissing button goes to surface", theme.surface, look.focusedFill)
+            // Receive card has no button at all, and is closed by its back arrow, as the picker's is.
+            key == "editor:cancel" -> assertEquals("$name: a card's dismissing button goes to surface", theme.surface, look.focusedFill)
             view is Button -> assertEquals("$name: a dialog's button goes to surfaceHover", theme.surfaceHover, look.focusedFill)
             // Chips: surfaceHover, and the selected one, which the desktop leaves as it is, a step darker.
             Regex("profile:\\d+|profile:add").matches(key) ->
@@ -1884,7 +1884,17 @@ class TvDeviceTest {
         onMain {
             val card = root(a).findViewWithTag<View>("overlay:receive")
             assertTrue("The address is on the card, to type", descendants(card).any { view -> view is TextView && view.text.toString() == url })
-            assertFocusLook(card.findViewWithTag<View>("receive:close"), "Close", theme(a))
+            // No button: the arrow closes it. The hint is two short sentences, centred as the address is, with no warning in it, and the
+            // card holds a line for the count from the start, so that the first text does not make it grow.
+            assertEquals("The card has no button", 0, descendants(card).filterIsInstance<Button>().count())
+            assertNull("and no Close", card.findViewWithTag<View?>("receive:close"))
+            assertFocusLook(card.findViewWithTag<View>("receive:back"), "The back arrow", theme(a))
+            val hint = descendants(card).filterIsInstance<TextView>().single { it.text.toString() == context.getString(R.string.text_receive_hint) }
+            assertEquals("The hint is centred", Gravity.CENTER_HORIZONTAL, hint.gravity and Gravity.HORIZONTAL_GRAVITY_MASK)
+            val addressView = descendants(card).filterIsInstance<TextView>().single { it.text.toString() == url }
+            assertEquals("as the address is", Gravity.CENTER_HORIZONTAL, addressView.gravity and Gravity.HORIZONTAL_GRAVITY_MASK)
+            assertEquals("The count is centred too", Gravity.CENTER, card.findViewWithTag<TextView>("receive:count").gravity)
+            assertTrue("The count's line is there before anything has come", card.findViewWithTag<TextView>("receive:count").height > 0)
             assertTrue("The screen stays on while the card is open", a.window.attributes.flags and WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON != 0)
             // The QR code: square, black on white, a whole number of pixels a module,
             // with the quiet zone and the top left finder pattern where they belong.
@@ -1961,9 +1971,9 @@ class TvDeviceTest {
         assertEquals(listOf(context.getString(R.string.config_added, named)), toastTexts(a))
         assertEquals("An import does not change the page", 1, onMain { field("page").getInt(a) })
         assertEquals(0, placesHeld(a))
-        // Close ends it: the port, the card and the screen's staying on.
-        click(a, "receive:close")
-        eventually("Close must close the card") { overlayTag(a, "receive") == null }
+        // The arrow ends it: the port, the card and the screen's staying on.
+        click(a, "receive:back")
+        eventually("The arrow must close the card") { overlayTag(a, "receive") == null }
         assertNull(receiver(a))
         assertClosed(url)
         assertFalse("and the screen may go off again", keepScreenOn(a))
@@ -2047,8 +2057,8 @@ class TvDeviceTest {
         for (i in 1..3) assertSent(sendText(first, tomlFor("kept$i.example.com")))
         askedAbout(a, "kept1.example.com")
         assertEquals(3, placesHeld(a))
-        click(a, "receive:close")
-        eventually("Close must close the card") { overlayTag(a, "receive") == null }
+        click(a, "receive:back")
+        eventually("The arrow must close the card") { overlayTag(a, "receive") == null }
         assertNull("and the port", receiver(a))
         assertClosed(first)
         assertEquals("What came is still the TV's to answer", 3, placesHeld(a))
@@ -2149,8 +2159,8 @@ class TvDeviceTest {
         eventually("Import must save it") { saved().size == 3 }
         assertEquals("Home\\Office \"TV\"\u202E VPN.toml", saved().last().getString("name"))
         assertTrue(saved().last().getString("toml").contains("hostname = \"file.example.com\""))
-        click(a, "receive:close")
-        eventually("Close must stop the receiver") { receiver(a) == null }
+        click(a, "receive:back")
+        eventually("The arrow must stop the receiver") { receiver(a) == null }
         assertClosed(url)
     }
 
@@ -2186,16 +2196,16 @@ class TvDeviceTest {
             eventually("Import must save it") { saved().size == before + 1 }
             assertEquals(named, saved().last().getString("name"))
             assertTrue(saved().last().getString("toml").contains("hostname = \"$server\""))
-            click(a, "receive:close")
-            eventually("Close must stop the receiver") { receiver(a) == null }
+            click(a, "receive:back")
+            eventually("The arrow must stop the receiver") { receiver(a) == null }
         }
     }
 
-    // Close, Back and the arrow close the card and stop the receiver; so does leaving the app. A remote starts on Close, and the
-    // screen stays on while the card is open.
-    @Test fun closeBackTheArrowOrLeavingTheAppClosesThePort() {
+    // Back and the arrow close the card and stop the receiver (it has no button of its own); so does leaving the app. A remote starts on
+    // the arrow, the one stop the card has, and the screen stays on while the card is open.
+    @Test fun backTheArrowOrLeavingTheAppClosesThePort() {
         val a = open()
-        // With a remote, the card opens on Close, not on the arrow above the code.
+        // With a remote, the card opens on the arrow.
         leaveTouchMode(a)
         fun keepOn() = onMain { a.window.attributes.flags and WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON != 0 }
         fun openCard(): String {
@@ -2206,10 +2216,15 @@ class TvDeviceTest {
             return receiver(a)!!.url()
         }
         val first = openCard()
-        eventually("A remote must start on Close") { focusedKey(a) == "receive:close" }
-        click(a, "receive:close")
-        eventually("Close must close the card") { overlayTag(a, "receive") == null }
-        assertNull("Close must stop the receiver", receiver(a))
+        eventually("A remote must start on the back arrow") { focusedKey(a) == "receive:back" }
+        assertEquals("which is the card's only stop", 1, onMain {
+            val controls = ArrayList<View>()
+            root(a).findViewWithTag<View>("overlay:receive").addFocusables(controls, View.FOCUS_FORWARD)
+            controls.size
+        })
+        ok(a, "receive:back")
+        eventually("OK on the arrow must close the card") { overlayTag(a, "receive") == null }
+        assertNull("The arrow must stop the receiver", receiver(a))
         assertClosed(first)
         assertFalse("and the screen may go off again", keepOn())
         // Each time is a new code on a new port.

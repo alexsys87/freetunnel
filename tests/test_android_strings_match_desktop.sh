@@ -170,7 +170,6 @@ text_connect_freetunnel
 text_check_server_tcp_latency
 split_profile_add
 text_back
-text_close
 
 ## The VPN: its notification, the quick settings tile, and what goes wrong in them (VPN errors, state 6 and its Reconnect)
 app_name

@@ -995,7 +995,7 @@ class UiTourDeviceTest {
             activate("add:receive")
             awaitOverlay("receive")
             eventually("The port must be open") { onMain { field("linkReceiver").get(act()) } != null }
-            shot("receive-from-phone", "Receive from phone: the QR code on its white tile, the address, the hint, Close")
+            shot("receive-from-phone", "Receive from phone: the QR code on its white tile, the address and the short hint, centred, and the ← that closes it (no button)")
             // A phone sends a link, as its browser does: the card goes on under the question.
             val receiver = onMain { field("linkReceiver").get(act()) as LinkReceiver }
             val page = URI(receiver.url())
