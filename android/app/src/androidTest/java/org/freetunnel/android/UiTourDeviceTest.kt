@@ -329,7 +329,11 @@ class UiTourDeviceTest {
         }
         settle(200)
     }
-    private fun typeInto(key: String, text: String) { onMain { (root().findViewWithTag<View>(key) as EditText).setText(text) }; settle(200) }
+    // As typed: the caret is after the text.
+    private fun typeInto(key: String, text: String) {
+        onMain { (root().findViewWithTag<View>(key) as EditText).apply { setText(text); setSelection(text.length) } }
+        settle(200)
+    }
 
     // ---- What is written, and where ----
 
@@ -841,7 +845,9 @@ class UiTourDeviceTest {
             goTo(2)
             activate("profile:add")
             eventually("The name field must show") { onMain { root().findViewWithTag<View>("profile:name").visibility == View.VISIBLE } }
-            shot("split-new-profile-input", "Split: the + chip has opened the profile name field")
+            // As the desktop's picture is taken: with "games" typed into it, so that the typed text and the caret are what is compared.
+            typeInto("profile:name", "games")
+            shot("split-new-profile-input", "Split: the + chip has opened the profile name field, with \"games\" typed into it")
             // Back closes the field before anything else, as the keyboard's own Back does first where one is up.
             backUntil("closed the name field") { onMain { root().findViewWithTag<View>("profile:name").visibility != View.VISIBLE } }
         }
@@ -855,8 +861,11 @@ class UiTourDeviceTest {
             goTo(2)
             activate("domains:russia")
             eventually("The list must be added") { onMain { descendants(root()).count { (it.tag as? String)?.startsWith("domain:") == true } } > 20 }
-            scrollPageTo("domains:input")
-            shot("split-after-recommended", "Split after Recommended for Russia: the rules as chips, Clear all in danger")
+            // From the top of the page, as the desktop's picture is: the header with "Recommended for Russia" and "Clear all" in danger.
+            // (The tour once scrolled to the field first, which made this picture almost the next one.)
+            onMain { (field("pageScroll").get(act()) as ScrollView?)?.scrollTo(0, 0) }
+            settle(200)
+            shot("split-after-recommended", "Split after Recommended for Russia, from the top: the rules as chips, Clear all in danger")
             scrollPageToEnd()
             shot("split-after-recommended-scrolled", "Split after Recommended for Russia, scrolled to the end: the applications")
         }
