@@ -133,8 +133,8 @@ Android-only list.
   the update line, a link over its words alone, with its picture at the right. Idle it says **Check for updates**
   with the version; up to date adds a ✓; checking shows three hopping dots and does nothing when clicked, while
   keeping a remote's focus; an offer says **Version X is available** with an arrow down that bends into ↻ under
-  the focus or pointer and a click downloads; a download says **Downloading… N%** beside a turning ↻ and a click
-  cancels it; a downloaded update says so in Android's own words and a click installs it (after the question, with the
+  the focus or pointer and a click downloads; a download says **Downloading… N%** beside a turning ↻, and a
+  click does nothing, as the desktop cannot stop one either; a downloaded update says so in Android's own words and a click installs it (after the question, with the
   VPN on); an error says why, worded as the desktop words a failed check, beside a ↻ that tries again. The line is
   the only control, so the texts that tell what to do next say "this line", and there is no *Install update* button
   on the screen (that is what a screen reader adds to the line, and the red button of the question). Outside the
@@ -774,9 +774,10 @@ is taken at build time from `include/core/ReleaseSigning.h`; no private signing
 key is shipped. Verification uses Bouncy Castle's lightweight Ed25519 implementation
 on all supported Android versions, including API 26.
 
-Downloads stay in the app's private cache and can be cancelled; a stalled
-download stops within its 30-second read timeout and offers **Download update**
-again. As a backstop,
+Downloads stay in the app's private cache. A download cannot be stopped from the
+app, as the desktop's cannot: the line does nothing while one comes down. A stalled
+download stops within its 30-second read timeout, with the network error and the
+↻ that tries again. As a backstop,
 a transfer stops after 60 minutes for the APK and 2 for the other requests; the
 500 MB size limit stays, since a release's limits stay with its users.
 Signature, version binding, APK hash, package name, APK version, increasing

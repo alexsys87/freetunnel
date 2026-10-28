@@ -109,7 +109,7 @@ class TvDeviceTest {
         updater("officialBuild", null); updater("certificatePin", BuildConfig.RELEASE_CERTIFICATE_SHA256)
         updater("state", AndroidUpdater.State.IDLE)
         updater("release", null); updater("failure", null); updater("failedCheck", false); updater("committed", false)
-        updater("progress", 0); updater("cancelled", false)
+        updater("progress", 0)
         val editor = prefs.edit().clear()
         oldPreferences.forEach { (key, value) -> when (value) {
             is Boolean -> editor.putBoolean(key, value)
@@ -4013,14 +4013,17 @@ class TvDeviceTest {
         assertEquals("a straight arrow down", 0f, onMain { arrowOf(a).bend() }, 0f)
         assertFalse(onMain { arrowOf(a).spinning() })
         assertFalse(onMain { root(a).findViewWithTag<View>("update:dots").isShown })
-        // A download: the arrow bent round and turning, and a click on the line cancels it.
+        // A download: the arrow bent round and turning, and a click on the line does nothing: it cannot be stopped, as the desktop's cannot.
         updater("progress", 42)
         updateShows(a, AndroidUpdater.State.DOWNLOADING)
         assertEquals(context.getString(R.string.update_downloading, 42), textOf(a, "settings:update"))
         assertEquals(1f, onMain { arrowOf(a).bend() }, 0f)
         eventually("it turns") { onMain { arrowOf(a).spinning() && arrowOf(a).spinAngle() > 0f } }
-        click(a, "settings:update")
-        assertEquals("a click cancels the download", true, AndroidUpdater::class.java.getDeclaredField("cancelled").apply { isAccessible = true }.get(null))
+        assertFalse("the line is not clickable while one comes down", onMain { root(a).findViewWithTag<View>("settings:update").isClickable })
+        onMain { root(a).findViewWithTag<View>("settings:update").performClick() }
+        instrumentation.waitForIdleSync()
+        assertEquals("and a click on it changes nothing", AndroidUpdater.State.DOWNLOADING, AndroidUpdater.state)
+        assertEquals(context.getString(R.string.update_downloading, 42), textOf(a, "settings:update"))
         // Downloaded: Android's own words, no picture, a click installs.
         updateShows(a, AndroidUpdater.State.READY)
         assertEquals(context.getString(R.string.update_ready, "99.0.0"), textOf(a, "settings:update"))

@@ -12,10 +12,10 @@ final class UpdateLine {
     enum Phase { IDLE, CHECKING, CURRENT, AVAILABLE, DOWNLOADING, READY, INSTALLING, ERROR }
     /** Which words the line says. */
     enum Words { CHECK, CHECKING, AVAILABLE, DOWNLOADING, READY, INSTALLING, CHECK_FAILED, FAILED }
-    /** The picture beside the words: none, hopping dots (waiting on an answer), ↓ (a download is offered), a turning ↻ (one is coming down), ↻ (try again). */
+    /** The picture beside the words: none, hopping dots (waiting on an answer), ↓ (a download is offered), a turning ↻ (one is coming down, and cannot be stopped, as the desktop's cannot), ↻ (try again). */
     enum Icon { NONE, DOTS, DOWNLOAD, SPINNER, RETRY }
     /** What a click or OK does. */
-    enum Action { NONE, CHECK, DOWNLOAD, CANCEL, INSTALL }
+    enum Action { NONE, CHECK, DOWNLOAD, INSTALL }
 
     final Words words;
     final Icon icon;
@@ -45,7 +45,7 @@ final class UpdateLine {
             case CHECKING: return new UpdateLine(Words.CHECKING, Icon.DOTS, Action.NONE, false, false);
             case CURRENT: return new UpdateLine(Words.CHECK, Icon.NONE, Action.CHECK, true, true);
             case AVAILABLE: return new UpdateLine(Words.AVAILABLE, Icon.DOWNLOAD, Action.DOWNLOAD, false, false);
-            case DOWNLOADING: return new UpdateLine(Words.DOWNLOADING, Icon.SPINNER, Action.CANCEL, false, false);
+            case DOWNLOADING: return new UpdateLine(Words.DOWNLOADING, Icon.SPINNER, Action.NONE, false, false);
             case READY: return new UpdateLine(Words.READY, Icon.NONE, Action.INSTALL, false, false);
             case INSTALLING: return new UpdateLine(Words.INSTALLING, Icon.NONE, reinstall ? Action.INSTALL : Action.NONE, false, false);
             case ERROR: return new UpdateLine(failedCheck ? Words.CHECK_FAILED : Words.FAILED, Icon.RETRY, Action.CHECK, false, false);

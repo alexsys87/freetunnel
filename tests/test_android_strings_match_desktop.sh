@@ -215,7 +215,6 @@ update_install
 update_ready
 update_installing
 update_installing_again
-update_cancel
 update_error_network
 update_error_network_inline
 update_error_rate_limited

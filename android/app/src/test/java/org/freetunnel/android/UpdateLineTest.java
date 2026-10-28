@@ -45,11 +45,13 @@ public final class UpdateLineTest {
         assertFalse(line.version);
     }
 
-    @Test public void aDownloadIsATurningArrowThatCancels() {
+    // The desktop cannot stop a download (its line is not actionable while one runs), so neither can this.
+    @Test public void aDownloadIsATurningArrowThatDoesNothingWhenClicked() {
         UpdateLine line = of(UpdateLine.Phase.DOWNLOADING);
         assertEquals(UpdateLine.Words.DOWNLOADING, line.words);
         assertEquals(UpdateLine.Icon.SPINNER, line.icon);
-        assertEquals(UpdateLine.Action.CANCEL, line.action);
+        assertEquals(UpdateLine.Action.NONE, line.action);
+        assertFalse(line.clickable());
     }
 
     @Test public void aDownloadedUpdateInstallsThroughTheConfirmationAndHasNoPicture() {

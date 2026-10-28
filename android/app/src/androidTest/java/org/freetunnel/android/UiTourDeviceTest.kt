@@ -149,7 +149,7 @@ class UiTourDeviceTest {
         updater("officialBuild", null); updater("certificatePin", BuildConfig.RELEASE_CERTIFICATE_SHA256)
         updater("state", AndroidUpdater.State.IDLE)
         updater("release", null); updater("failure", null); updater("failedCheck", false); updater("committed", false)
-        updater("progress", 0); updater("cancelled", false)
+        updater("progress", 0)
         // The language is kept by Android for the app from 13 on: back to the system's, or the next test is in Russian.
         prefs.edit().remove("language").commit()
         if (Build.VERSION.SDK_INT >= 33) {

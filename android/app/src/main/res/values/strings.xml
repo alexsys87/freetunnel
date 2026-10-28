@@ -101,7 +101,6 @@
     <string name="update_ready">Version %1$s is verified. Tap this line to install it. If Android asks, allow installs from FreeTunnel, then tap this line again.</string>
     <string name="update_installing">Waiting for Android installation confirmation…</string>
     <string name="update_installing_again">Waiting for Android installation confirmation… If its window closed, tap this line to start it again.</string>
-    <string name="update_cancel">Cancel download</string>
     <string name="update_error_network">Couldn’t reach GitHub, or the download was interrupted. Check your connection and try again.</string>
     <string name="update_error_network_inline">couldn’t reach GitHub, or the download was interrupted. Check your connection and try again.</string>
     <string name="update_error_rate_limited">GitHub is limiting update checks for now. The limit is shared by everyone on the same internet address, such as the same Wi-Fi or mobile network. Try again later.</string>

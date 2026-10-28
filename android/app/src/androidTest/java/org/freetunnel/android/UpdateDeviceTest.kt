@@ -48,7 +48,7 @@ class UpdateDeviceTest {
         field("verifiedFile", null); field("expectedDigest", null); field("state", AndroidUpdater.State.IDLE)
         field("sessionId", -1); field("committed", false); field("failure", null); field("verifiedVersionCode", 0L)
         field("officialBuild", null); field("certificatePin", BuildConfig.RELEASE_CERTIFICATE_SHA256)
-        field("release", null); field("cancelled", false); field("failedCheck", false); field("progress", 0)
+        field("release", null); field("failedCheck", false); field("progress", 0)
         vpnState(0)
         prefs.edit().remove(FreeTunnelVpnService.RESUME_AFTER_UPDATE).commit()
         activity?.let { instrumentation.runOnMainSync { it.finish() } }
@@ -299,11 +299,9 @@ class UpdateDeviceTest {
         eventually { !prefs.contains(FreeTunnelVpnService.RESUME_AFTER_UPDATE) }
     }
 
-    @Test fun cancelReturnsToAvailableWhateverEndsTheDownload() {
-        // A cancel that lands while a read is blocked ends the download with
-        // that read's timeout, not with Cancelled. Here the queued download is
-        // cancelled before it runs and then fails on an untrusted address,
-        // without any network access.
+    // A download cannot be stopped from the app, as the desktop's cannot: it ends with its result, and a failure is an error with its
+    // reason, to try again from. Here the queued download fails on an untrusted address, without any network access.
+    @Test fun aFailedDownloadIsAnErrorWithItsReasonNotAReturnToAvailable() {
         openApp()
         field("officialBuild", true)
         field("release", UpdatePolicy.Release("99.0.0", "https://example.invalid/update.apk",
@@ -313,13 +311,13 @@ class UpdateDeviceTest {
         try {
             instrumentation.runOnMainSync { AndroidUpdater.download(activity!!) }
             assertEquals(AndroidUpdater.State.DOWNLOADING, AndroidUpdater.state)
-            AndroidUpdater.cancel()
         } finally {
             gate.countDown()
         }
         drainWorker()
-        assertEquals(AndroidUpdater.State.AVAILABLE, AndroidUpdater.state)
-        assertNull(AndroidUpdater.failure)
+        assertEquals(AndroidUpdater.State.ERROR, AndroidUpdater.state)
+        assertEquals(UpdatePolicy.Failure.VERIFICATION, AndroidUpdater.failure)
+        assertFalse("a download's failure is not a check's", AndroidUpdater.failedCheck)
     }
 
     @Test fun lostInstallerResultReturnsToReady() {

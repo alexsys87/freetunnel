@@ -101,7 +101,6 @@
     <string name="update_ready">Версия %1$s проверена. Нажмите на эту строку, чтобы установить. Если Android попросит, разрешите установку из FreeTunnel, затем снова нажмите на эту строку.</string>
     <string name="update_installing">Ожидание подтверждения установки Android…</string>
     <string name="update_installing_again">Ожидание подтверждения установки Android… Если окно установки закрылось, нажмите на эту строку, чтобы запустить его снова.</string>
-    <string name="update_cancel">Отменить загрузку</string>
     <string name="update_error_network">Нет связи с GitHub или загрузка прервалась. Проверьте сеть и повторите попытку.</string>
     <string name="update_error_network_inline">нет связи с GitHub или загрузка прервалась. Проверьте сеть и повторите попытку.</string>
     <string name="update_error_rate_limited">GitHub временно ограничил проверки обновлений. Ограничение общее для всех с тем же интернет-адресом, например в той же сети Wi-Fi или мобильной сети. Повторите позже.</string>

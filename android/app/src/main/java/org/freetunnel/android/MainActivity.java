@@ -3583,7 +3583,7 @@ public final class MainActivity extends Activity {
         applyUpdateArrow(true);
     }
 
-    // What a click or OK on the update line does now (UpdateLine): check, download, cancel the download, or install.
+    // What a click or OK on the update line does now (UpdateLine): check, download, or install. A download cannot be stopped.
     private UpdateLine updateLine() {
         AndroidUpdater.State update = AndroidUpdater.INSTANCE.getState();
         // Once Android has the session, Install update starts over if its dialog was lost.
@@ -3595,7 +3595,6 @@ public final class MainActivity extends Activity {
         switch (updateLine().action) {
             case CHECK: AndroidUpdater.INSTANCE.check(this); break;
             case DOWNLOAD: AndroidUpdater.INSTANCE.download(this); break;
-            case CANCEL: AndroidUpdater.INSTANCE.cancel(); break;
             case INSTALL: installUpdate(); break;
             default: break;
         }
@@ -3633,7 +3632,7 @@ public final class MainActivity extends Activity {
         updateAction.setText(text);
         // Said aloud: the words, and then what a click does with them.
         int does = line.action == UpdateLine.Action.CHECK ? R.string.update_check : line.action == UpdateLine.Action.DOWNLOAD ? R.string.update_download
-                : line.action == UpdateLine.Action.CANCEL ? R.string.update_cancel : line.action == UpdateLine.Action.INSTALL ? R.string.update_install : 0;
+                : line.action == UpdateLine.Action.INSTALL ? R.string.update_install : 0;
         updateAction.setContentDescription(does == 0 || getString(does).equals(text) ? text : text + ". " + getString(does));
         // Not setEnabled: disabling the view that has a remote's focus moves the focus to
         // the top of the window. Not clickable, it ignores taps and OK just the same.

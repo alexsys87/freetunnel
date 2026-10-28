@@ -53,12 +53,9 @@ object AndroidUpdater {
     @Volatile private var expectedDigest: ByteArray? = null
     @Volatile private var verifiedVersionCode = 0L
     @Volatile private var sessionId = -1
-    @Volatile private var cancelled = false
     @Volatile private var officialBuild: Boolean? = null
     // A var only so that device tests can pin the debug certificate.
     @Volatile private var certificatePin = BuildConfig.RELEASE_CERTIFICATE_SHA256
-
-    private class Cancelled : Exception("Download cancelled")
 
     fun observe(callback: Runnable?) { observer = callback }
     private fun publish(value: State) { state = value; main.post { observer?.run() } }
@@ -127,7 +124,6 @@ object AndroidUpdater {
         // A launch check in READY would delete the verified APK, so it waits.
         if (busy() || state == State.READY || !official(context)) return
         failure = null
-        cancelled = false
         publish(State.CHECKING)
         worker.execute {
             runCatching {
@@ -160,7 +156,6 @@ object AndroidUpdater {
         if (busy() || !official(activity)) return
         val app = activity.applicationContext
         progress = 0
-        cancelled = false
         failure = null
         publish(State.DOWNLOADING)
         worker.execute {
@@ -198,18 +193,13 @@ object AndroidUpdater {
                 publish(State.READY)
             }.onFailure {
                 output?.delete(); verifiedFile = null; expectedDigest = null
-                // A cancel that lands while a read is blocked, as in a stalled
-                // download, ends with that read's timeout instead of Cancelled.
-                if (it is Cancelled || cancelled) publish(State.AVAILABLE) else failed(it, UpdatePolicy.Failure.VERIFICATION)
+                failed(it, UpdatePolicy.Failure.VERIFICATION)
             }
         }
     }
 
-    /** Stops a download at its next chunk, or when a blocked read times out; the release stays available. */
-    fun cancel() { if (state == State.DOWNLOADING) cancelled = true }
-
+    // A transfer cannot be stopped from the app, as the desktop's cannot; the deadline ends one that trickles.
     private fun stopIfOverdue(deadline: Long) {
-        if (cancelled) throw Cancelled()
         if (SystemClock.elapsedRealtime() > deadline) throw SocketTimeoutException("Update transfer took too long")
     }
 
