@@ -128,7 +128,7 @@ object AndroidUpdater {
         if (Build.VERSION.SDK_INT >= 28) info.longVersionCode else info.versionCode.toLong()
 
     /** The Settings line's check, and Retry: said as it goes (Checking…), answered either way, and never throttled. */
-    fun check(context: Context) = startCheck(context, quiet = false)
+    fun check(context: Context) { startCheck(context, quiet = false) }
 
     /**
      * The check the desktop makes 1.2 s after it starts (Backend.cpp, checkForUpdates(false)): silent. It says nothing while it runs
