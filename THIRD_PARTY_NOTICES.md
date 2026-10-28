@@ -6,7 +6,8 @@ licensed under their own terms. This file names each of those components, says
 which downloads contain it, and points to the license texts, which are in
 [licenses/](licenses/):
 
-- `licenses/common/`: components in every download (the VPN core's libraries).
+- `licenses/common/`: components in every download (the VPN core's libraries and
+  the Inter typeface).
 - `licenses/desktop/`: components in the Windows, macOS and Linux downloads.
 - `licenses/android/`: components in the Android app.
 
@@ -41,8 +42,9 @@ Every download carries this file, `LICENSE` and the `licenses/` folder it needs:
 - FreeTunnel (`FreeTunnel.exe`). Compiled into it: [the VPN core and its
   libraries](#the-vpn-core-and-its-libraries) (with
   [wintun.h](#wintun) and [Microsoft Detours](#microsoft-detours), which only
-  the Windows build uses), [QHotkey](#qhotkey), [QWindowKit](#qwindowkit) and
-  [the Feather and Lucide icons](#feather-and-lucide-icons).
+  the Windows build uses), [QHotkey](#qhotkey), [QWindowKit](#qwindowkit), [the
+  Feather and Lucide icons](#feather-and-lucide-icons) and the [Inter](#inter)
+  typeface.
 - Next to it: [Qt 6.8.3](#qt) with [the third-party code inside
   Qt](#third-party-code-inside-qt), [Wintun](#wintun) (`wintun.dll`),
   [Mesa llvmpipe](#mesa-llvmpipe) (`opengl32sw.dll`) and [Microsoft's
@@ -56,8 +58,9 @@ Every download carries this file, `LICENSE` and the `licenses/` folder it needs:
 `freetunnel-macos-universal.dmg` holds `FreeTunnel.app`:
 
 - FreeTunnel. Compiled into it: [the VPN core and its
-  libraries](#the-vpn-core-and-its-libraries), [QHotkey](#qhotkey) and [the
-  Feather and Lucide icons](#feather-and-lucide-icons).
+  libraries](#the-vpn-core-and-its-libraries), [QHotkey](#qhotkey), [the
+  Feather and Lucide icons](#feather-and-lucide-icons) and the [Inter](#inter)
+  typeface.
 - In `Contents/Frameworks` and `Contents/PlugIns`: [Qt 6.8.3](#qt) with [the
   third-party code inside Qt](#third-party-code-inside-qt).
 
@@ -67,8 +70,9 @@ Every download carries this file, `LICENSE` and the `licenses/` folder it needs:
 `freetunnel-x86_64.AppImage` hold the same files:
 
 - FreeTunnel. Compiled into it: [the VPN core and its
-  libraries](#the-vpn-core-and-its-libraries), [QHotkey](#qhotkey) and [the
-  Feather and Lucide icons](#feather-and-lucide-icons).
+  libraries](#the-vpn-core-and-its-libraries), [QHotkey](#qhotkey), [the
+  Feather and Lucide icons](#feather-and-lucide-icons) and the [Inter](#inter)
+  typeface.
 - In `lib/` and `plugins/`: [Qt 6.8.3](#qt) with [the third-party code inside
   Qt](#third-party-code-inside-qt), [ICU 73](#icu), [Ubuntu 20.04 system
   libraries](#ubuntu-2004-system-libraries) and [the GCC runtime
@@ -87,6 +91,7 @@ Every download carries this file, `LICENSE` and the `licenses/` folder it needs:
   crates](#rust-crates-in-the-trusttunnel-native-library).
 - [Java and Kotlin libraries](#java-and-kotlin-libraries).
 - [Icons derived from Feather and Lucide](#feather-and-lucide-icons-in-the-android-app).
+- [The Inter typeface](#inter).
 
 ## The VPN core and its libraries
 
@@ -329,6 +334,29 @@ Windows only.
 - License: MIT, [licenses/desktop/Detours.txt](licenses/desktop/Detours.txt)
 - Copyright: Copyright (c) Microsoft Corporation
 - Source: <https://github.com/microsoft/Detours/tree/fe7216c037c898b1f65330eda85e6146b6e3cb85>
+
+## The typeface
+
+### Inter
+
+The text of FreeTunnel's windows and screens is set in Inter, in the desktop
+apps and in the Android app: its Regular and Medium weights, as the hinted
+static TrueType files of the official release, unmodified. The desktop builds
+compile them into FreeTunnel; the Android app carries them as font resources.
+The exceptions are text the operating system draws itself (the tray menu, file
+dialogs, notifications) and the log and configuration text, which are set in
+the system's monospace font. The files and their checksums are in
+[assets/fonts/inter/](assets/fonts/inter/), with the release they come from in
+`SOURCE`.
+
+- Version: Inter 4.1 (tag v4.1, commit e3a3d4c57d5ecc01453a575621882a384c1995a3):
+  `Inter-Regular.ttf` and `Inter-Medium.ttf` from `Inter-4.1.zip`
+- License: OFL-1.1, the SIL Open Font License 1.1,
+  [licenses/common/Inter-OFL-1.1.txt](licenses/common/Inter-OFL-1.1.txt). It
+  names no Reserved Font Name.
+- Copyright: Copyright (c) 2016 The Inter Project Authors
+  (<https://github.com/rsms/inter>)
+- Source: <https://github.com/rsms/inter/tree/v4.1>
 
 ## Desktop components
 
@@ -804,9 +832,9 @@ provided.
 ## License texts
 
 Under [licenses/common/](licenses/common/): brotli, chromium-tldregistry,
-cxxopts, Feather-Lucide-icons, fmt, http-parser, klib, ldns, libevent,
-libsodium, libuv, llhttp, lwip, magic_enum, MPL-2.0, nghttp2, nghttp3, ngtcp2,
-nlohmann-json, pcap_savefile, pcre2-10.37, tomlplusplus, zlib.
+cxxopts, Feather-Lucide-icons, fmt, http-parser, Inter-OFL-1.1, klib, ldns,
+libevent, libsodium, libuv, llhttp, lwip, magic_enum, MPL-2.0, nghttp2, nghttp3,
+ngtcp2, nlohmann-json, pcap_savefile, pcre2-10.37, tomlplusplus, zlib.
 
 Under [licenses/desktop/](licenses/desktop/): AFL-2.1, AppImage-runtime,
 Detours, GCC-exception-3.1, GPL-3.0, ICU-73, LGPL-2.1, LGPL-3.0,
