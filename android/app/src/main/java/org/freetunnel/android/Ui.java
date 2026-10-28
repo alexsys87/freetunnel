@@ -251,10 +251,16 @@ final class Ui {
     static void leaveAtTheEnds(ScrollView box) {
         box.setOnKeyListener((v, keyCode, event) -> {
             if (event.getAction() != KeyEvent.ACTION_DOWN || !event.hasNoModifiers()) return false;
-            int direction = keyCode == KeyEvent.KEYCODE_DPAD_UP ? View.FOCUS_UP : keyCode == KeyEvent.KEYCODE_DPAD_DOWN ? View.FOCUS_DOWN : 0;
-            if (direction == 0 || box.canScrollVertically(direction == View.FOCUS_UP ? -1 : 1)) return false;
-            View next = box.focusSearch(direction);
-            return next != null && next != box && next.requestFocus(direction);
+            // One branch to a key, each handing the search the constant itself, so that lint can see that it is a direction.
+            if (keyCode == KeyEvent.KEYCODE_DPAD_UP && !box.canScrollVertically(-1)) {
+                View next = box.focusSearch(View.FOCUS_UP);
+                return next != null && next != box && next.requestFocus(View.FOCUS_UP);
+            }
+            if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN && !box.canScrollVertically(1)) {
+                View next = box.focusSearch(View.FOCUS_DOWN);
+                return next != null && next != box && next.requestFocus(View.FOCUS_DOWN);
+            }
+            return false;
         });
     }
 
