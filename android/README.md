@@ -54,7 +54,8 @@ certificate is not an official release or an update compatibility contract.
 - The desktop's look: its colours, which `tests/test_android_theme_matches_desktop.sh`
   checks against `qml/Main.qml`, and its icons, which
   [scripts/android-icons-from-svg.py](../scripts/android-icons-from-svg.py) makes
-  from `assets/icons` and `assets/logo.svg`, and its typeface, Inter, which
+  from `assets/icons` and `assets/logo.svg` (and the arrows and ticks ✓ ↓ ↑ ← from
+  the outlines of those glyphs in Inter, which the desktop draws them in, at its sizes), and its typeface, Inter, which
   `tests/test_android_fonts.sh` holds to the desktop's two weights (see
   [License](#license)). The theme is System (the default,
   which follows the device), Light or Dark, under Settings → General → Theme.

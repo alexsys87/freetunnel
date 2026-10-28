@@ -199,10 +199,12 @@ final class Ui {
         return child;
     }
     /**
-     * A character the desktop draws as text (▾ ✓ ↓ ↑ ←), as a shape of the size it was measured at (scripts/android-icons-from-svg.py), so
-     * that it sits on the line as the desktop's does and not as whichever font a TextView would fall back to draws it. Those sizes are
-     * from the desktop's renders in the system font it had before Inter: Inter has ✓ ↓ ↑ ← of its own, drawn larger, and no ▾ (U+25BE).
-     * One colour, whatever state it is in; it is no thing to read out.
+     * A character the desktop draws as text (▾ ✓ ↓ ↑ ←), as a shape (scripts/android-icons-from-svg.py), so that it sits on the line as
+     * the desktop's does and not as whichever font a TextView would fall back to draws it. ✓ ↓ ↑ ← are the outlines of Inter's own
+     * glyphs, read from the font file the desktop draws them from, at the pixel size its QML sets them in, so a drawable is the ink of
+     * the character and no more: its side bearings are the margins that the layouts give it (speedTile, cardHeader). Inter has no ▾
+     * (U+25BE): the desktop's system font draws it, and it is a shape of that font's size. One colour, whatever state it is in; it is
+     * no thing to read out.
      */
     ImageView glyph(int drawable, int color) {
         ImageView v = new ImageView(context);
@@ -800,8 +802,8 @@ final class Ui {
     }
 
     /**
-     * A card's ←, 15 by 8.5 in textDim and the text colour under the pointer and with the focus, in a cell 6 larger all round (the
-     * desktop's arrow is 6 short of its hit area at every side).
+     * A card's ←, 14.6 by 12.7 (Inter's, at the desktop's 20 px) in textDim and the text colour under the pointer and with the focus,
+     * in a cell 6 larger all round (the desktop's arrow is 6 short of its hit area at every side).
      */
     ImageView backArrow(String key, CharSequence description, View.OnClickListener back) {
         ImageView arrow = ownGlyph(R.drawable.ic_back, t.textDim, t.text, t.text);
@@ -814,19 +816,21 @@ final class Ui {
 
     /**
      * A card's header, 48 high: the ← 14 from the left, and 12 on from it the title, 15 in
-     * Medium. The title is the header's second child, for a card that changes it.
+     * Medium. The title is the header's second child, for a card that changes it. Those are the desktop's: the arrow's Text starts
+     * 14 in and is its advance, 19.1, wide (Inter's ← at 20 px, whose ink is 2 in from the left of it), and the title starts 12 on.
      */
     LinearLayout cardHeader(CharSequence title, String backKey, CharSequence backDescription, View.OnClickListener back) {
         LinearLayout bar = row();
         bar.setMinimumHeight(dp(48));
-        // The arrow's own 6 of padding make its left edge 14 in, and the title 12 after it.
-        bar.setPadding(dp(8), 0, dp(14), 0);
+        // The arrow's own 6 of padding and the ink's 2 in the Text make its left edge 16 in, as the desktop's is.
+        bar.setPadding(dp(10), 0, dp(14), 0);
         bar.addView(backArrow(backKey, backDescription, back), lp(-2, -2));
         TextView name = medium(title, 15, t.text);
         name.setSingleLine(true);
         name.setEllipsize(TextUtils.TruncateAt.MIDDLE);
         LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1);
-        p.leftMargin = dp(6);
+        // The Text's 19.1 end 2.5 after the ink, and the title is 12 on from there: 8.5 and the arrow's own 6 of padding.
+        p.leftMargin = dp(8.5f);
         bar.addView(name, p);
         return bar;
     }
@@ -1057,10 +1061,14 @@ final class Ui {
         LinearLayout tile = row();
         tile.setGravity(Gravity.CENTER);
         tile.setBackground(shape(t.tile, 8));
-        tile.addView(glyph(arrowDrawable, arrowColor), lp(-2, -2));
+        // The desktop's Row is the arrow's Text, 5, and the number, centred. The Text is the arrow's advance wide: 11.7 at 14 px, the
+        // ink of Inter's ↓ and ↑ (8.9) with 1.4 of side bearing at each end, so 1.4 before the ink and 6.4 after it.
+        LinearLayout.LayoutParams a = lp(-2, -2);
+        a.leftMargin = dp(1.4f);
+        tile.addView(glyph(arrowDrawable, arrowColor), a);
         TextView value = medium("", 15, t.text);
         LinearLayout.LayoutParams p = lp(-2, -2);
-        p.leftMargin = dp(8);
+        p.leftMargin = dp(6.4f);
         tile.addView(value, p);
         valueOut[0] = value;
         return tile;

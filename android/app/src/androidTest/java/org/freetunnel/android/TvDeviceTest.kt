@@ -700,10 +700,11 @@ class TvDeviceTest {
                     assertEquals("116 by 44", Math.round(dp(a, 116f)), box.width)
                     assertEquals(Math.round(dp(a, 44f)), box.height)
                 }
-                // ↓ and ↑ are drawn, at the size the desktop's font gives them (6 by 11), in the colour of the speed: success and textDim.
+                // ↓ and ↑ are drawn, as Inter draws them at the desktop's 14 px (8.9 by 10.3), in the colour of the speed: success and textDim.
                 val arrows = tiles.map { (it.parent as ViewGroup).getChildAt(0) as ImageView }
                 assertEquals(listOf(theme(a).success, theme(a).textDim), arrows.map { it.imageTintList!!.defaultColor })
-                for (arrow in arrows) assertEquals(Math.round(dp(a, 6f)), arrow.drawable.intrinsicWidth)
+                // A pixel either way is the rounding of a width that is not a whole number of dp.
+                for (arrow in arrows) assertTrue("an arrow is 8.9 across", Math.abs(Math.round(dp(a, 8.9f)) - arrow.drawable.intrinsicWidth) <= 1)
             }
         } finally {
             started.setLong(null, 0L)
@@ -2597,10 +2598,10 @@ class TvDeviceTest {
         val texts = onMain { descendants(root(a).findViewWithTag<View>("overlay:select")).filterIsInstance<TextView>().map { it.text.toString() to it.textColors.defaultColor }.toList() }
         assertEquals(listOf("System", "Light", "Dark"), texts.map { it.first })
         assertEquals("The current choice is in the accent", theme(a).accent, texts.single { it.first == "Light" }.second)
-        // Its check mark is drawn (7.5 by 7, as the desktop's font gives it), one, in the accent.
+        // Its check mark is drawn (9.6 by 7, as Inter draws it at the desktop's 14 px), one, in the accent.
         val checks = onMain { descendants(root(a).findViewWithTag<View>("overlay:select")).filterIsInstance<ImageView>().toList() }
         assertEquals("and so is its check mark, which only it has", listOf(theme(a).accent), checks.map { it.imageTintList!!.defaultColor })
-        assertEquals(Math.round(8 * a.resources.displayMetrics.density), checks.single().drawable.intrinsicWidth)
+        assertTrue("and is 9.6 across", Math.abs(Math.round(9.6f * a.resources.displayMetrics.density) - checks.single().drawable.intrinsicWidth) <= 1)
         assertEquals("The others are in the text colour", theme(a).text, texts.single { it.first == "Dark" }.second)
         render(a, 3)
         instrumentation.waitForIdleSync()
@@ -3974,11 +3975,11 @@ class TvDeviceTest {
         updateShows(a, AndroidUpdater.State.CURRENT)
         assertEquals("the same words", context.getString(R.string.update_check), textOf(a, "settings:update"))
         assertTrue(visible(a, "update:tick"))
-        // ✓ is drawn, in success, as the desktop's font draws it (8 by 7).
+        // ✓ is drawn, in success, as Inter draws it at the desktop's 14 px (9.6 by 7).
         onMain {
             val tick = root(a).findViewWithTag<ImageView>("update:tick")
             assertEquals(theme(a).success, tick.imageTintList!!.defaultColor)
-            assertEquals(Math.round(8 * a.resources.displayMetrics.density), tick.drawable.intrinsicWidth)
+            assertTrue("the tick is 9.6 across", Math.abs(Math.round(9.6f * a.resources.displayMetrics.density) - tick.drawable.intrinsicWidth) <= 1)
         }
         assertTrue(visible(a, "update:version"))
         // Checking: dots, and nothing to click.

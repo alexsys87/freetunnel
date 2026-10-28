@@ -347,7 +347,11 @@ The exceptions are text the operating system draws itself (the tray menu, file
 dialogs, notifications) and the log and configuration text, which are set in
 the system's monospace font. The files and their checksums are in
 [assets/fonts/inter/](assets/fonts/inter/), with the release they come from in
-`SOURCE`.
+`SOURCE`. The Android app also draws four characters of its screens (✓ ↓ ↑ ←)
+as vector drawables, `res/drawable/ic_check.xml`, `ic_arrow_down.xml`,
+`ic_arrow_up.xml` and `ic_back.xml`, which `scripts/android-icons-from-svg.py`
+makes from the outlines of those glyphs in `Inter-Regular.ttf`, so that they are
+the desktop's shapes; they are covered by the same license.
 
 - Version: Inter 4.1 (tag v4.1, commit e3a3d4c57d5ecc01453a575621882a384c1995a3):
   `Inter-Regular.ttf` and `Inter-Medium.ttf` from `Inter-4.1.zip`

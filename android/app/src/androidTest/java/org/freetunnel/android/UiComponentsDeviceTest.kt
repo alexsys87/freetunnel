@@ -357,7 +357,7 @@ class UiComponentsDeviceTest {
                 assertEquals("and as wide as the field", dp(300), box.measuredWidth)
                 assertEquals("Default", shown[0]!!.text.toString())
                 assertEquals(theme.text, shown[0]!!.textColors.defaultColor)
-                // ▾, drawn at the size the desktop's font gives it (8 by 7), in textDim.
+                // ▾, drawn at the size the desktop's system font gives it (8 by 7; Inter has none), in textDim.
                 val arrow = box.getChildAt(1) as android.widget.ImageView
                 assertEquals(dp(8), arrow.drawable.intrinsicWidth)
                 assertEquals(theme.textDim, arrow.imageTintList!!.defaultColor)
@@ -610,9 +610,10 @@ class UiComponentsDeviceTest {
             val ui = ui()
             val header = measured(ui.cardHeader("New config", "editor:back", "Back") {}, dp(372)) as android.view.ViewGroup
             assertEquals("A card's header is 48 high", dp(48), header.measuredHeight)
-            // ←, drawn 15 across (its font's is a short arrow, low, in a fallback font), in a cell 6 larger all round.
+            // ←, drawn as Inter draws it at the desktop's 20 px, 14.6 across, in a cell 6 larger all round.
             val arrow = header.findViewWithTag<android.widget.ImageView>("editor:back")
-            assertEquals(dp(15), arrow.drawable.intrinsicWidth)
+            assertNear("The ← is drawn 14.6 across", dp(14.6f), arrow.drawable.intrinsicWidth, 1)
+            assertNear("and 12.7 high", dp(12.7f), arrow.drawable.intrinsicHeight, 1)
             assertEquals(dp(6), arrow.paddingLeft)
             val tint = arrow.imageTintList!!
             assertEquals("The arrow is textDim", theme.textDim, tint.defaultColor)
@@ -656,12 +657,13 @@ class UiComponentsDeviceTest {
 
     // Every icon is made from the desktop's SVG path data: each loads, at the size the desktop draws it.
     @Test fun everyVectorDrawableLoads() {
-        for ((id, size) in listOf(R.drawable.ic_connection to 24, R.drawable.ic_network to 24, R.drawable.ic_settings to 24,
-                R.drawable.ic_log to 24, R.drawable.ic_ping to 24, R.drawable.ic_export to 24, R.drawable.ic_edit to 24,
-                R.drawable.ic_close to 24, R.drawable.ic_logo to 100, R.drawable.ic_add to 22, R.drawable.ic_add_home to 14,
-                // The characters the desktop draws as text (▾ ✓ ↓ ↑ ←), at the size its font gives them.
-                R.drawable.ic_dropdown to 8, R.drawable.ic_check to 8, R.drawable.ic_arrow_down to 6, R.drawable.ic_arrow_up to 6,
-                R.drawable.ic_back to 15)) {
+        for ((id, size) in listOf(R.drawable.ic_connection to 24f, R.drawable.ic_network to 24f, R.drawable.ic_settings to 24f,
+                R.drawable.ic_log to 24f, R.drawable.ic_ping to 24f, R.drawable.ic_export to 24f, R.drawable.ic_edit to 24f,
+                R.drawable.ic_close to 24f, R.drawable.ic_logo to 100f, R.drawable.ic_add to 22f, R.drawable.ic_add_home to 14f,
+                // The characters the desktop draws as text (▾ ✓ ↓ ↑ ←): ▾ at the size its system font gives it, the others as Inter
+                // draws them at the sizes the desktop's QML sets them in (✓ 14 px, ↓ and ↑ 14, ← 20), each as wide as its ink.
+                R.drawable.ic_dropdown to 8f, R.drawable.ic_check to 9.6f, R.drawable.ic_arrow_down to 8.9f, R.drawable.ic_arrow_up to 8.9f,
+                R.drawable.ic_back to 14.6f)) {
             val drawable = context.getDrawable(id)
             assertNotNull(drawable)
             // Its own size, in dp: a pixel either way is the rounding.
@@ -730,11 +732,11 @@ class UiComponentsDeviceTest {
             val ui = ui()
             val value = arrayOfNulls<TextView>(1)
             val tile = ui.speedTile(R.drawable.ic_arrow_down, theme.success, value)
-            // ↓ drawn 6 across and 11 high, as the desktop's font draws it, in the colour of the speed.
+            // ↓ drawn 8.9 across and 10.3 high, as Inter draws it at the desktop's 14 px, in the colour of the speed.
             val arrow = tile.getChildAt(0) as android.widget.ImageView
             assertEquals(theme.success, arrow.imageTintList!!.defaultColor)
-            assertEquals(dp(6), arrow.drawable.intrinsicWidth)
-            assertEquals(dp(11), arrow.drawable.intrinsicHeight)
+            assertNear("The ↓ is 8.9 across", dp(8.9f), arrow.drawable.intrinsicWidth, 1)
+            assertNear("and 10.3 high", dp(10.3f), arrow.drawable.intrinsicHeight, 1)
             assertSame(value[0], tile.getChildAt(1))
             assertSame("The number is Medium", Fonts.medium(context), value[0]!!.typeface)
             assertEquals(theme.text, value[0]!!.currentTextColor)
