@@ -226,6 +226,17 @@ public final class MainActivity extends Activity {
         dark = Theme.isDark(themeMode, nightMode());
         ui = new Ui(this);
         buildHost();
+        // A keyboard or a remote used on a phone: its first key leaves touch mode, and Android then gives the focus to the first control
+        // in the window, the Home tab, and a rebuild keeps it there. The page has a control of its own to land on, the one a TV's window
+        // lands on when it starts outside touch mode (focusTarget): the logo on Home, Reconnect while traffic is blocked, the tab elsewhere.
+        // Only where nothing has the focus: a field that was being typed in keeps it.
+        host.getViewTreeObserver().addOnTouchModeChangeListener(inTouchMode -> {
+            if (inTouchMode || isDestroyed() || getCurrentFocus() != null) return;
+            Overlay top = topOverlay();
+            if (top != null) { focusOverlay(top); return; }
+            View target = focusTarget(null);
+            if (target != null) target.requestFocus();
+        });
         activeIndex = prefs.getInt("active", 0);
         vpnState = FreeTunnelVpnService.state(this);
         // Before anything else touches the preferences: the first start of this version makes the profiles out of what
@@ -2951,6 +2962,11 @@ public final class MainActivity extends Activity {
             else if (action == MotionEvent.ACTION_HOVER_EXIT) setUpdateHot(v.hasFocus());
             return false;
         });
+        // A RelativeLayout makes a child with a rule for each of its sides exactly as wide as the room between them, whatever its width
+        // says: the link would be the line's whole width, and a tap or the remote's focus across empty space. So the link sits in
+        // a row that takes that room, and is as wide as its words in it.
+        LinearLayout room = row();
+        room.addView(updateAction, lp(-2, -2));
         RelativeLayout.LayoutParams actionLp = new RelativeLayout.LayoutParams(-2, -2);
         actionLp.addRule(RelativeLayout.ALIGN_PARENT_LEFT);
         actionLp.addRule(RelativeLayout.LEFT_OF, right.getId());
@@ -2958,7 +2974,7 @@ public final class MainActivity extends Activity {
         // The words start where the other rows' do, with the link's own padding before them.
         actionLp.leftMargin = -dp(6);
         actionLp.rightMargin = dp(6);
-        line.addView(updateAction, actionLp);
+        line.addView(room, actionLp);
         body.addView(line, lp(-1, -2));
         refreshUpdateControls();
     }

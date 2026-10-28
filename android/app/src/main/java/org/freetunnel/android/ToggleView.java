@@ -66,12 +66,17 @@ final class ToggleView extends View {
         setAlpha(enabled ? 1f : 0.45f);
     }
 
-    /** A tap, or OK, flips it and says so: the animation runs, and then the listener. */
+    /**
+     * A tap, or OK, flips it and says so: the animation runs, and then the listener. True when it did: a click that was acted on is
+     * performClick's true, as for a view with an OnClickListener, and what a test, an accessibility service or a caller that asks
+     * "was it clickable" is told. A disabled toggle does nothing, and says so.
+     */
     @Override public boolean performClick() {
-        if (isEnabled()) {
-            flip();
-        }
-        return super.performClick();
+        if (!isEnabled()) return false;
+        flip();
+        // The click sound and the accessibility event, and a listener someone set on the view itself, as any view's click has.
+        super.performClick();
+        return true;
     }
 
     private void flip() {

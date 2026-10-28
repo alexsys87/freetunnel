@@ -292,6 +292,9 @@ final class Ui {
         if ((flags & F_BORDER) != 0) stroke = t.border;
         if (!hotStrokeSet) hotStroke = stroke;
         if (!focusSet) { focused = hot; focusStroke = hotStroke; }
+        // A look that says its own fill for the focus but no border for it keeps the border it has under the pointer: the + chip's
+        // fill goes to surfaceHover and its border stays.
+        else if (focusStroke == 0) focusStroke = hotStroke;
         StateListDrawable states = new StateListDrawable();
         // The focus comes first: OK held on a focused control presses it, and it keeps its focus look.
         states.addState(new int[]{android.R.attr.state_focused}, box(focused, radius, focusStroke));
