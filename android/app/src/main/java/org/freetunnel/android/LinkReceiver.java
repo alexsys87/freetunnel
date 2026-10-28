@@ -71,7 +71,8 @@ final class LinkReceiver {
     interface Listener {
         /**
          * A text came in, as many times as the phone sends one while the receiver is open,
-         * and never after stop() has returned. Each one holds a place in the waiting count
+         * and never after stop() has returned, nor after it was called, but for a text already being handed over.
+         * Each one holds a place in the waiting count
          * that the receiver was given, which the owner gives back when the TV has answered it.
          * fileName is the name of the file the text came in, as fileName() leaves it; null when it was pasted or has none.
          */
@@ -239,6 +240,10 @@ final class LinkReceiver {
     // Held while a text is handed to the listener, and by stop() while it takes effect, so that
     // no text is handed over once stop() has returned.
     private final Object delivery = new Object();
+    // Set by stop() before it waits for a text that is being handed over: Java's monitors are not fair, and the serving thread, let go
+    // of the lock by that text, could otherwise take the next connection and hand its text over before the waiting stop() got in.
+    // From the call of stop(), no text is handed over but the one already being, and the receiver says nothing more of itself.
+    private volatile boolean stopRequested;
     private volatile Socket current;
     private Thread thread;
 
@@ -335,9 +340,10 @@ final class LinkReceiver {
 
     /**
      * Closes the port. Idempotent, and the listener hears nothing more: a text that is being
-     * handed over finishes first, and none is handed over after this returns.
+     * handed over finishes first, and none is handed over after this is called, let alone after it returns.
      */
     void stop() {
+        stopRequested = true;
         synchronized (delivery) {
             if (!stopped.compareAndSet(false, true)) return;
         }
@@ -350,9 +356,9 @@ final class LinkReceiver {
         if (client != null) try { client.close(); } catch (IOException ignored) { }
     }
 
-    // True for the one caller that stops it, and only if stop() did not come first.
+    // True for the one caller that stops it, and only if stop() did not come first (nor was called and is waiting its turn).
     private boolean stopSelf() {
-        if (!stopped.compareAndSet(false, true)) return false;
+        if (stopRequested || !stopped.compareAndSet(false, true)) return false;
         closeAll();
         return true;
     }
@@ -364,7 +370,7 @@ final class LinkReceiver {
         long end = System.nanoTime() + lifetimeMs * 1_000_000;
         int wrongCodes = 0;
         try {
-            while (!stopped.get()) {
+            while (!stopped.get() && !stopRequested) {
                 long left = (end - System.nanoTime()) / 1_000_000;
                 if (left <= 0) { if (stopSelf()) listener.stopped(Stop.TIMEOUT); return; }
                 server.setSoTimeout((int) Math.min(left, Integer.MAX_VALUE));
@@ -375,7 +381,7 @@ final class LinkReceiver {
                 String sender = client.getInetAddress().getHostAddress();
                 current = client;
                 try (Socket open = client) {
-                    if (stopped.get()) return;
+                    if (stopped.get() || stopRequested) return;
                     long deadline = System.nanoTime() + connectionDeadlineMs * 1_000_000L;
                     InputStream in = new BufferedInputStream(new DeadlineInput(open, firstByteTimeoutMs, readTimeoutMs, deadline));
                     OutputStream out = open.getOutputStream();
@@ -404,12 +410,13 @@ final class LinkReceiver {
         }
     }
 
-    // Hands a text taken to the listener, unless stop() came first, when it is not taken after
-    // all: the place it holds in the waiting count is given back, and the phone, which was told
-    // it was sent, has sent it to a TV that stopped listening a moment before.
+    // Hands a text taken to the listener, unless stop() came first, or was called while an earlier
+    // text was being handed over, when it is not taken after all: the place it holds in the waiting
+    // count is given back, and the phone, which was told it was sent, has sent it to a TV that
+    // stopped listening a moment before.
     private void deliver(Listener listener, Outcome outcome, String sender) {
         synchronized (delivery) {
-            if (stopped.get()) { waiting.decrementAndGet(); return; }
+            if (stopped.get() || stopRequested) { waiting.decrementAndGet(); return; }
             listener.received(outcome.text, outcome.fileName, sender);
         }
     }
