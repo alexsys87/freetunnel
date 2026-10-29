@@ -2847,10 +2847,11 @@ class TvDeviceTest {
         val a = open()
         if (isTv) leaveTouchMode(a)
         render(a, 2)
+        if (isTv) focusOn(a, "apps:choose")
         // Held back, the scan shows what it is doing.
         val gate = java.util.concurrent.CountDownLatch(1)
         (field("scanWorker").get(a) as ExecutorService).execute { gate.await() }
-        onMain { method("appPicker").invoke(a) }
+        click(a, "apps:choose")
         instrumentation.waitForIdleSync()
         try {
             assertEquals(context.getString(R.string.picker_scanning), onMain { (root(a).findViewWithTag<View>("picker:status") as TextView).text.toString() })
@@ -2898,6 +2899,7 @@ class TvDeviceTest {
         }
         click(a, row)
         eventually("One application adds itself and closes the picker") { overlayTag(a, "picker") == null }
+        if (isTv) eventually("The successful save returns focus to Choose") { focusedKey(a) == "apps:choose" }
         assertTrue("It is in the apps the VPN carries or leaves", profiles().apps(profiles().edited()).contains(first))
         assertTrue("and in the old list 1.0.0 reads, which copies the profile the selected config uses", prefs.getStringSet("apps", emptySet())!!.contains(first))
         assertEquals("The page does not change", 2, onMain { field("page").getInt(a) })

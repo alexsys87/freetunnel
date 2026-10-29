@@ -2908,6 +2908,11 @@ public final class MainActivity extends Activity {
     private enum RulesEditResult { FAILED, UNCHANGED, CHANGED }
 
     private RulesEditResult editRules(Consumer<SplitProfiles> change) {
+        return editRules(change, null);
+    }
+
+    // Some actions must close their overlay before a changed page is rendered, so focus restoration can find the opener.
+    private RulesEditResult editRules(Consumer<SplitProfiles> change, Runnable afterSave) {
         final String[] profile = new String[1];
         final boolean[] changed = {false};
         if (!splitEdit(m -> {
@@ -2916,6 +2921,7 @@ public final class MainActivity extends Activity {
             change.accept(m);
             changed[0] = !before.equals(m.toJson());
         })) return RulesEditResult.FAILED;
+        if (afterSave != null) afterSave.run();
         if (changed[0]) rulesChanged(profile[0]);
         return changed[0] ? RulesEditResult.CHANGED : RulesEditResult.UNCHANGED;
     }
@@ -3093,7 +3099,7 @@ public final class MainActivity extends Activity {
         // and the card goes.
         private void choose(AppEntry app) {
             if (overlay.closed) return;
-            if (editRules(m -> m.addApp(m.edited(), app.pkg)) != RulesEditResult.FAILED) closeOverlay(overlay);
+            editRules(m -> m.addApp(m.edited(), app.pkg), () -> closeOverlay(overlay));
         }
     }
 
