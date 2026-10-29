@@ -165,7 +165,7 @@ public final class MainActivity extends Activity {
     // The Split page's profiles are in the preferences (SplitStore); this is how they are reached. They are read from there
     // whenever they are wanted, and a change is a read, the change and a commit under one lock, so that the VPN service,
     // which saves there too, and this never overwrite one another.
-    private SplitPrefs splitPrefs;
+    private SplitStore.Backing splitPrefs;
     // The "+" chip's field for the name of a new profile: open or not, what was typed in it, and the field itself while the
     // page shows it. It stays on the page, hidden, so that opening and closing it rebuilds nothing.
     private boolean profileNameOpen;
@@ -2818,7 +2818,11 @@ public final class MainActivity extends Activity {
     // The profiles.
 
     private SplitProfiles splitModel() { return SplitStore.load(splitPrefs, RussiaList.seed(this)); }
-    private boolean splitEdit(Consumer<SplitProfiles> change) { return SplitStore.edit(splitPrefs, RussiaList.seed(this), change); }
+    private boolean splitEdit(Consumer<SplitProfiles> change) {
+        boolean saved = SplitStore.edit(splitPrefs, RussiaList.seed(this), change);
+        if (!saved) toast(getString(R.string.text_storage_is_unavailable_data_has_not_been_changed));
+        return saved;
+    }
     private Config activeConfig() { return configs.get(Math.max(0, Math.min(activeIndex, configs.size() - 1))); }
     // The profile the selected config uses (Default for one that names a profile that is gone, and with no configs), which
     // the VPN is built with and the rules of which "Through VPN" is about.
@@ -2834,7 +2838,7 @@ public final class MainActivity extends Activity {
     private void selectProfile(String name) {
         // Which one the page shows. It changes nothing the VPN runs on, so nothing restarts.
         final boolean[] changed = {false};
-        splitEdit(m -> changed[0] = m.select(name));
+        if (!splitEdit(m -> changed[0] = m.select(name))) return;
         if (changed[0]) render();
     }
 
@@ -2846,7 +2850,7 @@ public final class MainActivity extends Activity {
     private void removeProfile(String name) {
         boolean usedByActive = name.equals(activeProfileName());
         final boolean[] removed = {false};
-        splitEdit(m -> removed[0] = m.remove(name));
+        if (!splitEdit(m -> removed[0] = m.remove(name))) return;
         if (!removed[0]) return;
         // The configs that used it use Default from now on.
         for (Config config : configs) config.profile = SplitProfiles.afterRemoval(config.profile, name);
@@ -2885,7 +2889,7 @@ public final class MainActivity extends Activity {
 
     private void addProfile(String text) {
         final SplitProfiles.NameResult[] result = new SplitProfiles.NameResult[1];
-        splitEdit(m -> result[0] = m.add(text));
+        if (!splitEdit(m -> result[0] = m.add(text))) return;
         profileNameOpen = false;
         profileNameDraft = "";
         hideKeyboard();
@@ -2901,17 +2905,19 @@ public final class MainActivity extends Activity {
     // A change to the profile being edited. If it changed anything, the VPN is built again when the profile is the one the
     // selected config uses (and the split switch is on, or nothing it is built from changed), and the page is drawn again;
     // editing another profile restarts nothing. Whether it changed anything.
-    private boolean editRules(Consumer<SplitProfiles> change) {
+    private enum RulesEditResult { FAILED, UNCHANGED, CHANGED }
+
+    private RulesEditResult editRules(Consumer<SplitProfiles> change) {
         final String[] profile = new String[1];
         final boolean[] changed = {false};
-        splitEdit(m -> {
+        if (!splitEdit(m -> {
             profile[0] = m.edited();
             String before = m.toJson();
             change.accept(m);
             changed[0] = !before.equals(m.toJson());
-        });
+        })) return RulesEditResult.FAILED;
         if (changed[0]) rulesChanged(profile[0]);
-        return changed[0];
+        return changed[0] ? RulesEditResult.CHANGED : RulesEditResult.UNCHANGED;
     }
 
     private void rulesChanged(String profile) {
@@ -2931,7 +2937,7 @@ public final class MainActivity extends Activity {
     private boolean enterDomains(String text) {
         final SplitProfiles.Entered[] entered = new SplitProfiles.Entered[1];
         final String[] profile = new String[1];
-        splitEdit(m -> { profile[0] = m.edited(); entered[0] = m.addDomains(profile[0], text); });
+        if (!splitEdit(m -> { profile[0] = m.edited(); entered[0] = m.addDomains(profile[0], text); })) return false;
         if (entered[0] == null) return false;
         if (!entered[0].refused.isEmpty()) toast(refusedRulesMessage(entered[0].refused));
         if (entered[0].added.isEmpty()) return false;
@@ -3087,8 +3093,7 @@ public final class MainActivity extends Activity {
         // and the card goes.
         private void choose(AppEntry app) {
             if (overlay.closed) return;
-            closeOverlay(overlay);
-            editRules(m -> m.addApp(m.edited(), app.pkg));
+            if (editRules(m -> m.addApp(m.edited(), app.pkg)) != RulesEditResult.FAILED) closeOverlay(overlay);
         }
     }
 
@@ -3255,10 +3260,15 @@ public final class MainActivity extends Activity {
         private void take(int index) {
             if (index < 0 || index >= rows.size()) return;
             AppEntry app = rows.get(index);
+            String previousText = field.getText().toString();
             close();
             field.setText("");
             focusAfterRender = "apps:input";
-            if (!editRules(m -> m.addApp(m.edited(), app.pkg))) focusAfterRender = null;
+            RulesEditResult result = editRules(m -> m.addApp(m.edited(), app.pkg));
+            if (result != RulesEditResult.CHANGED) {
+                focusAfterRender = null;
+                if (result == RulesEditResult.FAILED) field.setText(previousText);
+            }
         }
 
         void close() {

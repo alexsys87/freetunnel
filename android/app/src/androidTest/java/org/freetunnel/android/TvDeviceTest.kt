@@ -6,6 +6,7 @@ import android.content.ActivityNotFoundException
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.content.SharedPreferences
 import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.content.res.Configuration
@@ -3007,6 +3008,28 @@ class TvDeviceTest {
     private fun fieldText(a: MainActivity, key: String): String = onMain { root(a).findViewWithTag<EditText>(key).text.toString() }
     // The settings the Split page is about, as the tests need them: on, which way, and the notice's rules.
     private fun splitOn(through: Boolean) { prefs.edit().putBoolean("split_enabled", true).putBoolean("through", through).commit() }
+    private fun refuseSplitSaves(a: MainActivity) {
+        field("splitPrefs").set(a, SplitPrefs(preferencesThatFailCommits(1)))
+    }
+    private fun preferencesThatFailCommits(count: Int): SharedPreferences {
+        val remainingFailures = java.util.concurrent.atomic.AtomicInteger(count)
+        return java.lang.reflect.Proxy.newProxyInstance(
+            TvDeviceTest::class.java.classLoader, arrayOf(SharedPreferences::class.java)
+        ) { _, method, args ->
+            val result = method.invoke(prefs, *(args ?: emptyArray()))
+            if (method.name != "edit") result
+            else java.lang.reflect.Proxy.newProxyInstance(
+                TvDeviceTest::class.java.classLoader, arrayOf(SharedPreferences.Editor::class.java)
+            ) { _, editorMethod, editorArgs ->
+                val editor = result as SharedPreferences.Editor
+                if (editorMethod.name == "commit" && remainingFailures.get() > 0) {
+                    remainingFailures.decrementAndGet()
+                    editorMethod.invoke(editor, *(editorArgs ?: emptyArray()))
+                    false
+                } else editorMethod.invoke(editor, *(editorArgs ?: emptyArray()))
+            }
+        } as SharedPreferences
+    }
     private fun seedConfigs(vararg uses: String?) {
         val list = org.json.JSONArray()
         uses.forEachIndexed { i, profile ->
@@ -3464,6 +3487,33 @@ class TvDeviceTest {
         enter(a, "domains:input", "good.example")
         SystemClock.sleep(300)
         assertEquals("A rule that is there is not added again, and is no refusal", 4, profiles().domains("Default").size)
+    }
+
+    @Test fun aDomainSaveThatStorageRefusesKeepsTheDraftAndDoesNotChangeTheProfile() {
+        val a = open()
+        render(a, 2)
+        val before = profiles().toJson()
+        refuseSplitSaves(a)
+
+        enter(a, "domains:input", "not-saved.example")
+
+        assertEquals("The failed save leaves the text to retry", "not-saved.example", fieldText(a, "domains:input"))
+        assertEquals("No rule is shown as saved", before, profiles().toJson())
+        assertEquals("The legacy mirror is rolled back too", setOf("example.com", "example.org"), prefs.getStringSet("domains", emptySet()))
+        assertFalse("Unrelated preferences are not changed", prefs.getBoolean("logging", true))
+        assertTrue("The user is told storage refused the change",
+            context.getString(R.string.text_storage_is_unavailable_data_has_not_been_changed) in toastTexts(a))
+    }
+
+    @Test fun splitPrefsRollsBackAbsentKeysEvenWhenTheRollbackCommitAlsoFails() {
+        val absent = "split_test_previously_absent"
+        assertFalse(prefs.contains(absent))
+        val backing = SplitPrefs(preferencesThatFailCommits(2))
+
+        assertFalse(backing.commit(mapOf(absent to "temporary", "logging" to true)))
+
+        assertFalse("The missing key stays missing in memory", prefs.contains(absent))
+        assertFalse("An existing unrelated value is restored", prefs.getBoolean("logging", true))
     }
 
     @Test fun anApplicationIsListedByItsNameAndOneThatIsGoneByItsPackageAndEitherCanBeRemoved() {

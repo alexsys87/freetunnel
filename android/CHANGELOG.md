@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Keep split-tunnelling edits intact and report a save failure when Android
+  storage refuses to persist a change.
+
 ## 1.0.0
 
 The first official FreeTunnel for Android: a TrustTunnel VPN client for phones,
