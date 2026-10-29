@@ -28,9 +28,9 @@ struct ButtonLayout {
 // On X11 that difference decides it. Qt asks the window manager to activate the
 // window with the time of the last X event the app received, which is older than
 // the click on the panel that led here; Mutter reads such a request as focus
-// stealing, refuses it and only flags the window for attention — it stays
-// minimised, which is where our own close button leaves it. So there it is asked
-// with the current server time instead, as a request made on the user's behalf.
+// stealing, refuses it and only flags the window for attention. So there it is
+// asked with the current server time instead, as a request made on the user's
+// behalf.
 // A window minimised from maximised also comes back maximised, which show() —
 // showNormal() in Qt 6 — would not do.
 //

@@ -511,8 +511,8 @@ Window {
     // AppIndicator extension, a plain window manager, or a bar that owns no host —
     // there is no tray icon, no tray menu and therefore no «Quit» in it. Close
     // quits there, which is what it means anyway when nothing else is holding the
-    // application open. Native Wayland keeps quitting too: there is no X server to
-    // tell a close from a logout.
+    // application open. A window-manager close on native Wayland still quits:
+    // there is no X server to distinguish that close from a logout.
     function toggleMaximized() {
         win.visibility = (win.visibility === Window.Maximized ? Window.Windowed : Window.Maximized)
     }

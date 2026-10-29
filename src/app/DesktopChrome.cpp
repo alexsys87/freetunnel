@@ -245,7 +245,7 @@ void bringWindowForwardChecked(QWindow *window, const ActiveProbe &active,
     // Whether the window was active at any moment from now on: the focus may come
     // and go again before the look, and a window the user has since moved on from is
     // not one the request failed for. Watched from before the request is made.
-    auto wasActive = std::make_shared<bool>(false);
+    auto wasActive = std::make_shared<bool>(active ? active(window) : window->isActive());
     const QMetaObject::Connection watch =
             QObject::connect(window, &QWindow::activeChanged, window, [wasActive, window]() {
                 if (window->isActive())

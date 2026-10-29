@@ -90,6 +90,8 @@ compare link at the bottom of its release notes.
   Force-killing it (forcekillactive, xkill) still ends FreeTunnel and the VPN.
 - **Linux: Show FreeTunnel in the tray now brings an open window forward on
   Hyprland and sway.** Before, it did nothing if the window was out of focus.
+- **Linux: Show FreeTunnel no longer remaps an already-active window after you
+  switch focus away during the activation check.**
 
 ## 1.2.3
 

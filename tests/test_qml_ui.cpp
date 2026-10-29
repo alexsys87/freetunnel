@@ -179,6 +179,7 @@ private slots:
     void aHiddenWindowIsOnlyMapped();
     void aWindowHiddenDuringTheCheckStaysHidden();
     void aWindowThatWasActiveAndMovedOnIsNotMappedAgain();
+    void aWindowActiveWhenRequestedAndMovedOnIsNotMappedAgain();
     void twoBringForwardsDuringOneCheckMapTheWindowAgainOnce();
     void aBringForwardDuringTheWaitEndsTheWait();
     void aBringForwardNeedsNoOneToTellWhatCameOfIt();
@@ -4413,7 +4414,7 @@ void TestQmlUi::aBringForwardThatTookEffectIsLeftAlone()
     wm.givesFocus = true;
 
     wm.bring(&window);
-    QCOMPARE(wm.activeAsked, 0); // the window manager is given its time first
+    QCOMPARE(wm.activeAsked, 1); // initial state is recorded before the request
     QTRY_COMPARE(wm.remaps.size(), 1);
     QVERIFY(!wm.remaps.constFirst());
     QCOMPARE(wm.activeAsked, 1);
@@ -4449,7 +4450,7 @@ void TestQmlUi::aBringForwardTheWindowManagerIgnoredMapsTheWindowAgain()
     QCOMPARE(visibility.count(), 0);
     QTRY_COMPARE(wm.remaps.size(), 1);
     QVERIFY2(wm.remaps.constFirst(), "the window was taken off the screen and put back");
-    QCOMPARE(wm.activeAsked, 1);
+    QCOMPARE(wm.activeAsked, 2); // one initial state check, one result check
     QCOMPARE(wm.withdrawnAsked, 3); // not mapped again before the third ask said it was gone
     QVERIFY2(!wm.askedWhileMapped, "and asked about while it was unmapped, not before");
     QCOMPARE(visibility.count(), 2);
@@ -4460,7 +4461,7 @@ void TestQmlUi::aBringForwardTheWindowManagerIgnoredMapsTheWindowAgain()
     QTest::qWait(6 * kBringCheckMs);
     QCOMPARE(wm.remaps.size(), 1);
     QCOMPARE(visibility.count(), 2);
-    QCOMPARE(wm.activeAsked, 1);
+    QCOMPARE(wm.activeAsked, 2);
 }
 
 // The tray's Show must not undo the window being maximised: that is what show()
@@ -4551,7 +4552,7 @@ void TestQmlUi::aHiddenWindowIsOnlyMapped()
     QVERIFY(window.isVisible());
     QCOMPARE(wm.remaps, QList<bool>{false}); // settled at once: no check was armed
     QTest::qWait(4 * kBringCheckMs);
-    QCOMPARE(wm.activeAsked, 0);
+    QCOMPARE(wm.activeAsked, 0); // hidden windows need no activation check
     QCOMPARE(wm.withdrawnAsked, 0);
     QCOMPARE(visibility.count(), 1);
     QCOMPARE(hidesIn(visibility), 0);
@@ -4573,7 +4574,7 @@ void TestQmlUi::aWindowHiddenDuringTheCheckStaysHidden()
     QTest::qWait(3 * kBringCheckMs);
     QVERIFY(!window.isVisible());
     QCOMPARE(visibility.count(), 0);
-    QCOMPARE(wm.activeAsked, 0);
+    QCOMPARE(wm.activeAsked, 1);
     QCOMPARE(wm.withdrawnAsked, 0);
 }
 
@@ -4595,6 +4596,39 @@ void TestQmlUi::aWindowThatWasActiveAndMovedOnIsNotMappedAgain()
     wm.bring(&window);
     QTRY_VERIFY(window.isActive()); // the request itself is what gives it the focus here
     other.requestActivate();
+    QTRY_VERIFY(!window.isActive());
+    QTRY_COMPARE(wm.remaps.size(), 1);
+    QVERIFY(!wm.remaps.constFirst());
+    QCOMPARE(wm.activeAsked, 1);
+    QCOMPARE(wm.withdrawnAsked, 0);
+    QCOMPARE(visibility.count(), 0);
+    QVERIFY(window.isVisible());
+}
+
+// The window can already be active when Show is clicked, and the user can move
+// on before the delayed check. That initial active state counts as the request
+// having succeeded even if the activation request causes no activeChanged(true).
+void TestQmlUi::aWindowActiveWhenRequestedAndMovedOnIsNotMappedAgain()
+{
+    QWindow window;
+    QVERIFY(shownWindow(window));
+    QTRY_VERIFY(window.isActive());
+    QWindow other;
+    QVERIFY(shownWindow(other));
+    other.requestActivate();
+    QTRY_VERIFY(other.isActive());
+    QTRY_VERIFY(!window.isActive());
+
+    // Focus the target, then start the request while it is already active. The
+    // other window takes focus before the check fires.
+    window.requestActivate();
+    QTRY_VERIFY(window.isActive());
+    MadeUpWindowManager wm; // activation is reported as unsuccessful at the check
+    QSignalSpy visibility(&window, &QWindow::visibleChanged);
+    freetunnel::bringWindowForwardChecked(&window, {}, wm.withdrawn(), kBringCheckMs,
+                                          wm.settle(), kBringPollMs, kBringWaitMs);
+    other.requestActivate();
+    QTRY_VERIFY(other.isActive());
     QTRY_VERIFY(!window.isActive());
     QTRY_COMPARE(wm.remaps.size(), 1);
     QVERIFY(!wm.remaps.constFirst());
@@ -4622,7 +4656,7 @@ void TestQmlUi::twoBringForwardsDuringOneCheckMapTheWindowAgainOnce()
     QTRY_COMPARE(wm.remaps.size(), 2);
     QCOMPARE(wm.remaps, (QList<bool>{false, true})); // the first was overtaken
     QCOMPARE(hidesIn(visibility), 1);
-    QCOMPARE(wm.activeAsked, 1);
+    QCOMPARE(wm.activeAsked, 3); // two starts, then the newer request's result
     QTest::qWait(2 * checkMs);
     QCOMPARE(hidesIn(visibility), 1);
     QCOMPARE(wm.remaps.size(), 2);
@@ -4672,7 +4706,7 @@ void TestQmlUi::aBringForwardNeedsNoOneToTellWhatCameOfIt()
     // Honoured: left alone.
     wm.givesFocus = true;
     freetunnel::bringWindowForwardChecked(&window, wm.active(), wm.withdrawn(), kBringCheckMs);
-    QTRY_COMPARE(wm.activeAsked, 2);
+    QTRY_COMPARE(wm.activeAsked, 3); // includes the initial state of the request
     QCOMPARE(visibility.count(), 2);
 
     // Overtaken: the older request ends with nobody to tell, the newer one acts.
@@ -4707,7 +4741,7 @@ void TestQmlUi::aWindowDestroyedDuringTheCheckOrTheWaitIsLeftAlone()
         delete gone;
         QTest::qWait(4 * kBringCheckMs);
     }
-    QCOMPARE(wm.activeAsked, 0); // never got as far as being looked at
+    QCOMPARE(wm.activeAsked, 1); // initial state was sampled before it was destroyed
     {
         wm.withdrawsOnAsk = 0;
         auto *gone = new QWindow;
