@@ -1046,16 +1046,16 @@
         <translation>Сворачивать в трей</translation>
     </message>
     <message>
-        <source>the ✕ hides the window to the tray instead of the taskbar</source>
-        <translation>✕ прячет окно в трей, а не сворачивает на панель задач</translation>
+        <source>the close button hides the window to the tray</source>
+        <translation>кнопка закрытия скрывает окно в трей</translation>
     </message>
     <message>
         <source>Start minimized</source>
         <translation>Запускать свёрнутым</translation>
     </message>
     <message>
-        <source>open in the tray instead of on screen, e.g. at system startup</source>
-        <translation>открывать в трее, а не на экране, например при автозапуске</translation>
+        <source>open in the tray, not on screen</source>
+        <translation>открывать в трее, а не на экране</translation>
     </message>
 </context>
 <context>
