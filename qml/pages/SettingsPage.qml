@@ -56,6 +56,23 @@ Item {
                 Toggle { objectName: "minimizeToTrayToggle"; accent: theme.accent; offColor: theme.toggleOff
                          checked: backend.minimizeToTray
                          onToggled: function(v){ backend.minimizeToTray = v } } }
+            // Opens in the tray instead of on screen — what makes "Launch at system
+            // startup" start quietly. Windows alone, beside the switch above: it is
+            // where the window is shown from C++ and can be left unshown.
+            RowLayout { objectName: "startMinimizedRow"
+                Layout.fillWidth: true; Layout.preferredHeight: 42
+                visible: Qt.platform.os === "windows"
+                ColumnLayout {
+                    Layout.fillWidth: true; Layout.minimumWidth: 0; spacing: 0
+                    Text { Layout.fillWidth: true; elide: Text.ElideRight
+                           text: qsTr("Start minimized"); color: theme.text; font.pixelSize: 14 }
+                    Text { Layout.fillWidth: true; elide: Text.ElideRight
+                           text: qsTr("open in the tray instead of on screen, e.g. at system startup")
+                           color: theme.textFaint; font.pixelSize: 12 }
+                }
+                Toggle { objectName: "startMinimizedToggle"; accent: theme.accent; offColor: theme.toggleOff
+                         checked: backend.startMinimized
+                         onToggled: function(v){ backend.startMinimized = v } } }
             Item { Layout.preferredHeight: 16 }
             SectionLabel { text: qsTr("Security"); theme: settingsRoot.theme }
             Rectangle {

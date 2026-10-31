@@ -54,6 +54,11 @@ compare link at the bottom of its release notes.
   is turned on. The minimize button always minimizes. Linux already hides to
   the tray on close and macOS hides from its own red button, so the switch is
   Windows-only.
+- **Windows: "Start minimized" in Settings opens the window in the tray
+  instead of on screen**, so a launch at system startup leaves no window in
+  front of whatever the user is doing. Off by default. It is ignored when
+  there is no tray to bring the window back from, which is also the only
+  reason the window is shown in that case.
 
 ### Fixed
 

@@ -61,6 +61,10 @@ void Backend::setMinimizeToTray(bool v) {
     if (m_settings.minimize_to_tray == v) return;
     m_settings.minimize_to_tray = v; persistSettings(); emit settingsChanged();
 }
+void Backend::setStartMinimized(bool v) {
+    if (m_settings.start_minimized == v) return;
+    m_settings.start_minimized = v; persistSettings(); emit settingsChanged();
+}
 void Backend::setKillSwitch(bool v) {
     if (m_settings.killswitch_enabled == v) return;
     m_settings.killswitch_enabled = v; persistSettings();

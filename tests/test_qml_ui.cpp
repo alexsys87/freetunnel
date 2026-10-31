@@ -126,6 +126,7 @@ private slots:
     void restoringDefaultRoutesAsksFirst();
     void theKillSwitchPortsSwitchIsBoundToItsSetting();
     void theMinimizeToTraySwitchIsBoundToItsSetting();
+    void theStartMinimizedSwitchIsBoundToItsSetting();
     void theThroughVpnNoticeNamesTheConfigAndItsProfile();
     void theBuiltInProfileIsShownInTheUsersLanguage();
     void textOnTheAccentIsReadableInTheDarkTheme();
@@ -3055,6 +3056,40 @@ void TestQmlUi::theMinimizeToTraySwitchIsBoundToItsSetting()
     QVERIFY(QMetaObject::invokeMethod(toggle, "toggled", Q_ARG(bool, true)));
 #endif
     QVERIFY2(m_backend.minimizeToTray(), "the switch never reached the setting");
+    delete root;
+}
+
+// "Start minimized": opens the window in the tray instead of on screen, so a
+// launch at system startup is quiet. Windows alone, beside the switch above.
+void TestQmlUi::theStartMinimizedSwitchIsBoundToItsSetting()
+{
+    const auto restore = qScopeGuard([this] { m_backend.setStartMinimized(false); });
+    QObject *root = loadPage("pages/SettingsPage.qml");
+    QVERIFY(root);
+    QQuickWindow window;
+    QVERIFY(showInWindow(root, window, 400, 1400));
+    auto *row = root->findChild<QQuickItem *>(QStringLiteral("startMinimizedRow"));
+    auto *toggle = root->findChild<QQuickItem *>(QStringLiteral("startMinimizedToggle"));
+    QVERIFY(row && toggle);
+#ifdef Q_OS_WIN
+    QVERIFY(row->isVisible());
+#else
+    QVERIFY2(!row->isVisible(), "a switch for the Windows startup path alone");
+#endif
+
+    QCOMPARE(toggle->property("checked").toBool(), false);
+    m_backend.setStartMinimized(true);
+    QCOMPARE(toggle->property("checked").toBool(), true);
+    m_backend.setStartMinimized(false);
+    QCOMPARE(toggle->property("checked").toBool(), false);
+
+#ifdef Q_OS_WIN
+    QTest::mouseClick(&window, Qt::LeftButton, Qt::NoModifier, centreOf(toggle));
+#else
+    // Hidden here, so there is nothing to click; this is what a click emits.
+    QVERIFY(QMetaObject::invokeMethod(toggle, "toggled", Q_ARG(bool, true)));
+#endif
+    QVERIFY2(m_backend.startMinimized(), "the switch never reached the setting");
     delete root;
 }
 

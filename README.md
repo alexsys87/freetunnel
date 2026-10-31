@@ -261,7 +261,7 @@ setting is under the kill switch in Settings.
 
 | Section | What is there |
 | --- | --- |
-| **General** | Language (English, Русский), Theme (System, Light, Dark), Launch at system startup, Connect on startup; on Windows, Minimize to tray |
+| **General** | Language (English, Русский), Theme (System, Light, Dark), Launch at system startup, Connect on startup; on Windows, Minimize to tray and Start minimized |
 | **Security** | [Kill switch](#kill-switch); on Windows, [Let the VPN config open ports](#windows-ports-a-config-opens) |
 | **Excluded routes** | Subnets that stay outside the tunnel for every config ([details](#excluded-routes)) |
 | **Hotkeys** | Enable, then Toggle VPN, Connect and Disconnect ([details](#global-hotkeys)) |

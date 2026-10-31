@@ -1049,6 +1049,14 @@
         <source>the ✕ hides the window to the tray instead of the taskbar</source>
         <translation>✕ прячет окно в трей, а не сворачивает на панель задач</translation>
     </message>
+    <message>
+        <source>Start minimized</source>
+        <translation>Запускать свёрнутым</translation>
+    </message>
+    <message>
+        <source>open in the tray instead of on screen, e.g. at system startup</source>
+        <translation>открывать в трее, а не на экране, например при автозапуске</translation>
+    </message>
 </context>
 <context>
     <name>SplitPage</name>

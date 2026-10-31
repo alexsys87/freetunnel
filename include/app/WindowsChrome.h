@@ -19,6 +19,12 @@ namespace freetunnel {
 // Expects the window to have been created hidden and without a minimum size
 // (Main.qml's windowsAgent): the agent must be set up before either, and this
 // applies both afterwards.
-void setupWindowsChrome(QQuickWindow *window);
+//
+// @p startHidden leaves the window unshown — "start minimized", which is what
+// makes a launch from the Run key quiet. It is honoured only when the QML's tray
+// icon (objectName "systemTray") reports itself available: shown with nothing to
+// bring it back from, the app would start invisible. Anything that brings a
+// window forward later (the tray's Show, a second launch) shows it as usual.
+void setupWindowsChrome(QQuickWindow *window, bool startHidden = false);
 
 } // namespace freetunnel

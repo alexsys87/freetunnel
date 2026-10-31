@@ -178,6 +178,7 @@ AppSettings loadAppSettings() {
     out.theme_mode = s.value("ui/theme_mode", "system").toString();
     out.language = s.value("ui/language", "en").toString();
     out.minimize_to_tray = s.value("ui/minimize_to_tray", false).toBool();
+    out.start_minimized = s.value("ui/start_minimized", false).toBool();
     out.auto_connect_on_start = s.value("vpn/auto_connect_on_start", false).toBool();
     out.killswitch_enabled = s.value("vpn/killswitch_enabled", true).toBool();
     out.killswitch_ports_from_config = s.value("vpn/killswitch_ports_from_config", false).toBool();
@@ -203,6 +204,7 @@ void saveAppSettings(const AppSettings &cfg) {
     s.setValue("ui/theme_mode", cfg.theme_mode);
     s.setValue("ui/language", cfg.language);
     s.setValue("ui/minimize_to_tray", cfg.minimize_to_tray);
+    s.setValue("ui/start_minimized", cfg.start_minimized);
     s.setValue("vpn/auto_connect_on_start", cfg.auto_connect_on_start);
     s.setValue("vpn/killswitch_enabled", cfg.killswitch_enabled);
     s.setValue("vpn/killswitch_ports_from_config", cfg.killswitch_ports_from_config);

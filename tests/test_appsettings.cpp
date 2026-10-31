@@ -49,6 +49,8 @@ void TestAppSettings::defaultsWhenEmpty() {
     QCOMPARE(s.theme_mode, QStringLiteral("system"));
     // Off: the ✕ keeps minimising to the taskbar, as it always did.
     QCOMPARE(s.minimize_to_tray, false);
+    // Off: the window opens on screen, as it always did.
+    QCOMPARE(s.start_minimized, false);
     QCOMPARE(s.auto_connect_on_start, false);
     QCOMPARE(s.killswitch_enabled, true);
     // Off until the user says otherwise: on, a config decides what gets through
@@ -118,6 +120,7 @@ void TestAppSettings::roundTrip() {
     in.language = QStringLiteral("ru");
     in.theme_mode = QStringLiteral("dark");
     in.minimize_to_tray = true;
+    in.start_minimized = true;
     in.auto_connect_on_start = true;
     in.killswitch_enabled = true;
     in.killswitch_ports_from_config = true;
@@ -135,6 +138,7 @@ void TestAppSettings::roundTrip() {
     QCOMPARE(out.language, in.language);
     QCOMPARE(out.theme_mode, in.theme_mode);
     QCOMPARE(out.minimize_to_tray, true);
+    QCOMPARE(out.start_minimized, true);
     QCOMPARE(out.auto_connect_on_start, true);
     QCOMPARE(out.killswitch_enabled, true);
     QCOMPARE(out.killswitch_ports_from_config, true);
