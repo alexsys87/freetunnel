@@ -809,28 +809,39 @@ void TestIntegrationBackendVpn::geoRoutingRoutesByTheListsOnceTheyAreIn()
     QCOMPARE(env.server.countFor(QStringLiteral("setGeoRules")), 0);
     QVERIFY(!env.server.lastMessageFor(QStringLiteral("setSplitRouting")).value(QStringLiteral("geo")).toBool());
 
-    // In: the list, then the routing that uses it.
+    // In: the list, then the routing that uses it. The first attempt has to be
+    // over, for both files, before they are served: one still under way would
+    // fetch whichever file it had not reached yet from the new answers, and
+    // route by that one alone. An update asked for while one runs is not queued
+    // either.
+    QVERIFY(QTest::qWaitFor(
+            [&]() {
+                return http.requestCount(QStringLiteral("/sites.txt")) > 0
+                        && http.requestCount(QStringLiteral("/addresses.txt")) > 0 && !backend.geoBusy();
+            },
+            15000));
+    QVERIFY(!backend.geoActive());
     MockHttpServer::Route list;
     list.contentType = QByteArrayLiteral("text/plain");
     list.body = QByteArrayLiteral("domain:blocked.example\n");
     http.setRoute(QStringLiteral("/sites.txt"), list);
     list.body = QByteArrayLiteral("203.0.113.0/24\n");
     http.setRoute(QStringLiteral("/addresses.txt"), list);
-    // The first attempt's failure has to be over first: an update asked for while
-    // one runs is not queued.
-    QVERIFY(QTest::qWaitFor([&]() { return http.requestCount(QStringLiteral("/addresses.txt")) > 0 && !backend.geoBusy(); }, 15000));
-    QVERIFY(!backend.geoActive());
     backend.updateGeoLists();
-    QVERIFY(QTest::qWaitFor([&]() { return backend.geoActive(); }, 15000));
-    QVERIFY(QTest::qWaitFor(
-            [&]() {
-                return env.server.lastMessageFor(QStringLiteral("setSplitRouting"))
-                        .value(QStringLiteral("geo"))
-                        .toBool();
-            },
-            5000));
-    const QString entries =
-            env.server.lastMessageFor(QStringLiteral("setGeoRules")).value(QStringLiteral("entries")).toString();
+    const auto geoEntries = [&env]() {
+        return env.server.lastMessageFor(QStringLiteral("setGeoRules")).value(QStringLiteral("entries")).toString();
+    };
+    QVERIFY2(QTest::qWaitFor(
+                     [&]() {
+                         return backend.geoActive() && geoEntries().contains(QStringLiteral("*.blocked.example"))
+                                 && geoEntries().contains(QStringLiteral("203.0.113.0/24"))
+                                 && env.server.lastMessageFor(QStringLiteral("setSplitRouting"))
+                                            .value(QStringLiteral("geo"))
+                                            .toBool();
+                     },
+                     15000),
+             qPrintable(geoEntries()));
+    const QString entries = geoEntries();
     QVERIFY2(entries.contains(QStringLiteral("*.blocked.example")), qPrintable(entries));
     QVERIFY2(entries.contains(QStringLiteral("203.0.113.0/24")), qPrintable(entries));
     const QJsonObject routing = env.server.lastMessageFor(QStringLiteral("setSplitRouting"));
