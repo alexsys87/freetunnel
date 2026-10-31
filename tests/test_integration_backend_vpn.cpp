@@ -758,17 +758,14 @@ void TestIntegrationBackendVpn::geoRoutingRoutesByTheListsOnceTheyAreIn()
     QDir(QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation) + QStringLiteral("/geo"))
             .removeRecursively();
 
+    // The lists are not there at first (404), whatever the test's timing, so what
+    // the tunnel does without them can be looked at; Update now brings them in.
     MockHttpServer http;
     QVERIFY(http.listen());
-    MockHttpServer::Route list;
-    list.contentType = QByteArrayLiteral("text/plain");
-    list.delayMs = 1500; // long enough to see what the tunnel does without the lists
-    list.body = QByteArrayLiteral("domain:blocked.example\n");
-    http.setRoute(QStringLiteral("/sites.txt"), list);
-    list.body = QByteArrayLiteral("203.0.113.0/24\n");
-    http.setRoute(QStringLiteral("/addresses.txt"), list);
     MockHttpServer::Route none;
     none.status = 404;
+    http.setRoute(QStringLiteral("/sites.txt"), none);
+    http.setRoute(QStringLiteral("/addresses.txt"), none);
     http.setRoute(QStringLiteral("/sites.txt.sha256sum"), none);
     http.setRoute(QStringLiteral("/addresses.txt.sha256sum"), none);
 
@@ -800,16 +797,30 @@ void TestIntegrationBackendVpn::geoRoutingRoutesByTheListsOnceTheyAreIn()
     backend.connectVpn();
     QVERIFY(QTest::qWaitFor([&]() { return backend.connected(); }, 10000));
 
-    // Not in yet: the full tunnel, and no list.
+    // Not in yet: the full tunnel, and no list. A new helper is told the mode and
+    // the rules one by one, as before there were lists.
     QVERIFY(!backend.geoActive());
-    QJsonObject routing = env.server.lastMessageFor(QStringLiteral("setSplitRouting"));
-    QVERIFY(!routing.isEmpty());
-    QCOMPARE(routing.value(QStringLiteral("selective")).toBool(), false);
-    QVERIFY(!routing.contains(QStringLiteral("geo")));
-    QVERIFY(routing.value(QStringLiteral("domains")).toArray().isEmpty());
+    QCOMPARE(env.server.lastMessageFor(QStringLiteral("setMode")).value(QStringLiteral("selective")).toBool(),
+             false);
+    QVERIFY(env.server.lastMessageFor(QStringLiteral("setExclusions"))
+                    .value(QStringLiteral("domains"))
+                    .toArray()
+                    .isEmpty());
     QCOMPARE(env.server.countFor(QStringLiteral("setGeoRules")), 0);
+    QVERIFY(!env.server.lastMessageFor(QStringLiteral("setSplitRouting")).value(QStringLiteral("geo")).toBool());
 
     // In: the list, then the routing that uses it.
+    MockHttpServer::Route list;
+    list.contentType = QByteArrayLiteral("text/plain");
+    list.body = QByteArrayLiteral("domain:blocked.example\n");
+    http.setRoute(QStringLiteral("/sites.txt"), list);
+    list.body = QByteArrayLiteral("203.0.113.0/24\n");
+    http.setRoute(QStringLiteral("/addresses.txt"), list);
+    // The first attempt's failure has to be over first: an update asked for while
+    // one runs is not queued.
+    QVERIFY(QTest::qWaitFor([&]() { return http.requestCount(QStringLiteral("/addresses.txt")) > 0 && !backend.geoBusy(); }, 15000));
+    QVERIFY(!backend.geoActive());
+    backend.updateGeoLists();
     QVERIFY(QTest::qWaitFor([&]() { return backend.geoActive(); }, 15000));
     QVERIFY(QTest::qWaitFor(
             [&]() {
@@ -822,7 +833,7 @@ void TestIntegrationBackendVpn::geoRoutingRoutesByTheListsOnceTheyAreIn()
             env.server.lastMessageFor(QStringLiteral("setGeoRules")).value(QStringLiteral("entries")).toString();
     QVERIFY2(entries.contains(QStringLiteral("*.blocked.example")), qPrintable(entries));
     QVERIFY2(entries.contains(QStringLiteral("203.0.113.0/24")), qPrintable(entries));
-    routing = env.server.lastMessageFor(QStringLiteral("setSplitRouting"));
+    const QJsonObject routing = env.server.lastMessageFor(QStringLiteral("setSplitRouting"));
     QCOMPARE(routing.value(QStringLiteral("selective")).toBool(), true);
     QVERIFY(routing.value(QStringLiteral("domains")).toArray().contains(QJsonValue(QStringLiteral("own.example"))));
     QVERIFY(!backend.selectiveModeWouldLeak());
