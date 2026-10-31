@@ -18,6 +18,8 @@ compare link at the bottom of its release notes.
   installing no longer stops on a file still in use.
 - Windows: the ✕ can hide the window to the tray instead of minimising it to
   the taskbar, so the VPN keeps running with the window out of the way.
+- Windows: connecting no longer asks for administrator rights through UAC
+  every time; the installer sets up a helper service the app starts itself.
 - Linux: launches and links reach FreeTunnel after an AppImage update, and from
   outside the desktop session.
 
@@ -33,6 +35,11 @@ compare link at the bottom of its release notes.
   tt:// links, config files and the config editor; a stored config loses it the
   next time FreeTunnel starts. A certificate with no certificate in it is
   refused, and so is a link whose certificate is damaged.
+- **Windows: any account signed in at the computer can connect without an
+  administrator's approval.** This comes with the helper service below, which
+  every interactive user may start. On a computer shared with people who should
+  not change its network routing, an administrator can take that right away
+  (README, "Administrator prompt"), and connecting asks through UAC again.
 
 ### Changed
 
@@ -59,6 +66,12 @@ compare link at the bottom of its release notes.
   front of whatever the user is doing. Off by default. It is ignored when
   there is no tray to bring the window back from, which is also the only
   reason the window is shown in that case.
+- **Windows: connecting no longer shows a UAC prompt.** The installer
+  registers the FreeTunnel VPN helper service (`FreeTunnelHelper`), which runs
+  the VPN tunnel as LocalSystem. The app starts it when it connects, and it
+  stops when the app closes; it never starts with Windows. A copy of FreeTunnel
+  that was not installed, or one that finds the service in use by another
+  account, asks through UAC as before. The uninstaller removes the service.
 
 ### Fixed
 

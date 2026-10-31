@@ -216,7 +216,9 @@ make QT_DISABLE_HTTP3=OFF CMAKE_PREFIX_PATH="$QT_ROOT_DIR" build
 | Windows | `build\FreeTunnel\FreeTunnel.exe` |
 
 VPN connect requires elevation: UAC on Windows, an administrator prompt on
-macOS, pkexec on Linux, or sudo where pkexec cannot run.
+macOS, pkexec on Linux, or sudo where pkexec cannot run. An installed Windows
+build starts the helper through the `FreeTunnelHelper` service instead, with
+no prompt; a build run from `build\` has no service of its own and uses UAC.
 
 ## Unit tests (fast, no VPN core)
 
@@ -340,7 +342,7 @@ known limitations.
 
 | Path | What is there |
 | --- | --- |
-| `main.cpp` | Entry point: starts the GUI, or the elevated helper when run with `--helper` |
+| `main.cpp` | Entry point: starts the GUI, the elevated helper when run with `--helper`, or, on Windows, the helper service when the service control manager runs it with `--service` |
 | `src/app/`, `include/app/` | App startup, the `Backend` the QML talks to (split into `Backend*.cpp` by job), window chrome, the log model |
 | `src/core/`, `include/core/` | Configs and their TOML, settings, credentials, deep links and control commands, split-tunnel and program rules, update checking and verification |
 | `src/vpn/`, `include/vpn/` | The wrapper around the VPN core (`qt_trusttunnel_*`) and the elevated helper (client, server, launch, elevation) |
