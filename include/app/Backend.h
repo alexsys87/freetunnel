@@ -113,6 +113,7 @@ class Backend : public QObject {
     Q_PROPERTY(bool verboseLogs READ verboseLogs WRITE setVerboseLogs NOTIFY settingsChanged)
     Q_PROPERTY(bool autoStart READ autoStart WRITE setAutoStart NOTIFY settingsChanged)
     Q_PROPERTY(bool minimizeToTray READ minimizeToTray WRITE setMinimizeToTray NOTIFY settingsChanged)
+    Q_PROPERTY(bool startMinimized READ startMinimized WRITE setStartMinimized NOTIFY settingsChanged)
     Q_PROPERTY(QVariantList pings READ pings NOTIFY pingsChanged) // per-config latency text
     Q_PROPERTY(QString credentialStorageWarning READ credentialStorageWarning NOTIFY credentialStorageChanged)
 
@@ -137,6 +138,7 @@ public:
     const QString &themeMode() const { return m_settings.theme_mode; }
     bool autoConnect() const { return m_settings.auto_connect_on_start; }
     bool minimizeToTray() const { return m_settings.minimize_to_tray; }
+    bool startMinimized() const { return m_settings.start_minimized; }
     bool killSwitch() const { return m_settings.killswitch_enabled; }
     bool killSwitchPortsFromConfig() const { return m_settings.killswitch_ports_from_config; }
     bool loggingEnabled() const { return m_settings.logging_enabled; }
@@ -145,6 +147,7 @@ public:
     void setThemeMode(const QString &v);
     void setAutoConnect(bool v);
     void setMinimizeToTray(bool v);
+    void setStartMinimized(bool v);
     void setKillSwitch(bool v);
     void setKillSwitchPortsFromConfig(bool v);
     void setLoggingEnabled(bool v);

@@ -81,6 +81,7 @@ void TestBackendSettings::preferencesSurviveARestart_data()
     QTest::newRow("language") << QStringLiteral("language");
     QTest::newRow("themeMode") << QStringLiteral("themeMode");
     QTest::newRow("minimizeToTray") << QStringLiteral("minimizeToTray");
+    QTest::newRow("startMinimized") << QStringLiteral("startMinimized");
     QTest::newRow("autoConnect") << QStringLiteral("autoConnect");
     QTest::newRow("killSwitch") << QStringLiteral("killSwitch");
     QTest::newRow("killSwitchPortsFromConfig") << QStringLiteral("killSwitchPortsFromConfig");
@@ -102,6 +103,8 @@ void TestBackendSettings::preferencesSurviveARestart()
             backend.setThemeMode(QStringLiteral("dark"));
         else if (key == QLatin1String("minimizeToTray"))
             backend.setMinimizeToTray(true);
+        else if (key == QLatin1String("startMinimized"))
+            backend.setStartMinimized(true);
         else if (key == QLatin1String("autoConnect"))
             backend.setAutoConnect(true);
         else if (key == QLatin1String("killSwitch"))
@@ -123,6 +126,8 @@ void TestBackendSettings::preferencesSurviveARestart()
         QCOMPARE(restarted.themeMode(), QStringLiteral("dark"));
     else if (key == QLatin1String("minimizeToTray"))
         QCOMPARE(restarted.minimizeToTray(), true);
+    else if (key == QLatin1String("startMinimized"))
+        QCOMPARE(restarted.startMinimized(), true);
     else if (key == QLatin1String("autoConnect"))
         QCOMPARE(restarted.autoConnect(), true);
     else if (key == QLatin1String("killSwitch"))
@@ -144,6 +149,7 @@ void TestBackendSettings::settingTheSameValueIsSilent()
     Backend backend;
     backend.setThemeMode(QStringLiteral("dark"));
     backend.setMinimizeToTray(true);
+    backend.setStartMinimized(true);
     backend.setAutoConnect(true);
     backend.setKillSwitch(true);
     backend.setKillSwitchPortsFromConfig(true);
@@ -153,6 +159,7 @@ void TestBackendSettings::settingTheSameValueIsSilent()
     QSignalSpy changed(&backend, &Backend::settingsChanged);
     backend.setThemeMode(QStringLiteral("dark"));
     backend.setMinimizeToTray(true);
+    backend.setStartMinimized(true);
     backend.setAutoConnect(true);
     backend.setKillSwitch(true);
     backend.setKillSwitchPortsFromConfig(true);

@@ -23,6 +23,8 @@
 
 #include <windows.h>
 
+#include <memory>
+
 #include "app/WindowsChrome.h"
 
 namespace {
@@ -49,6 +51,22 @@ Window {
 }
 )";
 
+// The same window with a tray icon, as Main.qml creates one: setupWindowsChrome
+// reads its "available" property to decide whether a hidden window has anywhere
+// to be brought back from. `trayAvailable` is the property, `withTray` whether the
+// item exists at all — a desktop with no tray has neither.
+QByteArray hiddenWindowQml(bool withTray, bool trayAvailable)
+{
+    QByteArray qml(kWindowQml);
+    qml.chop(2); // drop the trailing "}\n"
+    if (withTray) {
+        qml += QByteArray("    QtObject { objectName: \"systemTray\"; property bool available: ")
+               + (trayAvailable ? "true" : "false") + " }\n";
+    }
+    qml += "}\n";
+    return qml;
+}
+
 QString hitName(LRESULT hit)
 {
     switch (hit) {
@@ -71,6 +89,8 @@ private slots:
     void initTestCase();
     void cleanupTestCase();
     void theAgentTakesTheWindowAndShowsIt();
+    void aWindowAskedToStartMinimizedStaysHidden();
+    void startMinimizedIsIgnoredWithoutATray();
     void eachButtonAnswersAsTheButtonItIs();
     void theTitleBandDragsOnlyWhileItIsEnabled();
     void followingTheDarkSwitchDoesNotUndoTheChrome();
@@ -133,6 +153,46 @@ void TestWindowsChrome::theAgentTakesTheWindowAndShowsIt()
     QVERIFY(::GetClientRect(hwnd, &client));
     QVERIFY(::GetWindowRect(hwnd, &outer));
     QCOMPARE(client.right - client.left, outer.right - outer.left);
+}
+
+// "Start minimized": with a tray to hold it, the window is set up but left
+// unshown — a launch at logon then leaves no window on screen. What brings it
+// back is the tray's own Show, which calls show() as usual; the window is only
+// never shown here.
+void TestWindowsChrome::aWindowAskedToStartMinimizedStaysHidden()
+{
+    QQmlComponent component(&m_engine);
+    component.setData(hiddenWindowQml(/*withTray=*/true, /*trayAvailable=*/true), QUrl());
+    std::unique_ptr<QQuickWindow> window(qobject_cast<QQuickWindow *>(component.create()));
+    QVERIFY2(window, qPrintable(component.errorString()));
+    freetunnel::setupWindowsChrome(window.get(), /*startHidden=*/true);
+    // The agent is on it either way: it is what makes the window a Windows window.
+    QVERIFY(window->findChild<QWK::QuickWindowAgent *>());
+    QCOMPARE(window->minimumSize(), QSize(400, 460));
+    QVERIFY2(!window->isVisible(), "a window with a tray to go to must start hidden");
+    // And it still shows on demand, which is what the tray's Show does.
+    window->show();
+    QVERIFY(QTest::qWaitForWindowExposed(window.get()));
+}
+
+// A hidden window nothing can bring back is worse than one that opened: with no
+// tray — or one that reports itself unavailable, as offscreen does — "start
+// minimized" is ignored and the window is shown, as it always was.
+void TestWindowsChrome::startMinimizedIsIgnoredWithoutATray()
+{
+    for (const bool trayAvailable : {false, true}) {
+        for (const bool withTray : {false, true}) {
+            if (withTray && trayAvailable)
+                continue; // the case above
+            QQmlComponent component(&m_engine);
+            component.setData(hiddenWindowQml(withTray, trayAvailable), QUrl());
+            std::unique_ptr<QQuickWindow> window(qobject_cast<QQuickWindow *>(component.create()));
+            QVERIFY2(window, qPrintable(component.errorString()));
+            freetunnel::setupWindowsChrome(window.get(), /*startHidden=*/true);
+            QVERIFY2(QTest::qWaitForWindowExposed(window.get()),
+                     "no tray to hide to: the window has to be shown");
+        }
+    }
 }
 
 // Registered as the system's own buttons, they answer as those buttons do. Over

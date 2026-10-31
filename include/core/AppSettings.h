@@ -16,6 +16,11 @@ struct AppSettings {
     // taskbar. Windows alone: Linux already hides to the tray on close, and macOS
     // hides from its own red button.
     bool minimize_to_tray = false;
+    // Whether the window opens in the tray instead of on screen. Windows alone,
+    // beside minimize_to_tray: it is what makes "Launch at system startup" start
+    // quietly. Ignored when no tray can hold the window — it is shown then, or it
+    // would start invisible with nothing to bring it back.
+    bool start_minimized = false;
     bool killswitch_enabled = true;
     // Whether the VPN config's own killswitch_allow_ports reach the core: the
     // ports the Windows kill switch lets through. Off, the helper drops them like

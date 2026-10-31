@@ -36,7 +36,7 @@ private:
 
 } // namespace
 
-void setupWindowsChrome(QQuickWindow *window)
+void setupWindowsChrome(QQuickWindow *window, bool startHidden)
 {
     if (!window)
         return;
@@ -81,7 +81,14 @@ void setupWindowsChrome(QQuickWindow *window)
     // constraint applied before setup() is computed the old way and comes out wrong
     // (its README, and issue #76, where the window came out 31 px too tall).
     window->setMinimumSize(QSize(400, 460));
-    window->show();
+    // "Start minimized": the window is created (and the tray icon with it) but
+    // never shown, so a launch at logon leaves no window on screen. Only with a
+    // tray to hold it — a hidden window nothing can bring back is worse than one
+    // that opened. The tray icon reports itself through its "available" property.
+    const QObject *tray = window->findChild<QObject *>(QStringLiteral("systemTray"));
+    const bool trayCanHoldWindow = tray && tray->property("available").toBool();
+    if (!startHidden || !trayCanHoldWindow)
+        window->show();
 }
 
 } // namespace freetunnel

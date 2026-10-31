@@ -307,7 +307,7 @@ std::optional<int> wireGuiApplication(QGuiApplication &app, int argc, char *argv
 
 #if defined(Q_OS_WIN) && defined(FT_HAVE_QWINDOWKIT)
     if (windowsAgent) {
-        setupWindowsChrome(qobject_cast<QQuickWindow *>(out->win));
+        setupWindowsChrome(qobject_cast<QQuickWindow *>(out->win), backend.startMinimized());
         step("windows-chrome");
     }
 #endif
