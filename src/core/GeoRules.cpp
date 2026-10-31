@@ -434,8 +434,13 @@ GeoSource parseGeoSource(const QString &spec, QString *why)
 {
     GeoSource out;
     const QUrl url(spec.trimmed(), QUrl::StrictMode);
-    if (!url.isValid() || url.scheme().compare(QLatin1String("https"), Qt::CaseInsensitive) != 0
-        || url.host().isEmpty()) {
+    bool https = url.scheme().compare(QLatin1String("https"), Qt::CaseInsensitive) == 0;
+#ifdef FT_ENABLE_TEST_HOOKS
+    // The tests' HTTP server, on the loopback address alone. Compiled out of
+    // release builds.
+    https = https || (url.scheme() == QLatin1String("http") && url.host() == QLatin1String("127.0.0.1"));
+#endif
+    if (!url.isValid() || !https || url.host().isEmpty()) {
         if (why)
             *why = QStringLiteral("not an https address");
         return out;

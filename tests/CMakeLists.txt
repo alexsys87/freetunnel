@@ -416,6 +416,17 @@ target_include_directories(test_georules PRIVATE ../include ../include/core)
 target_link_libraries(test_georules PRIVATE Qt6::Core Qt6::Network Qt6::Test)
 add_test(NAME georules COMMAND test_georules -o ${CMAKE_CURRENT_BINARY_DIR}/report-georules.txt,txt)
 
+add_executable(test_geolistupdater
+    test_geolistupdater.cpp
+    mock_http_server.cpp
+    ../src/core/GeoListUpdater.cpp
+    ../src/core/GeoRules.cpp
+    ../include/core/GeoListUpdater.h
+)
+target_include_directories(test_geolistupdater PRIVATE . ../include ../include/core)
+target_link_libraries(test_geolistupdater PRIVATE Qt6::Core Qt6::Network Qt6::Test)
+add_test(NAME geolistupdater COMMAND test_geolistupdater -o ${CMAKE_CURRENT_BINARY_DIR}/report-geolistupdater.txt,txt)
+
 add_executable(test_configpaths
     test_configpaths.cpp
     ../src/core/ConfigPaths.cpp
