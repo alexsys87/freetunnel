@@ -20,6 +20,9 @@ compare link at the bottom of its release notes.
   the taskbar, so the VPN keeps running with the window out of the way.
 - Windows: connecting no longer asks for administrator rights through UAC
   every time; the installer sets up a helper service the app starts itself.
+- Windows: routing by geo lists. Only what is blocked in Russia goes through
+  the VPN, out of the box; or everything but Russian sites; or everything.
+  The lists are downloaded and kept up to date by FreeTunnel.
 - Linux: launches and links reach FreeTunnel after an AppImage update, and from
   outside the desktop session.
 
@@ -74,6 +77,25 @@ compare link at the bottom of its release notes.
   front of whatever the user is doing. Off by default. It is ignored when
   there is no tray to bring the window back from, which is also the only
   reason the window is shown in that case.
+- **Windows: routing by geo lists.** **Routing**, at the top of the Split
+  tunnelling page, chooses between *Only blocked sites through VPN* (sites
+  and addresses blocked in Russia go through the tunnel, everything else
+  directly), *Everything through VPN except Russian sites*, and *Everything
+  through VPN* (the page's own rules alone, as before).
+  - A new install starts on *Only blocked sites through VPN*; one that
+    already had settings stays on *Everything through VPN* until it is
+    changed.
+  - The lists come from runetfreedom (Russia's block lists) and v2fly
+    (category-ru), are checked once a day and with **Update now**, and can
+    be replaced under **Sources…** by any https text list or V2Ray
+    geosite/geoip `.dat` file with its category after `#`.
+  - Until the lists are in, everything goes through the VPN. A damaged
+    download, or one that does not match its published SHA-256, never
+    replaces a good list.
+  - Your own rules and programs point the same way as the lists.
+- **Windows, macOS and Linux: the helper takes rule lists of megabytes.** A
+  line from the app may be up to 16 MB once it has proved its token (512 KB
+  before), and is read in linear time.
 - **Windows: connecting no longer shows a UAC prompt.** The installer
   registers the FreeTunnel VPN helper service (`FreeTunnelHelper`), which runs
   the VPN tunnel as LocalSystem. The app starts it when it connects, and it

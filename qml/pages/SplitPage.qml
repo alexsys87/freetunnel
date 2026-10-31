@@ -13,6 +13,12 @@ Item {
     // The built-in profile is stored as "Default" and shown in the UI's language.
     function profileLabel(name) { return name === "Default" ? qsTr("Default") : name }
 
+    // Geo routing (Windows): when it is on, it decides which way the rules below
+    // point, and the page's own Mode is not used.
+    readonly property bool geoOn: backend.geoRoutingAvailable && backend.geoMode !== "off"
+    readonly property bool rulesSelective: geoOn ? backend.geoMode === "blocked" : backend.vpnMode === "selective"
+    property bool geoSourcesOpen: false
+
     // Clicking empty page area clears focus from a text field.
     TapHandler { onTapped: splitRoot.forceActiveFocus() }
     Flickable {
@@ -26,12 +32,146 @@ Item {
             anchors.leftMargin: 18; anchors.rightMargin: 18
             spacing: 0
             Item { Layout.preferredHeight: 10 }
+            // ----- Routing by geo lists (Windows) -----
+            // Three rows with a line of explanation each, rather than a dropdown:
+            // what each choice sends around the tunnel is the whole question, and
+            // a dropdown's value column has no room to say it.
+            SectionLabel { text: qsTr("Routing"); theme: splitRoot.theme; visible: backend.geoRoutingAvailable }
+            Repeater {
+                model: backend.geoRoutingAvailable ? [
+                    { v: "blocked", t: qsTr("Only blocked sites through VPN"),
+                      d: qsTr("Sites blocked in Russia go through the VPN. Russian sites, and everything that opens without a VPN, go direct.") },
+                    { v: "except_ru", t: qsTr("Everything through VPN except Russian sites"),
+                      d: qsTr("Russian sites and addresses go direct; everything else goes through the VPN.") },
+                    { v: "off", t: qsTr("Everything through VPN"),
+                      d: qsTr("Only your own rules below decide what goes around the tunnel.") }
+                ] : []
+                Rectangle {
+                    id: geoRow
+                    required property var modelData
+                    readonly property bool chosen: backend.geoMode === modelData.v
+                    objectName: "geoMode_" + modelData.v
+                    Layout.fillWidth: true; Layout.topMargin: 4
+                    Layout.preferredHeight: geoRowText.implicitHeight + 16
+                    radius: 8
+                    color: chosen ? theme.surface : (geoRowMa.containsMouse ? theme.surfaceHover : "transparent")
+                    border.width: 1; border.color: chosen ? theme.accent : theme.border
+                    Behavior on color { ColorAnimation { duration: 120 } }
+                    Rectangle {
+                        id: geoDot
+                        width: 14; height: 14; radius: 7
+                        anchors.left: parent.left; anchors.leftMargin: 10
+                        anchors.top: parent.top; anchors.topMargin: 10
+                        color: "transparent"; border.width: 2
+                        border.color: geoRow.chosen ? theme.accent : theme.textFaint
+                        Rectangle { anchors.centerIn: parent; width: 6; height: 6; radius: 3
+                                    color: theme.accent; visible: geoRow.chosen }
+                    }
+                    Column {
+                        id: geoRowText
+                        anchors.left: geoDot.right; anchors.leftMargin: 10
+                        anchors.right: parent.right; anchors.rightMargin: 10
+                        anchors.verticalCenter: parent.verticalCenter
+                        spacing: 2
+                        Text { width: parent.width; wrapMode: Text.WordWrap
+                               text: geoRow.modelData.t; color: theme.text; font.pixelSize: 13 }
+                        Text { width: parent.width; wrapMode: Text.WordWrap
+                               text: geoRow.modelData.d; color: theme.textFaint; font.pixelSize: 11 }
+                    }
+                    MouseArea { id: geoRowMa; anchors.fill: parent; hoverEnabled: true
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: backend.geoMode = geoRow.modelData.v }
+                }
+            }
+            // Where the lists are: in, being downloaded, or not in yet and what the
+            // tunnel does until they are.
+            Text {
+                objectName: "geoStatus"
+                Layout.fillWidth: true; Layout.topMargin: 6
+                visible: splitRoot.geoOn && text.length > 0
+                wrapMode: Text.WordWrap; font.pixelSize: 12
+                text: backend.geoStatus
+                color: backend.geoActive ? theme.textDim : theme.warn
+            }
+            RowLayout { Layout.fillWidth: true; Layout.topMargin: 4; spacing: 14
+                visible: splitRoot.geoOn
+                Text { Layout.fillWidth: true; Layout.minimumWidth: 0; Layout.maximumWidth: Math.ceil(implicitWidth); elide: Text.ElideRight
+                       objectName: "geoUpdateNow"
+                       text: qsTr("Update now"); font.pixelSize: 12
+                       color: backend.geoBusy ? theme.textFaint : (geoUpdMa.containsMouse ? theme.text : theme.accent)
+                       font.underline: geoUpdMa.containsMouse && !backend.geoBusy
+                    MouseArea { id: geoUpdMa; anchors.fill: parent; anchors.margins: -4; hoverEnabled: true
+                        enabled: !backend.geoBusy
+                        cursorShape: Qt.PointingHandCursor; onClicked: backend.updateGeoLists() } }
+                Text { Layout.fillWidth: true; Layout.minimumWidth: 0; Layout.maximumWidth: Math.ceil(implicitWidth); elide: Text.ElideRight
+                       objectName: "geoSourcesLink"
+                       text: splitRoot.geoSourcesOpen ? qsTr("Hide sources") : qsTr("Sources…"); font.pixelSize: 12
+                       color: geoSrcMa.containsMouse ? theme.text : theme.accent; font.underline: geoSrcMa.containsMouse
+                    MouseArea { id: geoSrcMa; anchors.fill: parent; anchors.margins: -4; hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor; onClicked: splitRoot.geoSourcesOpen = !splitRoot.geoSourcesOpen } }
+                Item { Layout.fillWidth: true }
+            }
+            // The two lists the chosen mode uses: any https text list, or a .dat
+            // file with its category after '#'. Applied on Enter or when the field
+            // is left; an address that is not one is refused with the reason.
+            ColumnLayout {
+                Layout.fillWidth: true; Layout.topMargin: 6; spacing: 4
+                visible: splitRoot.geoOn && splitRoot.geoSourcesOpen
+                Text { text: qsTr("Sites list"); color: theme.textDim; font.pixelSize: 12 }
+                Rectangle {
+                    Layout.fillWidth: true; Layout.preferredHeight: 34; radius: 8
+                    color: theme.inputBg; border.width: 1
+                    border.color: geoSitesInput.activeFocus ? theme.accent : theme.inputBorder
+                    TextInput {
+                        id: geoSitesInput
+                        objectName: "geoSitesInput"
+                        anchors.fill: parent; anchors.leftMargin: 10; anchors.rightMargin: 10
+                        verticalAlignment: TextInput.AlignVCenter; clip: true
+                        font.pixelSize: 12; color: theme.text
+                        text: backend.geoSitesSource
+                        onEditingFinished: if (text !== backend.geoSitesSource && !backend.setGeoSitesSource(text)) text = Qt.binding(function() { return backend.geoSitesSource })
+                        Keys.onEscapePressed: { text = Qt.binding(function() { return backend.geoSitesSource }); focus = false }
+                    }
+                }
+                Text { text: qsTr("Addresses list"); color: theme.textDim; font.pixelSize: 12; Layout.topMargin: 4 }
+                Rectangle {
+                    Layout.fillWidth: true; Layout.preferredHeight: 34; radius: 8
+                    color: theme.inputBg; border.width: 1
+                    border.color: geoAddrInput.activeFocus ? theme.accent : theme.inputBorder
+                    TextInput {
+                        id: geoAddrInput
+                        objectName: "geoAddressesInput"
+                        anchors.fill: parent; anchors.leftMargin: 10; anchors.rightMargin: 10
+                        verticalAlignment: TextInput.AlignVCenter; clip: true
+                        font.pixelSize: 12; color: theme.text
+                        text: backend.geoAddressesSource
+                        onEditingFinished: if (text !== backend.geoAddressesSource && !backend.setGeoAddressesSource(text)) text = Qt.binding(function() { return backend.geoAddressesSource })
+                        Keys.onEscapePressed: { text = Qt.binding(function() { return backend.geoAddressesSource }); focus = false }
+                    }
+                }
+                RowLayout { Layout.fillWidth: true; Layout.topMargin: 4; spacing: 10
+                    Text { Layout.fillWidth: true; Layout.minimumWidth: 0; wrapMode: Text.WordWrap
+                           text: qsTr("Check for new lists every day"); color: theme.text; font.pixelSize: 13 }
+                    Toggle { objectName: "geoAutoUpdateToggle"; accent: theme.accent; offColor: theme.toggleOff
+                             checked: backend.geoAutoUpdate; onToggled: function(v){ backend.geoAutoUpdate = v } }
+                }
+                Text { Layout.fillWidth: true; Layout.minimumWidth: 0; Layout.maximumWidth: Math.ceil(implicitWidth); elide: Text.ElideRight
+                       visible: backend.geoSourcesCustomized
+                       text: qsTr("Restore the default lists"); font.pixelSize: 12
+                       color: geoRstMa.containsMouse ? theme.text : theme.accent; font.underline: geoRstMa.containsMouse
+                    MouseArea { id: geoRstMa; anchors.fill: parent; anchors.margins: -4; hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor; onClicked: backend.resetGeoSources() } }
+            }
+            Item { Layout.preferredHeight: 8; visible: backend.geoRoutingAvailable }
             RowLayout { Layout.fillWidth: true; Layout.preferredHeight: 42
                 Text { text: qsTr("Split Tunneling"); color: theme.text; font.pixelSize: 14 }
                 Item { Layout.fillWidth: true }
                 Toggle { accent: theme.accent; offColor: theme.toggleOff; checked: backend.splitEnabled; onToggled: function(v){ backend.splitEnabled = v } }
             }
             Dropdown { label: qsTr("Mode"); value: backend.vpnMode; shell: splitRoot.shell; theme: splitRoot.theme
+                // Under geo routing the chosen routing decides which way the rules
+                // point; this one waits for "Everything through VPN".
+                visible: !splitRoot.geoOn
                 model: [{v:"general",t:qsTr("Bypass VPN")},{v:"selective",t:qsTr("Through VPN")}]
                 onPicked: function(v){ backend.vpnMode = v } }
             // "Through VPN" with no rules would route nothing; the backend keeps the
@@ -139,7 +279,7 @@ Item {
                 // not fill keeps its full width however little room is left, and ran
                 // off the edge. Short of room, they all narrow and elide instead.
                 SectionLabel { Layout.fillWidth: true; Layout.minimumWidth: 0; elide: Text.ElideRight; theme: splitRoot.theme
-                    text: backend.vpnMode === "selective" ? qsTr("Rules — via VPN") : qsTr("Rules — bypass VPN") }
+                    text: splitRoot.rulesSelective ? qsTr("Rules — via VPN") : qsTr("Rules — bypass VPN") }
                 Text { Layout.fillWidth: true; Layout.minimumWidth: 0; Layout.maximumWidth: Math.ceil(implicitWidth); elide: Text.ElideRight
                        text: qsTr("Recommended for Russia"); font.pixelSize: 12
                        color: recMa.containsMouse ? theme.text : theme.accent; font.underline: recMa.containsMouse
@@ -206,7 +346,7 @@ Item {
             // nobody can read with confidence.
             RowLayout { Layout.fillWidth: true; spacing: 10
                 SectionLabel { Layout.fillWidth: true; Layout.minimumWidth: 0; elide: Text.ElideRight; theme: splitRoot.theme
-                    text: backend.vpnMode === "selective" ? qsTr("Applications — via VPN")
+                    text: splitRoot.rulesSelective ? qsTr("Applications — via VPN")
                                                           : qsTr("Applications — bypass VPN") }
                 Text { Layout.fillWidth: true; Layout.minimumWidth: 0; Layout.maximumWidth: Math.ceil(implicitWidth); elide: Text.ElideRight
                        text: qsTr("Choose…"); font.pixelSize: 12

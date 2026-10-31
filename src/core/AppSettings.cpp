@@ -3,6 +3,7 @@
 
 #include <QSettings>
 #include <QStandardPaths>
+#include <QVariantMap>
 
 #include "core/BypassRules.h"
 
@@ -186,6 +187,16 @@ AppSettings loadAppSettings() {
     out.vpn_mode = s.value("bypass/mode", QStringLiteral("general")).toString();
     out.excluded_routes = s.value("routing/excluded_routes", defaultExcludedRoutes()).toStringList();
     out.excluded_routes.removeIf(isEveryAddressRoute);
+    out.geo_mode = s.value("routing/geo_mode", QStringLiteral("off")).toString();
+    if (out.geo_mode != QLatin1String("blocked") && out.geo_mode != QLatin1String("except_ru"))
+        out.geo_mode = QStringLiteral("off");
+    const QVariantMap geoSources = s.value("routing/geo_sources").toMap();
+    for (auto it = geoSources.cbegin(); it != geoSources.cend(); ++it) {
+        const QString source = it.value().toString().trimmed();
+        if (!source.isEmpty())
+            out.geo_sources.insert(it.key(), source);
+    }
+    out.geo_auto_update = s.value("routing/geo_auto_update", true).toBool();
     loadBypassProfiles(s, out); // and, inside it, the per-profile application lists
     loadHotkeys(s, out);
     out.last_config_path = s.value("vpn/last_config_path", "").toString();
@@ -211,6 +222,12 @@ void saveAppSettings(const AppSettings &cfg) {
     s.setValue("bypass/enabled", cfg.domain_bypass_enabled);
     s.setValue("bypass/mode", cfg.vpn_mode);
     s.setValue("routing/excluded_routes", cfg.excluded_routes);
+    s.setValue("routing/geo_mode", cfg.geo_mode);
+    QVariantMap geoSources;
+    for (auto it = cfg.geo_sources.constBegin(); it != cfg.geo_sources.constEnd(); ++it)
+        geoSources.insert(it.key(), it.value());
+    s.setValue("routing/geo_sources", geoSources);
+    s.setValue("routing/geo_auto_update", cfg.geo_auto_update);
     s.setValue("bypass/rules", cfg.domain_bypass_rules); // active mirror (core)
     s.setValue("bypass/active_profile", cfg.active_profile);
     s.setValue("bypass/profile_names", QStringList(cfg.profiles.keys()));
@@ -236,4 +253,14 @@ void saveAppSettings(const AppSettings &cfg) {
     s.setValue("hotkeys/disconnect", cfg.hotkey_disconnect);
     s.setValue("vpn/last_config_path", cfg.last_config_path);
     s.setValue("experimental/subscriptions", cfg.subscriptions_enabled);
+}
+
+void seedFreshInstallSettings()
+{
+#if defined(Q_OS_WIN)
+    QSettings s;
+    if (!s.allKeys().isEmpty())
+        return;
+    s.setValue("routing/geo_mode", QStringLiteral("blocked"));
+#endif
 }

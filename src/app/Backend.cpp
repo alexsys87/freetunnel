@@ -36,6 +36,7 @@ Backend::Backend(QObject *parent) : QObject(parent) {
 
     wireVpnClientSignals();
     m_client.setSessionLogging(m_settings.logging_enabled);
+    startGeoRouting(); // BackendGeo.cpp
 
     m_ticker.setInterval(1000);
     connect(&m_ticker, &QTimer::timeout, this, [this]() { onStatsTick(); });
@@ -468,6 +469,8 @@ void Backend::retranslate()
     }
     if (pingsMoved)
         emit pingsChanged();
+    if (m_geo)
+        emit geoChanged(); // geoStatus is worded here
 }
 
 // Any web page can open a link, so a link that would take the tunnel down, or

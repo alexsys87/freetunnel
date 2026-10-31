@@ -56,6 +56,7 @@ private slots:
     void homePageLoads();
     void configsPageLoads();
     void splitPageLoads();
+    void routingRowsChooseTheModeAndPointTheRules();
     void splitPageNamesApplicationsTheWayThePickerDoes();
     void typingAProgramNameOffersTheProgram();
     void switchingProfileSwitchesTheApplicationList();
@@ -4926,6 +4927,51 @@ void TestQmlUi::theDesktopAsksWhetherTheTrayHasAHost()
     chrome.setTrayHostProbe({});
     icon.setProperty("available", true);
     QVERIFY(chrome.trayCanHoldWindow(&icon));
+}
+
+// Geo routing's three rows set the mode, and under a geo mode the page's own
+// rules are labelled the way the mode points them: through the tunnel under
+// "Only blocked sites", around it under "Except Russian sites". "Update now"
+// asks for an update, but not while one is running.
+void TestQmlUi::routingRowsChooseTheModeAndPointTheRules()
+{
+    const auto restore = qScopeGuard([this]() {
+        m_backend.setGeoMode(QStringLiteral("off"));
+        m_backend.setGeoState(false, false, QString());
+        m_backend.m_geoUpdates = 0;
+    });
+    QObject *root = loadPage("pages/SplitPage.qml");
+    QVERIFY(root);
+    QQuickWindow window;
+    QVERIFY(showInWindow(root, window, 400, 1400));
+
+    auto *blocked = root->findChild<QQuickItem *>(QStringLiteral("geoMode_blocked"));
+    QVERIFY2(blocked && blocked->isVisible(), "the routing rows");
+    QTest::mouseClick(&window, Qt::LeftButton, Qt::NoModifier, centreOf(blocked));
+    QCOMPARE(m_backend.geoMode(), QStringLiteral("blocked"));
+    QTRY_VERIFY(everyText(root).contains(QStringLiteral("Rules — via VPN")));
+
+    m_backend.setGeoState(false, true, QStringLiteral("Downloading the lists…"));
+    auto *status = root->findChild<QQuickItem *>(QStringLiteral("geoStatus"));
+    QVERIFY(status);
+    QTRY_VERIFY(status->isVisible());
+    auto *update = root->findChild<QQuickItem *>(QStringLiteral("geoUpdateNow"));
+    QVERIFY(update && update->isVisible());
+    QTest::mouseClick(&window, Qt::LeftButton, Qt::NoModifier, centreOf(update));
+    QCOMPARE(m_backend.m_geoUpdates, 0); // one is already running
+    m_backend.setGeoState(true, false, QStringLiteral("2 sites and 1 addresses"));
+    QTest::mouseClick(&window, Qt::LeftButton, Qt::NoModifier, centreOf(update));
+    QCOMPARE(m_backend.m_geoUpdates, 1);
+
+    m_backend.setGeoMode(QStringLiteral("except_ru"));
+    QTRY_VERIFY(everyText(root).contains(QStringLiteral("Rules — bypass VPN")));
+
+    auto *off = root->findChild<QQuickItem *>(QStringLiteral("geoMode_off"));
+    QVERIFY(off);
+    QTest::mouseClick(&window, Qt::LeftButton, Qt::NoModifier, centreOf(off));
+    QCOMPARE(m_backend.geoMode(), QStringLiteral("off"));
+    QTRY_VERIFY(!status->isVisible());
+    delete root;
 }
 
 int main(int argc, char *argv[])

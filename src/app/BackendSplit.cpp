@@ -15,6 +15,7 @@
 
 #include "core/AppSettings.h"
 #include "core/BypassRules.h"
+#include "core/GeoListUpdater.h"
 
 #include <algorithm>
 #include <iterator>
@@ -475,6 +476,9 @@ bool Backend::selectiveModeActive() const {
 }
 
 bool Backend::selectiveModeWouldLeak() const {
+    // Under geo routing the page's own mode is not used (applySplitRules).
+    if (effectiveGeoMode() != freetunnel::GeoRoutingMode::Off)
+        return false;
     return m_settings.domain_bypass_enabled
             && m_settings.vpn_mode == QLatin1String("selective")
             && !selectiveModeActive();
@@ -510,17 +514,36 @@ void Backend::applySplitRules(bool warnOfLeak) {
                        std::back_inserter(appRules),
                        [](const QString &r) { return r.toStdString(); });
     }
-    // "selective" routes ONLY the listed rules through the tunnel, so an empty list
-    // routes nothing — every byte leaves in the clear while the UI still says
-    // Connected. That is a VPN failing open, and it is easy to reach: a fresh
-    // install has an empty Default profile, "Clear all" empties the active one, and
-    // addProfile() creates an empty profile. Fall back to the full tunnel, which is
-    // the safe direction, and let the caller tell the user why.
-    //
-    // One command for the rules, the mode and the programs. A running session
-    // takes them live, and sent one by one they would route it, for a moment, by
-    // a mix of old and new: the domain list of one with the mode of the other.
-    m_client.setSplitRouting(ex, selectiveModeActive(), appRules);
+    // Geo routing decides the mode, and the user's own rules point the same way
+    // as its lists: under "blocked" they are more of what goes through the tunnel,
+    // under "except_ru" more of what goes around it. Until the mode's lists are
+    // in, nothing is routed by a list: the full tunnel, and under "except_ru" the
+    // user's own exceptions to it. Under "blocked" those rules would add to a
+    // tunnel that already takes everything, so they are left out.
+    const freetunnel::GeoRoutingMode geoMode = effectiveGeoMode();
+    if (geoMode != freetunnel::GeoRoutingMode::Off) {
+        const bool ready = geoModeInUse() == geoMode;
+        if (!ready && geoMode == freetunnel::GeoRoutingMode::Blocked) {
+            ex.clear();
+            appRules.clear();
+        }
+        m_client.setGeoRouting(ready ? m_geo->entries() : QString(), ready);
+        m_client.setSplitRouting(ex, ready && geoMode == freetunnel::GeoRoutingMode::Blocked, appRules);
+    } else {
+        // "selective" routes ONLY the listed rules through the tunnel, so an empty
+        // list routes nothing — every byte leaves in the clear while the UI still
+        // says Connected. That is a VPN failing open, and it is easy to reach: a
+        // fresh install has an empty Default profile, "Clear all" empties the
+        // active one, and addProfile() creates an empty profile. Fall back to the
+        // full tunnel, which is the safe direction, and let the caller tell the
+        // user why.
+        //
+        // One command for the rules, the mode and the programs. A running session
+        // takes them live, and sent one by one they would route it, for a moment,
+        // by a mix of old and new: the domain list of one with the mode of the other.
+        m_client.setGeoRouting(QString(), false);
+        m_client.setSplitRouting(ex, selectiveModeActive(), appRules);
+    }
     std::vector<std::string> routes;
     routes.reserve(static_cast<size_t>(m_settings.excluded_routes.size()));
     std::transform(m_settings.excluded_routes.cbegin(), m_settings.excluded_routes.cend(),

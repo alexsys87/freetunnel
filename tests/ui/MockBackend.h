@@ -46,6 +46,17 @@ class MockBackend : public QObject {
     // Derived here the same way, so the page under test sees the real relationship
     // rather than a constant.
     Q_PROPERTY(bool selectiveModeWouldLeak READ selectiveModeWouldLeak NOTIFY splitChanged)
+    // Geo routing, as Backend has it. Available here unless a test says not:
+    // the page's geo rows are what the tests look at.
+    Q_PROPERTY(bool geoRoutingAvailable READ geoRoutingAvailable CONSTANT)
+    Q_PROPERTY(QString geoMode READ geoMode WRITE setGeoMode NOTIFY geoChanged)
+    Q_PROPERTY(bool geoActive READ geoActive NOTIFY geoChanged)
+    Q_PROPERTY(bool geoBusy READ geoBusy NOTIFY geoChanged)
+    Q_PROPERTY(QString geoStatus READ geoStatus NOTIFY geoChanged)
+    Q_PROPERTY(bool geoAutoUpdate READ geoAutoUpdate WRITE setGeoAutoUpdate NOTIFY geoChanged)
+    Q_PROPERTY(QString geoSitesSource READ geoSitesSource NOTIFY geoChanged)
+    Q_PROPERTY(QString geoAddressesSource READ geoAddressesSource NOTIFY geoChanged)
+    Q_PROPERTY(bool geoSourcesCustomized READ geoSourcesCustomized NOTIFY geoChanged)
     Q_PROPERTY(QString activeConfigProfile MEMBER m_activeConfigProfile NOTIFY splitChanged)
     Q_PROPERTY(QStringList domains READ domains NOTIFY splitChanged)
     Q_PROPERTY(QStringList excludedRoutes READ excludedRoutes NOTIFY splitChanged)
@@ -144,8 +155,65 @@ public:
     QString vpnMode() const { return m_vpnMode; }
     bool selectiveModeWouldLeak() const
     {
-        return m_splitEnabled && m_vpnMode == QLatin1String("selective") && m_domains.isEmpty();
+        return m_geoMode == QLatin1String("off") && m_splitEnabled
+                && m_vpnMode == QLatin1String("selective") && m_domains.isEmpty();
     }
+
+    // Set before the page is loaded: CONSTANT on Backend.
+    bool m_geoRoutingAvailableForTests = true;
+    bool geoRoutingAvailable() const { return m_geoRoutingAvailableForTests; }
+    QString geoMode() const { return m_geoMode; }
+    void setGeoMode(const QString &v)
+    {
+        if (m_geoMode == v)
+            return;
+        m_geoMode = v;
+        emit geoChanged();
+        emit splitChanged();
+    }
+    bool geoActive() const { return m_geoActive; }
+    bool geoBusy() const { return m_geoBusy; }
+    QString geoStatus() const { return m_geoStatus; }
+    // What a test puts on the status line.
+    void setGeoState(bool active, bool busy, const QString &status)
+    {
+        m_geoActive = active;
+        m_geoBusy = busy;
+        m_geoStatus = status;
+        emit geoChanged();
+    }
+    bool geoAutoUpdate() const { return m_geoAutoUpdate; }
+    void setGeoAutoUpdate(bool v)
+    {
+        if (m_geoAutoUpdate == v)
+            return;
+        m_geoAutoUpdate = v;
+        emit geoChanged();
+    }
+    QString geoSitesSource() const { return m_geoSitesSource; }
+    QString geoAddressesSource() const { return m_geoAddressesSource; }
+    bool geoSourcesCustomized() const { return m_geoSourcesCustomized; }
+    Q_INVOKABLE bool setGeoSitesSource(const QString &source)
+    {
+        m_geoSitesSource = source;
+        m_geoSourcesCustomized = true;
+        emit geoChanged();
+        return true;
+    }
+    Q_INVOKABLE bool setGeoAddressesSource(const QString &source)
+    {
+        m_geoAddressesSource = source;
+        m_geoSourcesCustomized = true;
+        emit geoChanged();
+        return true;
+    }
+    Q_INVOKABLE void resetGeoSources()
+    {
+        m_geoSourcesCustomized = false;
+        emit geoChanged();
+    }
+    Q_INVOKABLE void updateGeoLists() { ++m_geoUpdates; }
+    int m_geoUpdates = 0; // how many times the page asked for an update
     void setVpnMode(const QString &v);
     QStringList domains() const { return m_domains; }
     void setDomains(const QStringList &d) { m_domains = d; emit splitChanged(); }
@@ -343,6 +411,7 @@ signals:
     void configsChanged();
     void settingsChanged();
     void splitChanged();
+    void geoChanged();
     void hotkeysChanged();
     void hotkeyAvailabilityChanged();
     void updateChanged();
@@ -382,6 +451,14 @@ private:
     LogModel m_logModel;
     bool m_splitEnabled = false;
     QString m_vpnMode = QStringLiteral("general");
+    QString m_geoMode = QStringLiteral("off");
+    bool m_geoActive = false;
+    bool m_geoBusy = false;
+    QString m_geoStatus;
+    bool m_geoAutoUpdate = true;
+    QString m_geoSitesSource = QStringLiteral("https://example.com/ru-blocked.txt");
+    QString m_geoAddressesSource = QStringLiteral("https://example.com/geoip.dat#ru-blocked");
+    bool m_geoSourcesCustomized = false;
     QStringList m_domains;
     QStringList m_excludedRoutes = {QStringLiteral("10.0.0.0/8")};
     // One bare name and one long path, so the page is rendered with both

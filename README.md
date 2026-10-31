@@ -179,6 +179,46 @@ switch at the top of the page:
 Under *Through VPN* with no rule that can be used, FreeTunnel keeps the full
 tunnel and the page says so, rather than send everything around it.
 
+### Routing by geo lists (Windows)
+
+On Windows, **Routing** at the top of the page decides what goes through the
+tunnel by lists of what is blocked in Russia, or of Russian sites, that
+FreeTunnel downloads and keeps up to date:
+
+| Routing | Through the tunnel | Around it |
+| --- | --- | --- |
+| *Only blocked sites through VPN* (a new install's choice) | sites and addresses blocked in Russia, and your own rules | everything else: Russian sites, and whatever opens without a VPN |
+| *Everything through VPN except Russian sites* | everything else | Russian sites and addresses, and your own rules |
+| *Everything through VPN* | everything | only what your own rules send around it, with the **Mode** switch as above |
+
+- Under the first two, your rules and programs point the same way as the lists,
+  and the **Mode** switch is not used.
+- Until the lists are downloaded, everything goes through the VPN, and the page
+  says so.
+- The lists are checked again once a day (**Sources…**, *Check for new lists
+  every day*), and with **Update now**. A list that is unchanged since the last
+  download, by the SHA-256 published beside it, is not downloaded again; a
+  download that is damaged, or does not match that SHA-256, never replaces a
+  good list.
+- An install that already had settings stays on *Everything through VPN* until
+  you choose otherwise.
+
+The default lists, under **Sources…**:
+
+| List | Default source |
+| --- | --- |
+| Blocked sites | [runetfreedom/russia-blocked-geosite](https://github.com/runetfreedom/russia-blocked-geosite) `ru-blocked.txt` |
+| Blocked addresses | [runetfreedom/russia-blocked-geoip](https://github.com/runetfreedom/russia-blocked-geoip) `geoip.dat`, category `ru-blocked` |
+| Russian sites | [v2fly/domain-list-community](https://github.com/v2fly/domain-list-community) `dlc.dat`, category `category-ru` |
+| Russian addresses | [runetfreedom/russia-blocked-geoip](https://github.com/runetfreedom/russia-blocked-geoip) `geoip.dat`, category `ru` |
+
+Any of them can be replaced by the https address of another list: a text list
+(V2Ray's `domain:`/`full:` lines, bare domains, addresses and subnets), or a
+V2Ray `geosite.dat`/`geoip.dat` file with the category after a `#`, as in
+`https://example.com/geoip.dat#ru-blocked`. Keyword and regular-expression
+entries are skipped: the VPN core matches neither. A list that sends traffic
+around the tunnel may not name a subnet wider than /8 (IPv4) or /16 (IPv6).
+
 ### Changes while connected
 
 Every change on this page, turning split tunnelling on or off included, reaches

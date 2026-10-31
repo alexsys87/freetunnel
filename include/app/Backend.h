@@ -33,6 +33,8 @@ struct HeldSubscriptionUpdate;
 class UpdateChecker;
 
 namespace freetunnel {
+class GeoListUpdater;
+enum class GeoRoutingMode;
 struct ConfigToml;
 struct ControlCommand;
 struct PreparedImport;
@@ -67,6 +69,20 @@ class Backend : public QObject {
     // tunnel is kept full in that state (see selectiveModeActive), so this is what
     // the UI needs in order to explain why the chosen mode is not in effect.
     Q_PROPERTY(bool selectiveModeWouldLeak READ selectiveModeWouldLeak NOTIFY splitChanged)
+    // Geo routing (BackendGeo.cpp; core/GeoListUpdater.h). Only where it is
+    // offered, Windows for now: elsewhere geoMode is always "off".
+    Q_PROPERTY(bool geoRoutingAvailable READ geoRoutingAvailable CONSTANT)
+    Q_PROPERTY(QString geoMode READ geoMode WRITE setGeoMode NOTIFY geoChanged) // off|blocked|except_ru
+    // Whether the lists are what the tunnel routes by right now: false while they
+    // are being downloaded or read, when the tunnel routes as geoStatus says.
+    Q_PROPERTY(bool geoActive READ geoActive NOTIFY geoChanged)
+    Q_PROPERTY(bool geoBusy READ geoBusy NOTIFY geoChanged)
+    Q_PROPERTY(QString geoStatus READ geoStatus NOTIFY geoChanged)
+    Q_PROPERTY(bool geoAutoUpdate READ geoAutoUpdate WRITE setGeoAutoUpdate NOTIFY geoChanged)
+    // The current mode's two sources, and whether either is not its default.
+    Q_PROPERTY(QString geoSitesSource READ geoSitesSource NOTIFY geoChanged)
+    Q_PROPERTY(QString geoAddressesSource READ geoAddressesSource NOTIFY geoChanged)
+    Q_PROPERTY(bool geoSourcesCustomized READ geoSourcesCustomized NOTIFY geoChanged)
     // The split profile the active CONFIG uses. It decides what the tunnel does,
     // and it need not be the one the Split page is showing.
     Q_PROPERTY(QString activeConfigProfile READ activeConfigProfile NOTIFY splitChanged)
@@ -206,6 +222,25 @@ public:
     void setVpnMode(const QString &mode);
     bool selectiveModeActive() const;    // what the core is actually told
     bool selectiveModeWouldLeak() const; // selected, but with no rules to route
+
+    bool geoRoutingAvailable() const;
+    QString geoMode() const;
+    void setGeoMode(const QString &mode);
+    bool geoActive() const;
+    bool geoBusy() const;
+    QString geoStatus() const;
+    bool geoAutoUpdate() const { return m_settings.geo_auto_update; }
+    void setGeoAutoUpdate(bool v);
+    QString geoSitesSource() const;
+    QString geoAddressesSource() const;
+    bool geoSourcesCustomized() const;
+    // A source for the current mode's sites or addresses: an https address of a
+    // text list, or of a .dat file with the category after '#'. Empty restores
+    // the default. False, and errorOccurred() saying why, when it is not one.
+    Q_INVOKABLE bool setGeoSitesSource(const QString &source);
+    Q_INVOKABLE bool setGeoAddressesSource(const QString &source);
+    Q_INVOKABLE void resetGeoSources();
+    Q_INVOKABLE void updateGeoLists();
     QString activeConfigProfile() const; // split profile assigned to the active config
     Q_INVOKABLE bool addDomain(const QString &domain); // accepts a list; true if any added
     Q_INVOKABLE void removeDomain(int index);
@@ -320,6 +355,7 @@ signals:
     void configsChanged();
     void settingsChanged();
     void splitChanged();
+    void geoChanged();
     void hotkeysChanged();
     void hotkeyAvailabilityChanged();
     void updateChanged();
@@ -346,6 +382,12 @@ private:
     void reloadConfigs();
     void persistSettings();
     void applySplitRules(bool warnOfLeak = true); // push the active CONFIG's profile rules to the core
+    // Geo routing (BackendGeo.cpp): the mode in force here (off where geo routing
+    // is not offered), and that mode once its lists are ready to route by.
+    freetunnel::GeoRoutingMode effectiveGeoMode() const;
+    freetunnel::GeoRoutingMode geoModeInUse() const;
+    void startGeoRouting();
+    bool setGeoSource(bool sites, const QString &source);
     void applyProfileEdit(); // persist, apply and announce an edit to the Split page's profile
     void reconnectActiveConfig(); // disconnect then reconnect (config switch / live rule apply)
     void startConnectAttempt();   // connectVpn() past its "already busy" check
@@ -490,6 +532,10 @@ private:
     void noteUnavailableHotkeys();
 
     UpdateChecker *m_updater = nullptr;
+    // Geo routing's lists (BackendGeo.cpp). Created with Backend; idle while the
+    // mode is off.
+    freetunnel::GeoListUpdater *m_geo = nullptr;
+    bool m_geoWasBusy = false;
     // Owned by the application, not by us; see setInstanceServer().
     QPointer<QLocalServer> m_instanceServer;
     bool m_updateCheckUserInitiated = false;

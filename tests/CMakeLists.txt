@@ -213,6 +213,10 @@ set(APP_STARTUP_TEST_SOURCES
     ../include/core/SubscriptionFetcher.h
     ../src/core/SubscriptionStore.cpp
     ../src/app/BackendSplit.cpp
+    ../src/app/BackendGeo.cpp
+    ../src/core/GeoListUpdater.cpp
+    ../src/core/GeoRules.cpp
+    ../include/core/GeoListUpdater.h
     ../src/app/LogModel.cpp
     ../include/app/LogModel.h
     ../src/core/AppSettings.cpp
@@ -285,6 +289,10 @@ set(BACKEND_IMPORT_TEST_SOURCES
     ../include/core/SubscriptionFetcher.h
     ../src/core/SubscriptionStore.cpp
     ../src/app/BackendSplit.cpp
+    ../src/app/BackendGeo.cpp
+    ../src/core/GeoListUpdater.cpp
+    ../src/core/GeoRules.cpp
+    ../include/core/GeoListUpdater.h
     ../src/app/LogModel.cpp
     ../include/app/LogModel.h
     ../src/core/AppSettings.cpp
@@ -774,6 +782,8 @@ set(BACKEND_TEST_SOURCES
     test_integration_backend_vpn.cpp
     helper_ipc_mock_server.cpp
     helper_ipc_mock_server.h
+    mock_http_server.cpp
+    mock_http_server.h
     ../i18n/i18n.qrc
     ../src/app/Backend.cpp
     ../src/app/BackendConnect.cpp
@@ -795,6 +805,10 @@ set(BACKEND_TEST_SOURCES
     ../include/core/SubscriptionFetcher.h
     ../src/core/SubscriptionStore.cpp
     ../src/app/BackendSplit.cpp
+    ../src/app/BackendGeo.cpp
+    ../src/core/GeoListUpdater.cpp
+    ../src/core/GeoRules.cpp
+    ../include/core/GeoListUpdater.h
     ../src/app/LogModel.cpp
     ../include/app/LogModel.h
     ../src/core/AppSettings.cpp
