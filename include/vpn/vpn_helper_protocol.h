@@ -47,4 +47,12 @@ inline bool tokensEqual(const QString &a, const QString &b)
 // Connect payloads carry full TOML (certs can be large).
 inline constexpr int kMaxIpcLineBytes = 512 * 1024;
 
+// One line from the GUI once it has authenticated. setGeoRules carries the geo
+// lists, which run to a few megabytes (the default ones to about 4 MB: 75,000
+// domains and 90,000 subnets); the cap leaves room for longer lists of the same
+// kind. It holds only on the authenticated channel: before that, a line is
+// capped at kMaxIpcLineBytes, so a peer without the token still cannot make the
+// helper buffer more than that.
+inline constexpr int kMaxAuthedIpcLineBytes = 16 * 1024 * 1024;
+
 } // namespace vpn_helper

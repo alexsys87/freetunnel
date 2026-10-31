@@ -56,6 +56,10 @@ public:
     // nothing is routed by half of an edit.
     void setSplitRouting(const std::vector<std::string> &exclusions, bool selective,
                          const std::vector<std::string> &appRules);
+    // The geo list (core/GeoRules.h: entries one per line) and whether the next
+    // setSplitRouting() routes by it. Nothing is sent from here: the list goes out
+    // with the split routing it belongs to, and only when it has changed.
+    void setGeoRouting(const QString &entries, bool useGeo);
     void setKillSwitch(bool enabled);
     // Whether the config's own kill-switch exceptions apply. The helper drops
     // them unless this says otherwise.
@@ -105,6 +109,11 @@ private:
     void abortStartup();
     void clearTokenFile();
     void send(const QJsonObject &obj);
+    // setSplitRouting's command, preceded by the geo list when that has changed.
+    void sendSplitRouting();
+    void forgetHelperGeo();
+    void sendSplitRoutingCommand(const std::vector<std::string> &exclusions, bool selective,
+                                 const std::vector<std::string> &appRules, bool useGeo);
     void onReadyRead();
     void onSocketConnected();
     void handleEvent(const QJsonObject &ev);
@@ -139,6 +148,14 @@ private:
     std::vector<std::string> m_excludedRoutes;
     bool m_selective = false;
     std::vector<std::string> m_appRules;
+    // The geo list as Backend last set it, and as the helper last had it: sent
+    // only when the two differ, which for a list of megabytes matters. Cleared
+    // with the helper, which takes its copy with it.
+    QString m_geoEntries;
+    bool m_useGeo = false;
+    QString m_geoEntriesSent;
+    bool m_helperUsesGeo = false;
+    bool m_helperSelective = false;
     bool m_killSwitch = false;
     // As the last connect carried them. Cleared when the GUI ends that session or
     // loses the helper. A session the core ends by itself (an error, a drop it

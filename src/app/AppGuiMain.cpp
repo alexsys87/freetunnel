@@ -262,6 +262,10 @@ std::optional<int> wireGuiApplication(QGuiApplication &app, int argc, char *argv
     app.installEventFilter(out->urlFilter.get());
     step("url-filter");
 
+    // What a new install starts with (geo routing on Windows), before Backend
+    // reads the settings. Not a step of its own: it writes nothing on a run that
+    // has settings, which is every run but the first.
+    seedFreshInstallSettings();
     out->backend = std::make_unique<Backend>();
     Backend &backend = *out->backend;
 #ifdef Q_OS_MACOS

@@ -213,6 +213,10 @@ set(APP_STARTUP_TEST_SOURCES
     ../include/core/SubscriptionFetcher.h
     ../src/core/SubscriptionStore.cpp
     ../src/app/BackendSplit.cpp
+    ../src/app/BackendGeo.cpp
+    ../src/core/GeoListUpdater.cpp
+    ../src/core/GeoRules.cpp
+    ../include/core/GeoListUpdater.h
     ../src/app/LogModel.cpp
     ../include/app/LogModel.h
     ../src/core/AppSettings.cpp
@@ -285,6 +289,10 @@ set(BACKEND_IMPORT_TEST_SOURCES
     ../include/core/SubscriptionFetcher.h
     ../src/core/SubscriptionStore.cpp
     ../src/app/BackendSplit.cpp
+    ../src/app/BackendGeo.cpp
+    ../src/core/GeoListUpdater.cpp
+    ../src/core/GeoRules.cpp
+    ../include/core/GeoListUpdater.h
     ../src/app/LogModel.cpp
     ../include/app/LogModel.h
     ../src/core/AppSettings.cpp
@@ -407,6 +415,25 @@ add_executable(test_bypassrules
 target_include_directories(test_bypassrules PRIVATE ../include ../include/core)
 target_link_libraries(test_bypassrules PRIVATE Qt6::Core Qt6::Network Qt6::Test)
 add_test(NAME bypassrules COMMAND test_bypassrules -o ${CMAKE_CURRENT_BINARY_DIR}/report-bypassrules.txt,txt)
+
+add_executable(test_georules
+    test_georules.cpp
+    ../src/core/GeoRules.cpp
+)
+target_include_directories(test_georules PRIVATE ../include ../include/core)
+target_link_libraries(test_georules PRIVATE Qt6::Core Qt6::Network Qt6::Test)
+add_test(NAME georules COMMAND test_georules -o ${CMAKE_CURRENT_BINARY_DIR}/report-georules.txt,txt)
+
+add_executable(test_geolistupdater
+    test_geolistupdater.cpp
+    mock_http_server.cpp
+    ../src/core/GeoListUpdater.cpp
+    ../src/core/GeoRules.cpp
+    ../include/core/GeoListUpdater.h
+)
+target_include_directories(test_geolistupdater PRIVATE . ../include ../include/core)
+target_link_libraries(test_geolistupdater PRIVATE Qt6::Core Qt6::Network Qt6::Test)
+add_test(NAME geolistupdater COMMAND test_geolistupdater -o ${CMAKE_CURRENT_BINARY_DIR}/report-geolistupdater.txt,txt)
 
 add_executable(test_configpaths
     test_configpaths.cpp
@@ -755,6 +782,8 @@ set(BACKEND_TEST_SOURCES
     test_integration_backend_vpn.cpp
     helper_ipc_mock_server.cpp
     helper_ipc_mock_server.h
+    mock_http_server.cpp
+    mock_http_server.h
     ../i18n/i18n.qrc
     ../src/app/Backend.cpp
     ../src/app/BackendConnect.cpp
@@ -776,6 +805,10 @@ set(BACKEND_TEST_SOURCES
     ../include/core/SubscriptionFetcher.h
     ../src/core/SubscriptionStore.cpp
     ../src/app/BackendSplit.cpp
+    ../src/app/BackendGeo.cpp
+    ../src/core/GeoListUpdater.cpp
+    ../src/core/GeoRules.cpp
+    ../include/core/GeoListUpdater.h
     ../src/app/LogModel.cpp
     ../include/app/LogModel.h
     ../src/core/AppSettings.cpp

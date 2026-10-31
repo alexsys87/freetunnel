@@ -437,6 +437,38 @@
         <source>That import has expired. Start it again.</source>
         <translation>Время на этот импорт истекло. Начните его заново.</translation>
     </message>
+    <message>
+        <source>Downloading the lists… Until they are in, everything goes through the VPN.</source>
+        <translation>Списки загружаются… Пока их нет, всё идёт через VPN.</translation>
+    </message>
+    <message>
+        <source>The lists could not be downloaded, so everything goes through the VPN for now. FreeTunnel tries again within the hour.</source>
+        <translation>Не удалось загрузить списки, поэтому пока всё идёт через VPN. FreeTunnel попробует снова в течение часа.</translation>
+    </message>
+    <message>
+        <source>The lists are not downloaded yet, so everything goes through the VPN for now.</source>
+        <translation>Списки ещё не загружены, поэтому пока всё идёт через VPN.</translation>
+    </message>
+    <message>
+        <source>%1 sites and %2 addresses</source>
+        <translation>Сайтов: %1, адресов: %2</translation>
+    </message>
+    <message>
+        <source>checked %1</source>
+        <translation>проверено %1</translation>
+    </message>
+    <message>
+        <source>updating…</source>
+        <translation>обновляется…</translation>
+    </message>
+    <message>
+        <source>the last update failed, see the log</source>
+        <translation>последнее обновление не удалось, см. журнал</translation>
+    </message>
+    <message>
+        <source>Not a list address: %1. Use an https address of a text list, or of a .dat file with its category after #, as in …/geoip.dat#ru-blocked.</source>
+        <translation>Это не адрес списка: %1. Укажите https-адрес текстового списка или файла .dat с категорией после #, например …/geoip.dat#ru-blocked.</translation>
+    </message>
 </context>
 <context>
     <name>ConfigImport</name>
@@ -1155,6 +1187,62 @@
     <message>
         <source>“%1” uses the profile “%2”, which has no rules that can be used, so &quot;Through VPN&quot; would send nothing through the tunnel. The full tunnel stays on until that profile has a rule that can be used.</source>
         <translation>«%1» использует профиль «%2», в котором нет ни одного правила, которое можно применить, так что в режиме «Через VPN» через туннель не пошло бы ничего. Полный туннель остаётся, пока в этом профиле не появится такое правило.</translation>
+    </message>
+    <message>
+        <source>Routing</source>
+        <translation>Маршрутизация</translation>
+    </message>
+    <message>
+        <source>Only blocked sites through VPN</source>
+        <translation>Через VPN только заблокированное</translation>
+    </message>
+    <message>
+        <source>Sites blocked in Russia go through the VPN. Russian sites, and everything that opens without a VPN, go direct.</source>
+        <translation>Сайты, заблокированные в России, идут через VPN. Российские сайты и всё, что открывается без VPN, — напрямую.</translation>
+    </message>
+    <message>
+        <source>Everything through VPN except Russian sites</source>
+        <translation>Всё через VPN, кроме российских сайтов</translation>
+    </message>
+    <message>
+        <source>Russian sites and addresses go direct; everything else goes through the VPN.</source>
+        <translation>Российские сайты и адреса — напрямую, всё остальное — через VPN.</translation>
+    </message>
+    <message>
+        <source>Everything through VPN</source>
+        <translation>Всё через VPN</translation>
+    </message>
+    <message>
+        <source>Only your own rules below decide what goes around the tunnel.</source>
+        <translation>В обход туннеля идёт только то, что задано вашими правилами ниже.</translation>
+    </message>
+    <message>
+        <source>Update now</source>
+        <translation>Обновить сейчас</translation>
+    </message>
+    <message>
+        <source>Hide sources</source>
+        <translation>Скрыть источники</translation>
+    </message>
+    <message>
+        <source>Sources…</source>
+        <translation>Источники…</translation>
+    </message>
+    <message>
+        <source>Sites list</source>
+        <translation>Список сайтов</translation>
+    </message>
+    <message>
+        <source>Addresses list</source>
+        <translation>Список адресов</translation>
+    </message>
+    <message>
+        <source>Check for new lists every day</source>
+        <translation>Проверять обновления списков каждый день</translation>
+    </message>
+    <message>
+        <source>Restore the default lists</source>
+        <translation>Вернуть списки по умолчанию</translation>
     </message>
 </context>
 <context>

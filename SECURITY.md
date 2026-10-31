@@ -34,6 +34,7 @@ model.
 | Single instance | A socket of each user's own, owner-only, peer checked at both ends, with a per-session random token | [Threat model](docs/security-threats.md#single-instance-channel) |
 | Links from web pages | A link that would turn the VPN off, and every `tt://` import, asks first and takes only a click as the answer | [Threat model](docs/security-threats.md#deep-links-and-control-links) |
 | Kill switch | Held by one VPN session through rule edits and failed first connects | [Threat model](docs/security-threats.md#kill-switch) |
+| Geo lists (Windows) | Downloaded over https and read before use; a damaged download, or one that does not match its published SHA-256, never replaces a good list; nothing routed by them until they are in | [Threat model](docs/security-threats.md#geo-lists) |
 | Privacy from the VPN operator | The name of the program that opened a connection is not handed to the VPN core, which would send it to the server; it goes to the local log only | [Threat model](docs/security-threats.md#per-application-rules) |
 | Files opened from the UI | Only regular files in your home, temp, downloads, documents or desktop folders; symlinks rejected | [Threat model](docs/security-threats.md#files-read-from-the-ui) |
 | Release binaries | Not code-signed: approve the first launch when the OS asks | [Release signing](#release-signing) |

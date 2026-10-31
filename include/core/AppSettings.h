@@ -40,6 +40,19 @@ struct AppSettings {
     // Excluded routes: IP/CIDR subnets that bypass the tunnel at the routing
     // level (the core's excluded_routes), independent of the domain rules above.
     QStringList excluded_routes;
+
+    // Geo routing (core/GeoListUpdater.h), Windows alone for now: "off" (the
+    // rules above alone, as before there was geo routing), "blocked" (only what
+    // is blocked in Russia goes through the tunnel) or "except_ru" (everything
+    // does but Russian sites). Off unless chosen: an install that already has
+    // settings keeps routing as it did. A new one starts on "blocked"
+    // (seedFreshInstallSettings).
+    QString geo_mode = "off";
+    // The lists' sources by slot (blocked_sites, blocked_ips, russia_sites,
+    // russia_ips); a slot not listed uses its default.
+    QMap<QString, QString> geo_sources;
+    // Whether the lists are checked again by themselves once a day.
+    bool geo_auto_update = true;
     // Per-application split tunnelling. Read the same way as the domain rules:
     // in general mode these programs leave the tunnel, in "Through VPN" mode they
     // are the only ones that enter it. Each entry is an absolute path or a bare
@@ -87,6 +100,12 @@ struct AppSettings {
 
 AppSettings loadAppSettings();
 void saveAppSettings(const AppSettings &cfg);
+
+// What a new install starts with that an existing one does not get on upgrade:
+// geo routing on "blocked", on Windows. Writes it only when the settings store is
+// still empty, which is the first run. Called by the app before Backend reads the
+// settings; the tests, which build Backend themselves, keep the plain defaults.
+void seedFreshInstallSettings();
 
 // Private/special-use IPv4 ranges that should bypass the tunnel by default.
 QStringList defaultExcludedRoutes();

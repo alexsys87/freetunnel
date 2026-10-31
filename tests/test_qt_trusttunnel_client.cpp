@@ -163,6 +163,8 @@ private slots:
     void theCoreHasTheNewModeBeforeTheProgramRulesChange();
     void anEditMadeWhileTheSessionIsBuiltReachesItOnceBuilt();
     void aBurstOfEditsLeavesTheSessionOnTheLastOne();
+    void theGeoListRoutesOnlyWhileSwitchedOn();
+    void aSessionIsBuiltWithTheGeoListInUse();
     void aFirstConnectTheCoreKeepsRetryingStaysConnectingAndSaysWhy();
     void disconnectStopsASessionTheCoreIsStillRetrying();
     void aNewSessionSaysWhyItIsNotConnectingAgain();
@@ -1208,6 +1210,82 @@ void TestQtTrustTunnelClient::anEditMadeWhileTheSessionIsBuiltReachesItOnceBuilt
 // update handed over rather than what the session was built with: a burst that
 // ends where the session started must still be handed over, or the core keeps
 // the edit before it.
+// The geo list is large and sent apart from the rules, but it routes only
+// while setSplitRouting() says so, with the mode it came for: one list means
+// "through the tunnel" (the blocked sites), another "around it" (the Russian
+// ones), and either one under the other's mode routes what it names the wrong
+// way. A new edition of a list already in use goes to the session at once.
+void TestQtTrustTunnelClient::theGeoListRoutesOnlyWhileSwitchedOn()
+{
+    auto &ctl = mockcore::Controller::instance();
+    const quint64 id = connectedWithLiveSession();
+    QVERIFY(id != 0);
+    QCOMPARE(ctl.exclusionUpdates().size(), size_t(1)); // the seed
+
+    // Staged, not in use: the session is not touched.
+    QMetaObject::invokeMethod(m_client, "setGeoExclusions", Qt::BlockingQueuedConnection,
+                              Q_ARG(QString, QStringLiteral("geo.example\n*.geo.example\n203.0.113.0/24\n")));
+    QCOMPARE(ctl.exclusionUpdates().size(), size_t(1));
+
+    // Switched on with its mode, in one update with the user's own rules.
+    QMetaObject::invokeMethod(m_client, "setSplitRouting", Qt::BlockingQueuedConnection,
+                              Q_ARG(QStringList, QStringList({QStringLiteral("own.example")})),
+                              Q_ARG(bool, true), Q_ARG(QStringList, QStringList()), Q_ARG(bool, true));
+    std::vector<mockcore::ExclusionsUpdate> updates = ctl.exclusionUpdates();
+    QCOMPARE(updates.size(), size_t(2));
+    QCOMPARE(updates.at(1).client, id);
+    QCOMPARE(updates.at(1).mode, int(ag::VPN_MODE_SELECTIVE));
+    QVERIFY2(has(updates.at(1), "own.example"), updates.at(1).exclusions.c_str());
+    QVERIFY2(has(updates.at(1), "*.geo.example"), updates.at(1).exclusions.c_str());
+    QVERIFY2(has(updates.at(1), "203.0.113.0/24"), updates.at(1).exclusions.c_str());
+
+    // A new edition while in use: at once, and it replaces the old one.
+    QMetaObject::invokeMethod(m_client, "setGeoExclusions", Qt::BlockingQueuedConnection,
+                              Q_ARG(QString, QStringLiteral("next.example\n")));
+    updates = ctl.exclusionUpdates();
+    QCOMPARE(updates.size(), size_t(3));
+    QCOMPARE(updates.at(2).mode, int(ag::VPN_MODE_SELECTIVE));
+    QVERIFY(has(updates.at(2), "next.example"));
+    QVERIFY(!has(updates.at(2), "geo.example"));
+    QVERIFY(has(updates.at(2), "own.example"));
+
+    // Switched off: the user's rules alone, and the list stays out of later
+    // editions until it is switched on again.
+    QMetaObject::invokeMethod(m_client, "setSplitRouting", Qt::BlockingQueuedConnection,
+                              Q_ARG(QStringList, QStringList({QStringLiteral("own.example")})),
+                              Q_ARG(bool, false), Q_ARG(QStringList, QStringList()), Q_ARG(bool, false));
+    QMetaObject::invokeMethod(m_client, "setGeoExclusions", Qt::BlockingQueuedConnection,
+                              Q_ARG(QString, QStringLiteral("third.example\n")));
+    updates = ctl.exclusionUpdates();
+    QCOMPARE(updates.size(), size_t(4));
+    QCOMPARE(updates.at(3).mode, int(ag::VPN_MODE_GENERAL));
+    QVERIFY(!has(updates.at(3), "next.example"));
+    QVERIFY(has(updates.at(3), "own.example"));
+
+    // A GUI that predates geo lists sends three arguments, which mean "off".
+    QMetaObject::invokeMethod(m_client, "setSplitRouting", Qt::BlockingQueuedConnection,
+                              Q_ARG(QStringList, QStringList({QStringLiteral("own.example")})),
+                              Q_ARG(bool, true), Q_ARG(QStringList, QStringList()));
+    updates = ctl.exclusionUpdates();
+    QVERIFY(!has(updates.back(), "third.example"));
+}
+
+// The list switched on before connecting is in what the session is built with.
+void TestQtTrustTunnelClient::aSessionIsBuiltWithTheGeoListInUse()
+{
+    auto &ctl = mockcore::Controller::instance();
+    QMetaObject::invokeMethod(m_client, "setGeoExclusions", Qt::BlockingQueuedConnection,
+                              Q_ARG(QString, QStringLiteral("built.example\n*.built.example\n")));
+    QMetaObject::invokeMethod(m_client, "setSplitRouting", Qt::BlockingQueuedConnection,
+                              Q_ARG(QStringList, QStringList()), Q_ARG(bool, true),
+                              Q_ARG(QStringList, QStringList()), Q_ARG(bool, true));
+    const quint64 id = connectedWithLiveSession();
+    QVERIFY(id != 0);
+    const std::string builtWith = ctl.lastCoreConfig().exclusions;
+    QVERIFY2(builtWith.find("*.built.example") != std::string::npos, builtWith.c_str());
+    QCOMPARE(int(ctl.lastCoreConfig().mode), int(ag::VPN_MODE_SELECTIVE));
+}
+
 void TestQtTrustTunnelClient::aBurstOfEditsLeavesTheSessionOnTheLastOne()
 {
     auto &ctl = mockcore::Controller::instance();

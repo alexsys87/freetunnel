@@ -133,13 +133,16 @@ void MockHelperServer::onReadyRead()
 {
     if (!m_sock)
         return;
+    // What was buffered before holds no newline (every line in it was drained),
+    // so the search starts at the new data, as the real server's does.
+    const qsizetype from = m_buf.size();
     m_buf += m_sock->readAll();
     // Mirror the real server: drain complete lines first and cap the LINE, not
     // the accumulated buffer. Capping the buffer killed legitimate pipelined
     // bursts, and a mock with the old policy would keep passing after production
     // was fixed.
-    int nl;
-    while ((nl = m_buf.indexOf('\n')) >= 0) {
+    qsizetype nl = m_buf.indexOf('\n', from);
+    for (; nl >= 0; nl = m_buf.indexOf('\n')) {
         const QByteArray line = m_buf.left(nl);
         m_buf.remove(0, nl + 1);
         const auto doc = QJsonDocument::fromJson(line);
@@ -149,7 +152,11 @@ void MockHelperServer::onReadyRead()
         if (!m_sock)
             break;
     }
-    if (m_sock && m_buf.size() > vpn_helper::kMaxIpcLineBytes) {
+    // The real helper's two caps: a line from a peer that has not proved the
+    // token yet is held to kMaxIpcLineBytes, an authenticated one may carry the
+    // geo lists.
+    const qsizetype cap = m_authed ? vpn_helper::kMaxAuthedIpcLineBytes : vpn_helper::kMaxIpcLineBytes;
+    if (m_sock && m_buf.size() > cap) {
         m_buf.clear();
         m_sock->abort();
     }
@@ -202,10 +209,11 @@ void MockHelperServer::handle(const QJsonObject &c)
     // "setKillSwitch" had been sent and learn nothing about whether it carried
     // enabled=true, enabled=false, or no such key at all.
     m_lastByCmd.insert(cmd, c);
+    m_received.append(c);
     ++m_countByCmd[cmd];
     if (cmd == QLatin1String("setExclusions") || cmd == QLatin1String("setRoutes")
         || cmd == QLatin1String("setMode") || cmd == QLatin1String("setKillSwitch")
-        || cmd == QLatin1String("setSplitRouting")) {
+        || cmd == QLatin1String("setSplitRouting") || cmd == QLatin1String("setGeoRules")) {
         return;
     }
     if (cmd == QLatin1String("connect")) {

@@ -172,16 +172,63 @@ void VpnHelperClient::setSplitRouting(const std::vector<std::string> &exclusions
     m_appRules = appRules;
     if (!m_helloAcked)
         return; // handleReadyEvent() sends them all
+    sendSplitRouting();
+}
+
+// The helper's copy of the geo list goes with the helper.
+void VpnHelperClient::forgetHelperGeo() {
+    m_geoEntriesSent.clear();
+    m_helperUsesGeo = false;
+    m_helperSelective = false;
+}
+
+void VpnHelperClient::setGeoRouting(const QString &entries, bool useGeo) {
+    m_geoEntries = entries;
+    m_useGeo = useGeo;
+}
+
+void VpnHelperClient::sendSplitRoutingCommand(const std::vector<std::string> &exclusions,
+                                              bool selective,
+                                              const std::vector<std::string> &appRules,
+                                              bool useGeo) {
     QJsonArray domains;
-    for (const auto &d : m_exclusions) domains.append(QString::fromStdString(d));
+    for (const auto &d : exclusions) domains.append(QString::fromStdString(d));
     QJsonArray apps;
-    for (const auto &r : m_appRules) apps.append(QString::fromStdString(r));
+    for (const auto &r : appRules) apps.append(QString::fromStdString(r));
     QJsonObject c;
     c["cmd"] = "setSplitRouting";
     c["domains"] = domains;
     c["selective"] = selective;
     c["rules"] = apps;
+    // Only when it is on, so a helper is sent exactly what it was before geo
+    // lists existed whenever they are not in use.
+    if (useGeo)
+        c["geo"] = true;
     send(c);
+    m_helperUsesGeo = useGeo;
+    m_helperSelective = selective;
+}
+
+// A geo list means one direction: the blocked list is what goes THROUGH the
+// tunnel, the Russian one what goes AROUND it. The helper applies a new list at
+// once when one is already in use, under the mode it is using. So when the mode
+// is about to change as well, the new list must not land under the old mode,
+// where it would, for a moment, route what it names the wrong way: sending the
+// blocked list's sites around the tunnel. The helper is put on the full tunnel
+// for that moment instead (no rules, general mode), which is the safe way to be
+// wrong, and the new list and its mode then go out together.
+void VpnHelperClient::sendSplitRouting() {
+    const bool wantGeo = m_useGeo && !m_geoEntries.isEmpty();
+    if (wantGeo && m_geoEntries != m_geoEntriesSent) {
+        if (m_helperUsesGeo && m_helperSelective != m_selective)
+            sendSplitRoutingCommand({}, false, {}, false);
+        QJsonObject g;
+        g["cmd"] = "setGeoRules";
+        g["entries"] = m_geoEntries;
+        send(g);
+        m_geoEntriesSent = m_geoEntries;
+    }
+    sendSplitRoutingCommand(m_exclusions, m_selective, m_appRules, wantGeo);
 }
 
 void VpnHelperClient::setVpnMode(bool selective) {
@@ -272,6 +319,7 @@ void VpnHelperClient::abortStartup() {
     m_helloAcked = false;
     m_peerProven = false;
     m_guiNonce.clear();
+    forgetHelperGeo();
     // A partial line left over from the dead connection would otherwise be
     // prepended to the next helper's first message and swallow its challenge.
     m_buf.clear();
@@ -381,6 +429,7 @@ void VpnHelperClient::wireHelperSocket(bool testHelper)
         m_peerProven = false;
         m_starting = false;
         m_sessionBuiltWith.reset(); // the helper took its session with it
+        forgetHelperGeo();
         if (m_state != State::Disconnected)
             setState(State::Disconnected);
     });
@@ -543,6 +592,10 @@ void VpnHelperClient::handleReadyEvent()
     setExtraExclusions(m_exclusions);
     setExcludedRoutes(m_excludedRoutes);
     setAppRules(m_appRules);
+    // The geo list, and the routing that uses it, after the settings above: a new
+    // helper has neither, and the commands above do not carry them.
+    if (m_useGeo && !m_geoEntries.isEmpty())
+        sendSplitRouting();
     if (!m_connectPending)
         return;
     m_connectPending = false;

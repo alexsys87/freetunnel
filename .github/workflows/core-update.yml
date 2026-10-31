@@ -1,0 +1,129 @@
+name: Core update
+
+# Once a day, look for a stable TrustTunnelClient release newer than the core
+# FreeTunnel pins, and when there is one, open a pull request that moves
+# scripts/upstream_ref.txt to it. scripts/latest-core-release.sh decides; the
+# pull request's own checks (Build, Tests, Security with its upstream patch
+# verify and third-party notices) then say what else the bump needs, and its
+# description lists the steps CONTRIBUTING.md ("Bumping the upstream core")
+# asks of a person.
+#
+# One pull request per release: its branch is core-update/<tag>, and a run that
+# finds the branch already there does nothing. Closing the pull request without
+# deleting the branch therefore silences that release for good.
+#
+# Pull requests opened with the workflow's own token start no other workflow
+# (GitHub's rule against workflows triggering workflows), so its checks would
+# not run. A fine-grained token in the CORE_UPDATE_TOKEN secret, with Contents
+# and Pull requests read/write on this repository, makes them run. Without it
+# the pull request is still opened, and says how to start its checks. The
+# repository must also allow GitHub Actions to create pull requests (Settings,
+# Actions, General, Workflow permissions).
+
+on:
+  schedule:
+    # Daily, off the hour.
+    - cron: '23 4 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: core-update
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  bump:
+    name: Open a pull request for a newer core
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          token: ${{ secrets.CORE_UPDATE_TOKEN || github.token }}
+
+      - name: Newest stable TrustTunnelClient release
+        id: latest
+        run: bash scripts/latest-core-release.sh
+
+      - name: Already proposed?
+        id: branch
+        if: steps.latest.outputs.newer == 'true'
+        env:
+          TAG: ${{ steps.latest.outputs.tag }}
+        run: |
+          branch="core-update/$TAG"
+          echo "name=$branch" >> "$GITHUB_OUTPUT"
+          if git ls-remote --exit-code --heads origin "$branch" > /dev/null; then
+            echo "Branch $branch exists already; nothing to do."
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Move the pin and check the patches
+        id: bump
+        if: steps.latest.outputs.newer == 'true' && steps.branch.outputs.exists == 'false'
+        env:
+          COMMIT: ${{ steps.latest.outputs.commit }}
+        run: |
+          echo "$COMMIT" > scripts/upstream_ref.txt
+          if bash scripts/verify_upstream_patch.sh > "$RUNNER_TEMP/verify.log" 2>&1; then
+            echo "patches=apply" >> "$GITHUB_OUTPUT"
+          else
+            echo "patches=fail" >> "$GITHUB_OUTPUT"
+          fi
+          tail -n 40 "$RUNNER_TEMP/verify.log"
+
+      - name: Open the pull request
+        if: steps.latest.outputs.newer == 'true' && steps.branch.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.CORE_UPDATE_TOKEN || github.token }}
+          HAS_PAT: ${{ secrets.CORE_UPDATE_TOKEN != '' }}
+          TAG: ${{ steps.latest.outputs.tag }}
+          COMMIT: ${{ steps.latest.outputs.commit }}
+          PINNED: ${{ steps.latest.outputs.pinned }}
+          BRANCH: ${{ steps.branch.outputs.name }}
+          PATCHES: ${{ steps.bump.outputs.patches }}
+          UPSTREAM: https://github.com/TrustTunnel/TrustTunnelClient
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git switch -c "$BRANCH"
+          git add scripts/upstream_ref.txt
+          git commit -m "Bump the desktop VPN core to TrustTunnel ${TAG#v}" \
+                     -m "Moves scripts/upstream_ref.txt to $COMMIT ($TAG). Opened by the Core update workflow."
+          git push origin "$BRANCH"
+
+          if [ "$PATCHES" = apply ]; then
+            patches="All patches in \`vendor/trusttunnel/\` apply at \`--fuzz=0\` (\`scripts/verify_upstream_patch.sh\`)."
+          else
+            patches="**\`scripts/verify_upstream_patch.sh\` failed**: a patch in \`vendor/trusttunnel/\` no longer applies, or the core reads a config key the script does not know. Its log is in the workflow run."
+          fi
+          if [ "$HAS_PAT" = true ]; then
+            checks=""
+          else
+            checks=$'\n\n'"Opened with the workflow's own token, so no checks have run. Start them by closing and reopening this pull request; a \`CORE_UPDATE_TOKEN\` secret makes later ones start by themselves."
+          fi
+          body="$(cat <<EOF
+          A newer stable TrustTunnelClient release is out: [$TAG]($UPSTREAM/releases/tag/$TAG) (\`$COMMIT\`). The pin was $PINNED.
+
+          $patches$checks
+
+          Before merging, per CONTRIBUTING.md ("Bumping the upstream core"):
+
+          - [ ] Read upstream's changelog: [$PINNED...$TAG]($UPSTREAM/compare/$PINNED...$TAG).
+          - [ ] Patches apply; any new config key that points the core at a path, interface or port is cleared in \`clearKeysRootMustNotTakeFromAConfig()\` and listed in the script.
+          - [ ] Changes to \`core/include/vpn/vpn.h\` (error codes, events) are mirrored in \`tests/mock_core\` and \`src/vpn/qt_trusttunnel_platform.cpp\`.
+          - [ ] If upstream's \`conanfile.py\` moved \`native_libs_common\`, \`scripts/export-patched-boringssl.sh\` follows it (commit and recipe digest).
+          - [ ] \`THIRD_PARTY_NOTICES.md\` and \`licenses/\` name the new versions (\`scripts/check-third-party-notices.sh\`).
+          - [ ] A line in \`CHANGELOG.md\`.
+          EOF
+          )"
+          gh pr create --base "${GITHUB_REF_NAME}" --head "$BRANCH" \
+            --title "Bump the desktop VPN core to TrustTunnel ${TAG#v}" --body "$body"

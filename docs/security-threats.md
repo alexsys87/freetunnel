@@ -19,7 +19,7 @@ report a vulnerability, is in [SECURITY.md](../SECURITY.md).
 - [Credential storage](#credential-storage)
 - [Files read from the UI](#files-read-from-the-ui)
 - [Logs](#logs)
-- [Network: kill switch, probes and per-app rules](#network-kill-switch-probes-and-per-app-rules)
+- [Network: kill switch, probes, per-app rules and geo lists](#network-kill-switch-probes-per-app-rules-and-geo-lists)
 - [CI and release](#ci-and-release)
 
 ## Threat summary
@@ -36,6 +36,7 @@ report a vulnerability, is in [SECURITY.md](../SECURITY.md).
 | TOML injection | `tomlEsc()` strips control chars | [Config files](#toml-injection) |
 | Config keys that point the elevated core at a path, interface or port | Helper clears the five such keys (session-cache folder, kill-switch ports, interface name, attach, namespace; the ports kept only if the user turns that on, for every config); tunnel listener only; an upstream bump whose core reads a new key fails `verify_upstream_patch.sh` | [Config files](#config-files-reaching-root) |
 | Operator learns which app opened a flow | Program name kept out of the core decision, local log only | [Per-app rules](#per-application-rules) |
+| A geo list that sends traffic around the tunnel (Windows) | https only; a published SHA-256 checked; a damaged or empty download never replaces a good list; no subnet wider than /8 or /16 around the tunnel; full tunnel until the lists are in. Not covered: a publisher that is not to be trusted | [Geo lists](#geo-lists) |
 | Unsigned installer | User warnings; in-app hash verify before install | [CI and release](#ci-and-release) |
 | Traffic leaving outside the tunnel while it is not connected | Kill switch, held by one session through rule edits and failed first connects; remaining gaps listed under the kill switch | [Kill switch](#kill-switch) |
 
@@ -595,7 +596,7 @@ Service, is in [SECURITY.md](../SECURITY.md#credential-storage).
   the same log the Logs page shows and the same file a bug report attaches, so a
   log shared with someone else describes what was running.
 
-## Network: kill switch, probes and per-app rules
+## Network: kill switch, probes, per-app rules and geo lists
 
 ### Kill switch
 
@@ -698,6 +699,48 @@ installed to do it: no driver, no system extension, no entitlement.
   CONNECT request it sends the VPN endpoint. The name goes to the local log
   instead.
 - **Residual risk:** the local log names the program ([logs](#logs)).
+
+### Geo lists
+
+On Windows, routing can follow lists downloaded from the internet: what is
+blocked in Russia goes through the tunnel and the rest around it, or Russian
+sites go around it and the rest through it (README, "Routing by geo lists").
+The GUI downloads the lists over https, as the user, into the user's own cache,
+reads them there and hands the helper only the resulting entries, the way it
+hands it the user's own domain rules; the helper opens no file for them.
+
+- **Threat:** whoever controls a list, its publisher or anyone able to change
+  it on the way, decides what leaves the tunnel. A blocked-sites list made
+  short, or a Russian-sites list made long, sends traffic around the tunnel
+  while the window says Connected; a list that names "everything" would send
+  all of it.
+- **Mitigation:**
+  - https only, with the system's certificate checks, and only redirects that
+    stay on https;
+  - where the publisher puts a SHA-256 beside the file (`<file>.sha256sum`, as
+    the default sources do for their .dat files), a download that does not
+    match it is refused;
+  - a download is read before it replaces the cached copy: one that is damaged,
+    lacks the category asked for, or has nothing usable in it is refused, and
+    the last good list stays in use;
+  - a list that sends traffic around the tunnel may not name an IPv4 subnet
+    wider than /8 or an IPv6 one wider than /16, and no list may name /0;
+  - until a mode's lists have been read, nothing is routed by them: the tunnel
+    is full, the user's own exceptions aside;
+  - when the mode changes along with the list, the helper is first put on the
+    full tunnel, so the new list never lands under the old mode, where it would
+    route what it names the wrong way (`VpnHelperClient::sendSplitRouting`).
+- **Residual risk:**
+  - the SHA-256 comes from the same place as the file, so it catches a damaged
+    download, not a publisher or a GitHub account that has been taken over; a
+    text list without one (the default blocked-sites list) is checked only by
+    https. The sources are the user's to change, and to trust;
+  - a list can still take any number of narrower subnets and domains, a whole
+    top-level domain included, out of the tunnel: the Russian-sites list names
+    `ru`, `su` and `рф` on purpose;
+  - a list is only as complete as its publisher keeps it: a blocked site that
+    is not on the list yet goes around the tunnel until it is, or until the
+    user adds it as a rule of their own.
 
 ## CI and release
 

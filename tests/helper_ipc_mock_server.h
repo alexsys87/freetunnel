@@ -49,6 +49,10 @@ public:
     // How many of a command have arrived, for the tests that care that an edit
     // went out as one command and not as several.
     int countFor(const QString &cmd) const { return m_countByCmd.value(cmd); }
+    // Every command received since the last clearReceived(), in order, whole:
+    // for the tests that care what came before what.
+    QList<QJsonObject> received() const { return m_received; }
+    void clearReceived() { m_received.clear(); }
     int connectionCount() const { return m_connectionCount; }
     int connectCount() const { return m_connectCount; }
 
@@ -92,6 +96,7 @@ private:
     QString m_challenge; // nonce we asked the client to answer
     QString m_lastCmd;
     QHash<QString, QJsonObject> m_lastByCmd;
+    QList<QJsonObject> m_received;
     int m_connectionCount = 0;
     int m_connectCount = 0;
     bool m_tunnelUp = false;
