@@ -408,6 +408,14 @@ target_include_directories(test_bypassrules PRIVATE ../include ../include/core)
 target_link_libraries(test_bypassrules PRIVATE Qt6::Core Qt6::Network Qt6::Test)
 add_test(NAME bypassrules COMMAND test_bypassrules -o ${CMAKE_CURRENT_BINARY_DIR}/report-bypassrules.txt,txt)
 
+add_executable(test_georules
+    test_georules.cpp
+    ../src/core/GeoRules.cpp
+)
+target_include_directories(test_georules PRIVATE ../include ../include/core)
+target_link_libraries(test_georules PRIVATE Qt6::Core Qt6::Network Qt6::Test)
+add_test(NAME georules COMMAND test_georules -o ${CMAKE_CURRENT_BINARY_DIR}/report-georules.txt,txt)
+
 add_executable(test_configpaths
     test_configpaths.cpp
     ../src/core/ConfigPaths.cpp
