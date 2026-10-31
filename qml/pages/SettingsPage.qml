@@ -50,7 +50,7 @@ Item {
                     Text { Layout.fillWidth: true; elide: Text.ElideRight
                            text: qsTr("Minimize to tray"); color: theme.text; font.pixelSize: 14 }
                     Text { Layout.fillWidth: true; elide: Text.ElideRight
-                           text: qsTr("the ✕ hides the window to the tray instead of the taskbar")
+                           text: qsTr("the close button hides the window to the tray")
                            color: theme.textFaint; font.pixelSize: 12 }
                 }
                 Toggle { objectName: "minimizeToTrayToggle"; accent: theme.accent; offColor: theme.toggleOff
@@ -67,7 +67,7 @@ Item {
                     Text { Layout.fillWidth: true; elide: Text.ElideRight
                            text: qsTr("Start minimized"); color: theme.text; font.pixelSize: 14 }
                     Text { Layout.fillWidth: true; elide: Text.ElideRight
-                           text: qsTr("open in the tray instead of on screen, e.g. at system startup")
+                           text: qsTr("open in the tray, not on screen")
                            color: theme.textFaint; font.pixelSize: 12 }
                 }
                 Toggle { objectName: "startMinimizedToggle"; accent: theme.accent; offColor: theme.toggleOff
