@@ -317,6 +317,7 @@ bash scripts/coverage-upstream-report.sh
 | `.github/workflows/build.yml` | Release builds (HTTP/3 enabled), Linux/macOS/Windows. A `v*` tag publishes only once Tests and Security have passed on the same commit, and only if the core pin is a stable release | Pushes to `main`, pull requests, `v*` tags |
 | `.github/workflows/tests.yml` | Fast unit tests (Linux + macOS + Windows) through `scripts/run-ctest.sh`; Linux coverage + ASan+UBSan ([details](#coverage-and-sanitizers)) | Pushes to `main`, pull requests, `v*` tags, and weekly (Mon) |
 | `.github/workflows/security.yml` | The checks below | Pushes to `main`, pull requests, `v*` tags, and weekly (Mon) |
+| `.github/workflows/core-update.yml` | Opens a pull request when TrustTunnelClient has a stable release newer than the pinned core ([details](#bumping-the-upstream-core)) | Daily, and by hand |
 
 - **On a `v*` tag** the release waits for Tests and Security to pass on the
   tagged commit, and is refused outright, within a minute of the push, when the
@@ -454,6 +455,15 @@ a hunk cannot apply cleanly in the wrong place either.
 The upstream ref is pinned in
 [`scripts/upstream_ref.txt`](scripts/upstream_ref.txt). The workflows read that
 file rather than carrying a SHA of their own.
+
+The **Core update** workflow (`.github/workflows/core-update.yml`) looks for a
+newer stable release once a day (`scripts/latest-core-release.sh`, which you
+can also run by hand) and opens a pull request on `core-update/<tag>` that does
+step 1 and checks step 2; its description lists the rest. One pull request per
+release: closing it without deleting its branch silences that release. For
+its checks to run by themselves, give it a fine-grained token with Contents
+and Pull requests read/write in the `CORE_UPDATE_TOKEN` secret; the repository
+must also allow GitHub Actions to create pull requests.
 
 1. Change the commit in `scripts/upstream_ref.txt`.
 2. Re-verify the patches with the patch script:
