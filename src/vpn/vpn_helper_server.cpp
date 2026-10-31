@@ -321,15 +321,22 @@ private:
         // (a large exclusion list followed by an inline config TOML) could
         // exceed the cap while every individual message was well within it, and
         // dropping the privileged socket makes the helper quit mid-session.
-        int nl = -1;
-        while ((nl = m_buf.indexOf('\n')) >= 0) {
+        //
+        // The search for the end of a line starts where the last one stopped: a
+        // geo list of megabytes arrives in many reads, and searching the whole
+        // buffer again on each of them made reading it quadratic.
+        qsizetype nl = -1;
+        while ((nl = m_buf.indexOf('\n', m_scanFrom)) >= 0) {
             const QByteArray line = m_buf.left(nl);
             m_buf.remove(0, nl + 1);
+            m_scanFrom = 0;
             const auto doc = QJsonDocument::fromJson(line);
             if (doc.isObject()) handleAuthed(doc.object());
         }
-        if (m_buf.size() > vpn_helper::kMaxIpcLineBytes) {
+        m_scanFrom = m_buf.size();
+        if (m_buf.size() > vpn_helper::kMaxAuthedIpcLineBytes) {
             m_buf.clear();
+            m_scanFrom = 0;
             m_sock->close();
         }
     }
@@ -339,6 +346,10 @@ private:
     bool applyClientSetting(const QString &cmd, const QJsonObject &c) {
         if (cmd == "setSplitRouting") {
             applySplitRouting(c);
+            return true;
+        }
+        if (cmd == "setGeoRules") {
+            applyGeoRules(c);
             return true;
         }
         if (cmd == "setMode") {
@@ -417,12 +428,24 @@ private:
                                   Q_ARG(QStringList, stringList(c, QStringLiteral("rules"))));
     }
 
-    // One invocation for all three, so the VPN thread changes them together.
+    // One invocation for all of them, so the VPN thread changes them together. A
+    // missing "geo" reads as false, which leaves the geo list out: the safe way
+    // for a GUI that does not know it to fail.
     void applySplitRouting(const QJsonObject &c) {
         QMetaObject::invokeMethod(&m_client, "setSplitRouting", Qt::QueuedConnection,
                                   Q_ARG(QStringList, stringList(c, QStringLiteral("domains"))),
                                   Q_ARG(bool, c.value(QStringLiteral("selective")).toBool()),
-                                  Q_ARG(QStringList, stringList(c, QStringLiteral("rules"))));
+                                  Q_ARG(QStringList, stringList(c, QStringLiteral("rules"))),
+                                  Q_ARG(bool, c.value(QStringLiteral("geo")).toBool()));
+    }
+
+    // The geo list as one string, entries separated by newlines: as an array of
+    // 200,000 JSON strings it took several times the memory to parse. Handed to
+    // the core as it is, like the domain rules; the core skips what it cannot
+    // read, and nothing in it is a path or anything else the helper acts on.
+    void applyGeoRules(const QJsonObject &c) {
+        QMetaObject::invokeMethod(&m_client, "setGeoExclusions", Qt::QueuedConnection,
+                                  Q_ARG(QString, c.value(QStringLiteral("entries")).toString()));
     }
 
     void handleConnect(const QJsonObject &c) {
@@ -463,6 +486,7 @@ private:
     QTcpServer m_server;
     QTcpSocket *m_sock = nullptr;
     QByteArray m_buf;
+    qsizetype m_scanFrom = 0; // m_buf before this holds no newline
     QSet<QTcpSocket *> m_pending;
     QList<QTcpSocket *> m_pendingOrder; // arrival order, for oldest-first eviction
     QHash<QTcpSocket *, QByteArray> m_pendingBuf;

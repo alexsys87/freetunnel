@@ -227,14 +227,22 @@ void QtTrustTunnelClient::setConfigLocked(ag::TrustTunnelConfig config) {
     applyKillSwitchPortsToConfigLocked();
 }
 
-// The config's own exclusions, then ours. What a session is built with and what
-// a running one is handed live, so both come from here.
+// The config's own exclusions, then ours, then the geo list while it is in use.
+// What a session is built with and what a running one is handed live, so both
+// come from here.
 std::string QtTrustTunnelClient::exclusionsLocked() const {
     std::string out = m_originalExclusions;
     for (const auto &ex : m_extraExclusions) {
         if (!out.empty() && out.back() != ' ')
             out.push_back(' ');
         out.append(ex);
+    }
+    if (m_useGeo && !m_geoExclusions.empty()) {
+        // The core splits the list on any blank, the geo list's newlines included.
+        out.reserve(out.size() + 1 + m_geoExclusions.size());
+        if (!out.empty())
+            out.push_back('\n');
+        out.append(m_geoExclusions);
     }
     return out;
 }
@@ -281,14 +289,37 @@ void QtTrustTunnelClient::setAppRules(const QStringList &rules) {
     m_appRules->rules = clean;
 }
 
+void QtTrustTunnelClient::setGeoExclusions(const QString &entries) {
+    // On this thread, in order with setSplitRouting(): a list and the switch that
+    // turns it on must reach the session in the order they were sent.
+    if (QThread::currentThread() != thread()) {
+        QMetaObject::invokeMethod(this, [this, entries]() { setGeoExclusions(entries); },
+                                  Qt::QueuedConnection);
+        return;
+    }
+    bool inUse = false;
+    {
+        std::lock_guard<std::mutex> lk(m_configMutex);
+        m_geoExclusions = entries.toStdString();
+        inUse = m_useGeo;
+        if (m_config.has_value())
+            m_config->exclusions = exclusionsLocked();
+    }
+    // A new edition of a list already in use routes the same way as the last one:
+    // it goes to a running session at once. One not in use waits for the
+    // setSplitRouting() that turns it on, with the mode it is meant for.
+    if (inUse)
+        applyRoutingToSession();
+}
+
 void QtTrustTunnelClient::setSplitRouting(const QStringList &domains, bool selective,
-                                          const QStringList &appRules) {
+                                          const QStringList &appRules, bool useGeo) {
     // The order of the two steps below is what keeps an edit safe, and it holds
     // only if both run here, on the thread that owns the session.
     if (QThread::currentThread() != thread()) {
         QMetaObject::invokeMethod(
-                this, [this, domains, selective, appRules]() {
-                    setSplitRouting(domains, selective, appRules);
+                this, [this, domains, selective, appRules, useGeo]() {
+                    setSplitRouting(domains, selective, appRules, useGeo);
                 },
                 Qt::QueuedConnection);
         return;
@@ -300,7 +331,8 @@ void QtTrustTunnelClient::setSplitRouting(const QStringList &domains, bool selec
     const QStringList clean = freetunnel::sanitizedAppRules(appRules);
     {
         std::lock_guard<std::mutex> lk(m_configMutex);
-        storeExclusionsLocked(std::move(exclusions));
+        m_useGeo = useGeo;
+        storeExclusionsLocked(std::move(exclusions)); // recomposes, the geo list included
         storeModeLocked(selective);
     }
     // A connection is routed in two places: the program rules decide it when it

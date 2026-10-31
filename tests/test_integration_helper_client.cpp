@@ -80,6 +80,8 @@ private slots:
     void securitySettingsAreSentAsValuesNotJustCommandNames();
     void aHelperThatGoesAwayTakesItsSessionWithIt();
     void splitRoutingTravelsAsOneCommandAndNeedsNoNewSession();
+    void theGeoListGoesOutOnceAndNeverUnderTheWrongMode();
+    void aNewHelperIsGivenTheGeoListBeforeItConnects();
     void theElevatedArgvComesFromItsArgumentsAndNotTheEnvironment();
     void theAppImageIsUnpackedWhereNobodyElseCanWrite();
     void theHelpersOutputIsNotKeptInMemory();
@@ -685,6 +687,130 @@ void TestIntegrationHelperClient::splitRoutingTravelsAsOneCommandAndNeedsNoNewSe
     QVERIFY(!client.sessionSettingsChanged());
     client.setKillSwitch(true);
     QVERIFY2(client.sessionSettingsChanged(), "a kill switch edit has to ask for a new session");
+}
+
+namespace {
+
+QStringList commandsOf(const QList<QJsonObject> &received)
+{
+    QStringList out;
+    for (const QJsonObject &c : received)
+        out << c.value(QStringLiteral("cmd")).toString();
+    return out;
+}
+
+} // namespace
+
+// The geo list runs to megabytes, so it is sent only when it has changed, ahead
+// of the setSplitRouting that switches it on. And it means one direction: the
+// blocked list is what goes through the tunnel, the Russian one what goes around
+// it. The helper applies a new list at once under the mode it is using, so when
+// the mode changes with it, the helper is first put on the full tunnel; never
+// is the new list sent while the old mode is in force.
+void TestIntegrationHelperClient::theGeoListGoesOutOnceAndNeverUnderTheWrongMode()
+{
+    const QString token = QStringLiteral("geo-token");
+    MockHelperServer server(token);
+    QVERIFY(server.listen());
+    qputenv("FT_TEST_HELPER_PORT", QByteArray::number(server.port()));
+    qputenv("FT_TEST_HELPER_TOKEN", token.toUtf8());
+    const auto clear = qScopeGuard([]() {
+        qunsetenv("FT_TEST_HELPER_PORT");
+        qunsetenv("FT_TEST_HELPER_TOKEN");
+    });
+
+    VpnHelperClient client;
+    client.loadConfigFromToml(QStringLiteral("[endpoint]\nhostname = \"vpn.example\"\n"));
+    client.connectVpn();
+    QTRY_VERIFY_WITH_TIMEOUT(server.connectCount() == 1, 10000);
+    server.clearReceived();
+
+    // Switched on: the list, then the routing that uses it.
+    client.setGeoRouting(QStringLiteral("blocked.example\n"), true);
+    client.setSplitRouting({"own.example"}, true, {});
+    QTRY_COMPARE_WITH_TIMEOUT(server.received().size(), 2, 5000);
+    QList<QJsonObject> got = server.received();
+    QCOMPARE(commandsOf(got), QStringList({QStringLiteral("setGeoRules"), QStringLiteral("setSplitRouting")}));
+    QCOMPARE(got.at(0).value(QStringLiteral("entries")).toString(), QStringLiteral("blocked.example\n"));
+    QCOMPARE(got.at(1).value(QStringLiteral("geo")).toBool(), true);
+    QCOMPARE(got.at(1).value(QStringLiteral("selective")).toBool(), true);
+    QCOMPARE(jsonStringArray(got.at(1), "domains"), QStringList{QStringLiteral("own.example")});
+
+    // An edit of the user's own rules does not send the list again.
+    server.clearReceived();
+    client.setGeoRouting(QStringLiteral("blocked.example\n"), true);
+    client.setSplitRouting({"own2.example"}, true, {});
+    QTRY_COMPARE_WITH_TIMEOUT(server.received().size(), 1, 5000);
+    QCOMPARE(commandsOf(server.received()), QStringList{QStringLiteral("setSplitRouting")});
+
+    // A new edition for the same mode: the list, then the routing.
+    server.clearReceived();
+    client.setGeoRouting(QStringLiteral("blocked2.example\n"), true);
+    client.setSplitRouting({"own2.example"}, true, {});
+    QTRY_COMPARE_WITH_TIMEOUT(server.received().size(), 2, 5000);
+    QCOMPARE(commandsOf(server.received()),
+             QStringList({QStringLiteral("setGeoRules"), QStringLiteral("setSplitRouting")}));
+
+    // Another list for the other mode: the full tunnel first.
+    server.clearReceived();
+    client.setGeoRouting(QStringLiteral("russia.example\n"), true);
+    client.setSplitRouting({}, false, {});
+    QTRY_COMPARE_WITH_TIMEOUT(server.received().size(), 3, 5000);
+    got = server.received();
+    QCOMPARE(commandsOf(got), QStringList({QStringLiteral("setSplitRouting"), QStringLiteral("setGeoRules"),
+                                           QStringLiteral("setSplitRouting")}));
+    QCOMPARE(got.at(0).value(QStringLiteral("selective")).toBool(), false);
+    QVERIFY(!got.at(0).value(QStringLiteral("geo")).toBool());
+    QVERIFY(jsonStringArray(got.at(0), "domains").isEmpty());
+    QCOMPARE(got.at(2).value(QStringLiteral("geo")).toBool(), true);
+    QCOMPARE(got.at(2).value(QStringLiteral("selective")).toBool(), false);
+
+    // Switched off: the routing alone, with no "geo" key at all, as before geo
+    // lists existed.
+    server.clearReceived();
+    client.setGeoRouting(QString(), false);
+    client.setSplitRouting({"own.example"}, false, {});
+    QTRY_COMPARE_WITH_TIMEOUT(server.received().size(), 1, 5000);
+    got = server.received();
+    QCOMPARE(commandsOf(got), QStringList{QStringLiteral("setSplitRouting")});
+    QVERIFY(!got.at(0).contains(QStringLiteral("geo")));
+}
+
+// A helper that went away took its copy of the list with it. The next one gets
+// the list and the routing that uses it before the connect, so the session is
+// built with them.
+void TestIntegrationHelperClient::aNewHelperIsGivenTheGeoListBeforeItConnects()
+{
+    const QString token = QStringLiteral("geo-restart-token");
+    auto server = std::make_unique<MockHelperServer>(token);
+    QVERIFY(server->listen());
+    const quint16 port = server->port();
+    qputenv("FT_TEST_HELPER_PORT", QByteArray::number(port));
+    qputenv("FT_TEST_HELPER_TOKEN", token.toUtf8());
+    const auto clear = qScopeGuard([]() {
+        qunsetenv("FT_TEST_HELPER_PORT");
+        qunsetenv("FT_TEST_HELPER_TOKEN");
+    });
+
+    VpnHelperClient client;
+    client.loadConfigFromToml(QStringLiteral("[endpoint]\nhostname = \"vpn.example\"\n"));
+    client.setGeoRouting(QStringLiteral("blocked.example\n"), true);
+    client.setSplitRouting({}, true, {});
+    client.connectVpn();
+    QTRY_VERIFY_WITH_TIMEOUT(server->connectCount() == 1, 10000);
+    QCOMPARE(server->countFor(QStringLiteral("setGeoRules")), 1);
+
+    server->dropClient();
+    QTRY_VERIFY_WITH_TIMEOUT(!client.helperReady(), 5000);
+    server->clearReceived();
+    client.connectVpn();
+    QTRY_VERIFY_WITH_TIMEOUT(server->connectCount() == 2, 10000);
+    const QStringList order = commandsOf(server->received());
+    const qsizetype geo = order.indexOf(QStringLiteral("setGeoRules"));
+    const qsizetype routing = order.lastIndexOf(QStringLiteral("setSplitRouting"));
+    const qsizetype connect = order.indexOf(QStringLiteral("connect"));
+    QVERIFY2(geo >= 0 && routing > geo && connect > routing, qPrintable(order.join(QLatin1Char(' '))));
+    QCOMPARE(server->received().at(routing).value(QStringLiteral("geo")).toBool(), true);
 }
 
 QTEST_MAIN(TestIntegrationHelperClient)

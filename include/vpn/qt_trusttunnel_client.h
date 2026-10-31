@@ -72,8 +72,18 @@ public:
     // the mode live (vendor patch 03); each of the setters above also does, but
     // one at a time, so between two of them the session would route by a mix of
     // old and new that is neither what the user had nor what they asked for.
+    //
+    // useGeo says whether the geo list (setGeoExclusions) is part of the rules.
+    // It travels here, with the mode, because the geo list means one direction:
+    // turned on under the other mode, it would route what it names the wrong way.
     Q_INVOKABLE void setSplitRouting(const QStringList &domains, bool selective,
-                                     const QStringList &appRules);
+                                     const QStringList &appRules, bool useGeo = false);
+    // The geo list: core exclusion entries, one per line, built by the GUI from
+    // the geosite/geoip lists it downloads (core/GeoRules.h). Kept apart from the
+    // domain rules because it is large, and sent only when it changes; it is
+    // part of what the session routes by only while setSplitRouting's useGeo is
+    // on, and then it is applied at once.
+    Q_INVOKABLE void setGeoExclusions(const QString &entries);
     Q_INVOKABLE void setKillSwitch(bool enabled);
     // Whether the config's own killswitch_allow_ports reach the core. They do not
     // unless the user turned this on; see clearKeysRootMustNotTakeFromAConfig.
@@ -241,7 +251,7 @@ private:
     QStringList m_firstConnectFailuresSaid;
     // Guards the config working set: m_config, m_lastConfigToml,
     // m_extraExcludedRoutes, m_originalExcludedRoutes, m_extraExclusions,
-    // m_originalExclusions, m_selectiveMode, m_killSwitch,
+    // m_originalExclusions, m_geoExclusions, m_useGeo, m_selectiveMode, m_killSwitch,
     // m_killSwitchPortsFromConfig, m_configAllowPorts, m_loggingEnabled,
     // m_logLevel and m_coreLogPath. The IPC setters run on this object's
     // thread while the connect thread moves the config into the core client — the
@@ -254,6 +264,8 @@ private:
     std::vector<std::string> m_originalExcludedRoutes; // routes from config file before our additions
     std::vector<std::string> m_extraExclusions;
     std::string m_originalExclusions; // exclusions from config file before our additions
+    std::string m_geoExclusions;      // setGeoExclusions(); used while m_useGeo
+    bool m_useGeo = false;
     bool m_selectiveMode = false;     // route only the exclusions (vs bypass them)
     bool m_killSwitch = false;
     bool m_killSwitchPortsFromConfig = false;

@@ -108,6 +108,7 @@ private slots:
     void killSwitchAndSplitSettingsReachTheCoreInsideTheHelper();
     void configKeysRootMustNotActOnAreDroppedInsideTheHelper();
     void aSplitEditReachesTheRunningSessionInsideTheHelper();
+    void aGeoListOfMegabytesReachesTheRunningSessionInsideTheHelper();
     void theConfigsKillSwitchPortsPassOnlyWhenTheGuiAsks();
     void aPortsCommandWithoutItsValueKeepsThePortsOut();
     void sigtermStopsTheHelperOnItsOwn();
@@ -735,6 +736,47 @@ void TestHelperServer::aSplitEditReachesTheRunningSessionInsideTheHelper()
     QCOMPARE(readCoreConfigDump(m_configDump).value(QStringLiteral("exclusions")).contains(
                      QStringLiteral("live.example")),
              false);
+}
+
+// The geo lists run to megabytes: today's default ones to about 4 MB, in one
+// line from the GUI. The helper takes a line that long only once the peer has
+// proved the token (before that, a line is still capped at kMaxIpcLineBytes),
+// and the list reaches the running session with the mode it came with.
+void TestHelperServer::aGeoListOfMegabytesReachesTheRunningSessionInsideTheHelper()
+{
+    const QString token = QStringLiteral("token-for-geo-list");
+    quint16 port = 0;
+    QVERIFY(startHelperOnAFreePort(token, &port));
+    qputenv("FT_TEST_HELPER_PORT", QByteArray::number(port));
+    qputenv("FT_TEST_HELPER_TOKEN", token.toUtf8());
+    const auto clear = qScopeGuard([]() {
+        qunsetenv("FT_TEST_HELPER_PORT");
+        qunsetenv("FT_TEST_HELPER_TOKEN");
+    });
+
+    VpnHelperClient client;
+    client.loadConfigFromToml(QStringLiteral("loglevel = \"warn\"\n"
+                                             "[endpoint]\n"
+                                             "hostname = \"vpn.example\"\n"));
+    client.connectVpn();
+    QTRY_VERIFY_WITH_TIMEOUT(QFile::exists(m_configDump), 20000);
+
+    QString geo;
+    geo.reserve(5 * 1024 * 1024);
+    for (int i = 0; i < 250000; ++i)
+        geo += QStringLiteral("geo%1.example\n").arg(i, 7, 10, QLatin1Char('0'));
+    QVERIFY(geo.size() > vpn_helper::kMaxIpcLineBytes * 8);
+    client.setGeoRouting(geo, true);
+    client.setSplitRouting({"own.example"}, true, {});
+
+    QTRY_VERIFY_WITH_TIMEOUT(QFile::exists(m_updateDump), 20000);
+    const QMap<QString, QString> update = readCoreConfigDump(m_updateDump);
+    QCOMPARE(update.value(QStringLiteral("mode")), QStringLiteral("selective"));
+    const QString exclusions = update.value(QStringLiteral("exclusions"));
+    QVERIFY(exclusions.contains(QStringLiteral("own.example")));
+    QVERIFY(exclusions.contains(QStringLiteral("geo0000000.example")));
+    QVERIFY(exclusions.contains(QStringLiteral("geo0249999.example")));
+    QVERIFY(client.helperReady()); // the helper kept the channel open
 }
 
 // The setting that hands the kill switch's ports back to the config crosses the

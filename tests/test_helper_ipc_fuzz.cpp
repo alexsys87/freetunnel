@@ -146,10 +146,11 @@ void TestHelperIpcFuzz::oversizedLinesCloseConnection()
     QTcpSocket client;
     QVERIFY(authenticateClient(server, client, QStringLiteral("fuzz-big")));
 
-    client.write(QByteArray(vpn_helper::kMaxIpcLineBytes + 1, 'x'));
+    // An authenticated line may carry the geo lists, so its cap is the larger one.
+    client.write(QByteArray(vpn_helper::kMaxAuthedIpcLineBytes + 1, 'x'));
     client.flush();
     QVERIFY(server.waitForClientData(3000));
-    for (int i = 0; i < 300; ++i) {
+    for (int i = 0; i < 1000; ++i) {
         if (client.state() == QAbstractSocket::UnconnectedState)
             break;
         QTest::qWait(10);
