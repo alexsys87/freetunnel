@@ -92,8 +92,17 @@ The VPN requires elevated privileges:
 
 | Platform | What you see |
 | --- | --- |
-| Windows | A UAC prompt |
+| Windows | Nothing: the installer sets up the FreeTunnel VPN helper service, which the app starts when it connects. Without it (a build that was not installed, or a service another account is using at the moment) a UAC prompt |
 | macOS, Linux | A prompt for an admin password, the first time you connect in a session |
+
+On Windows the service lets any account signed in at the computer connect
+without an administrator's approval. On a computer shared with people who
+should not change its network routing, take that right away from an
+administrator command prompt, and FreeTunnel asks through UAC again:
+
+```bat
+sc sdset FreeTunnelHelper "D:(A;;CCLCSWRPWPDTLOCRRC;;;SY)(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;BA)(A;;CCLCSWLORC;;;AU)"
+```
 
 ## Quick start
 
