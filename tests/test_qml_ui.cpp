@@ -4945,7 +4945,10 @@ void TestQmlUi::routingRowsChooseTheModeAndPointTheRules()
     QQuickWindow window;
     QVERIFY(showInWindow(root, window, 400, 1400));
 
-    auto *blocked = root->findChild<QQuickItem *>(QStringLiteral("geoMode_blocked"));
+    // The rows are a Repeater's delegates, in the visual tree only.
+    auto *page = qobject_cast<QQuickItem *>(root);
+    QVERIFY(page);
+    QQuickItem *blocked = namedIn(page, QStringLiteral("geoMode_blocked"));
     QVERIFY2(blocked && blocked->isVisible(), "the routing rows");
     QTest::mouseClick(&window, Qt::LeftButton, Qt::NoModifier, centreOf(blocked));
     QCOMPARE(m_backend.geoMode(), QStringLiteral("blocked"));
@@ -4966,7 +4969,7 @@ void TestQmlUi::routingRowsChooseTheModeAndPointTheRules()
     m_backend.setGeoMode(QStringLiteral("except_ru"));
     QTRY_VERIFY(everyText(root).contains(QStringLiteral("Rules — bypass VPN")));
 
-    auto *off = root->findChild<QQuickItem *>(QStringLiteral("geoMode_off"));
+    QQuickItem *off = namedIn(page, QStringLiteral("geoMode_off"));
     QVERIFY(off);
     QTest::mouseClick(&window, Qt::LeftButton, Qt::NoModifier, centreOf(off));
     QCOMPARE(m_backend.geoMode(), QStringLiteral("off"));
