@@ -43,6 +43,14 @@ compare link at the bottom of its release notes.
 
 ### Changed
 
+- **Windows, macOS and Linux: the VPN core is TrustTunnel 1.1.11**, up from
+  1.1.7, with NativeLibsCommon 8.1.54.
+  - Linux: the core no longer picks a stale default route through a network
+    interface that has gone away and come back under a new identity.
+  - An endpoint certificate that is not valid yet is reported as such
+    (`CERTIFICATE_NOT_YET_VALID` in the log), which usually means the
+    computer's clock is wrong.
+  - The Android app keeps TrustTunnel 1.1.7 for now.
 - **Windows, macOS and Linux: import the TOML file a TrustTunnel endpoint
   exports.** That file (`--format toml`) has the server's keys but no
   `[endpoint]` table, and was refused as not a valid config. FreeTunnel now
