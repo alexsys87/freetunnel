@@ -1,6 +1,6 @@
 # FreeTunnel for Android
 
-Android VPN client using the official, checksum-pinned **TrustTunnel 1.1.7**
+Android VPN client using the official, checksum-pinned **TrustTunnel 1.1.11**
 adapter, for phones, tablets and Android TV (Android 8.0 or later). Official
 releases are the `android-X.Y.Z` releases of
 [dimmmmmmmer/freetunnel](https://github.com/dimmmmmmmer/freetunnel), signed with
@@ -148,7 +148,7 @@ Android-only list.
   the only control, so the texts that tell what to do next say "this line", and there is no *Install update* button
   on the screen (that is what a screen reader adds to the line, and the red button of the question). Outside the
   official build the section says it doesn't come from the official channel.
-- The footer, **FreeTunnel 1.0.0 · TrustTunnel core 1.1.7**, each name a link to its page (a toast where there is no
+- The footer, **FreeTunnel 1.0.0 · TrustTunnel core 1.1.11**, each name a link to its page (a toast where there is no
   browser, as on most TVs; the core's version is read from the AAR's name by the build). There is no screen for
   the third-party notices, as the desktop has none: they are files in the APK (see License below).
 
@@ -167,10 +167,46 @@ when it passes 256 KiB and the page shows its last 1000 lines. Turn logging off 
 
 ## Split tunnelling
 
-The Split page is the desktop's (`qml/pages/SplitPage.qml`): the **Split Tunneling** switch,
-the **Mode** (Bypass VPN or Through VPN), a notice where it applies, the **Profile** chips, the
-**Rules** of the profile being edited as chips with the field to add them, and its
-**Applications**.
+The Split page is the desktop's (`qml/pages/SplitPage.qml`): **Routing** by geo lists, the
+**Split Tunneling** switch, the **Mode** (Bypass VPN or Through VPN), a notice where it applies, the
+**Profile** chips, the **Rules** of the profile being edited as chips with the field to add them, and
+its **Applications**.
+
+### Routing by geo lists
+
+As on the desktop (see [Routing by geo lists](../README.md#routing-by-geo-lists-windows-and-android)), **Routing**
+decides what goes through the tunnel by lists of what is blocked in Russia, or of Russian sites:
+
+| Routing | Core mode | The lists' entries |
+| --- | --- | --- |
+| *Only blocked sites through VPN* (a new installation's choice) | selective | through the tunnel |
+| *Everything through VPN except Russian sites* | general | around it |
+| *Everything through VPN* (what an update from 1.0.0 keeps) | the page's own Mode | none: the rules below alone |
+
+- The user's domain rules keep the meaning the page's Mode gives them. Pointing the lists' way they
+  are added to them; pointing the other way they take the lines written the same way off the lists
+  (`ozon.ru` and `*.ozon.ru`), and the page says which of the two it is. Turning Split Tunneling off
+  leaves the lists and drops the rules. The config's own exclusions count only in the mode they were
+  written for.
+- *Bypass VPN* applications are left out of the tunnel in every mode. *Through VPN* applications
+  cannot be: Android's allowlist would send everything else around the tunnel, lists or not. Under
+  geo routing they are not applied, and the page, the notification and a toast say so.
+- Until the mode's lists are in, the session is the full tunnel with the user's own Bypass VPN rules
+  as its exceptions, and the page says so.
+- The lists are those of the desktop, by default and in what can replace them (**Sources…**): an https
+  text list, or a V2Ray `.dat` file with its category after `#`. `GeoLists` reads them as
+  `core/GeoRules.cpp` does, and its tests are `test_georules.cpp`'s cases.
+- `GeoStore` keeps them in `noBackupFilesDir/geo`: a file is checked again a day after its last good
+  check (*Check for new lists every day*), an hour after a failed one, and with **Update now**. A file
+  whose published SHA-256 is unchanged is not downloaded again, and a download that does not match
+  it, or cannot be read as the list it should be, never takes the place of a good one.
+- `GeoUpdater` downloads while the app or the VPN runs: the app checks when it is shown and when the
+  mode or a source changes, the VPN service while it runs. There is no background job: with neither
+  running nothing routes by the lists, and the next start checks what is due.
+- The session (`RoutingConfig.prepareGeo`) gives the core the lists' entries in `Plan.coreToml`. They can
+  run to hundreds of thousands, past what the config checks take (a 1 MB config), so `Plan.toml`, the
+  config that is checked, has the mode and the user's rules alone. A running session is built again
+  when the entries it routes by change: the first lists of a mode, a new edition, another source.
 
 **Profiles.** A profile is a name with its own domain rules and its own applications, in the order
 they were added. *Default* is always there, first, and cannot be deleted. The **+** chip opens a field
@@ -466,7 +502,7 @@ scripts/prepare-trusttunnel-android.sh
 
 The public AAR download needs no GitHub PAT. Its SHA-256 is checked during
 preparation and every build:
-`5398df61f74610d1d63819059bb596560feb51882e9ca78609df32fc4c7840f7`.
+`da0886c22a2a1fad1fdd25d8f5d3d85c6ffa89188292bd000d41e885db446eca`.
 Gradle 8.11.1 wrapper and distribution checksums are pinned too.
 
 Debug APK: `android/app/build/outputs/apk/debug/app-debug.apk` (debug signing).
@@ -707,7 +743,7 @@ remote-server, DNS or HTTP/3 coverage.
 ## License
 
 FreeTunnel and TrustTunnel are Apache-2.0. See [LICENSE](../LICENSE) and
-[TrustTunnelClient v1.1.7](https://github.com/TrustTunnel/TrustTunnelClient/tree/v1.1.7).
+[TrustTunnelClient v1.1.11](https://github.com/TrustTunnel/TrustTunnelClient/tree/v1.1.11).
 
 The APK also contains the libraries in the Android section of
 [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md), under their own
@@ -776,12 +812,17 @@ reason is said in the app's own toast, as the desktop's window does with an erro
 An explicit Reconnect builds a new TUN from the current settings and hands traffic
 over to it.
 
-Each attempt also repeats two costs of the pinned TrustTunnel 1.1.7 core that
+Each attempt also repeats two costs of the pinned TrustTunnel core that
 used to come once per explicit start. The core resolves a hostname given in
 `addresses` as it starts, for up to 15 s, on the service's single worker, so a
 Disconnect, Reconnect or settings change made during that lookup waits for it to
-end. And each start keeps a copy of the configuration, a few KB, in native memory
-until the process ends.
+end. And each start keeps a copy of the configuration in native memory until the
+process ends (the adapter's JNI never releases the string it is given). That is a
+few KB for a configuration, and megabytes with geo lists, so an attempt is given
+the session without them (`Plan.fallbackToml`: the full tunnel with the user's own
+exceptions), and the session is built again with them once an attempt connects.
+Every other start with the lists (connecting, a settings change, a new edition
+of a list) still keeps its copy.
 
 Native configuration checks run on a worker through a private isolated service.
 Each validation process exits after unbinding, so checks cannot change the active

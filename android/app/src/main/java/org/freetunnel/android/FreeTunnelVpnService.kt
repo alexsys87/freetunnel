@@ -85,6 +85,20 @@ class FreeTunnelVpnService : VpnService() {
         // reconnects the profile in use. Nothing in the app's screens sends it (the desktop's Home has no such
         // control, and the service reconnects by itself); device tests do.
         @JvmStatic fun reconnect(context: Context) { send(context, ACTION_START) }
+        /**
+         * Builds the running session again with the routing as it now is: the geo lists it routes by changed (GeoUpdater).
+         * Nothing when no session is connecting or connected: the next one is built with them anyway, and this must not
+         * start a VPN the user has not.
+         */
+        @JvmStatic fun reroute(context: Context) {
+            if (owner != null && (currentState == 1 || currentState == 2)) send(context, ACTION_START)
+        }
+        @Volatile private var routedGeoVersion: String? = null
+        /**
+         * The fingerprint of the geo entries the running session routes by (GeoStore.version), empty for none; null when no
+         * session is connecting or connected.
+         */
+        @JvmStatic fun routedGeo(): String? = routedGeoVersion.takeIf { owner != null && (currentState == 1 || currentState == 2) }
         // A process killed while blocked leaves its alert behind, and only the
         // service's next onCreate would clear it. The state lives in this
         // process, so anything but 6 means no episode is running.
@@ -156,6 +170,8 @@ class FreeTunnelVpnService : VpnService() {
         availability = object : ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: Network) = execute { networkAvailable() }
         }.also { connectivity.registerNetworkCallback(request, it) }
+        // Keeps the geo lists up to date while the VPN runs without the app (GeoUpdater).
+        GeoUpdater.check(this)
         // Migrate away from stale persistent state, including pre-upgrade installs.
         prefs.edit { remove("vpn_state"); remove("service_config_encrypted") }
     }
@@ -261,8 +277,16 @@ class FreeTunnelVpnService : VpnService() {
         logEvent("TrustTunnel: starting connection")
     }
 
-    /** Starts a core on a duplicate of [tun], the retained TUN built from [plan]. */
-    private fun startCore(plan: RoutingConfig.Plan, tun: ParcelFileDescriptor, verifier: CertificateVerificator = CertificateVerificator()) {
+    // Whether the core runs on the plan's fallbackToml, as an automatic attempt does: the session is built again with the
+    // geo lists once it connects.
+    private var onFallback = false
+
+    /**
+     * Starts a core on a duplicate of [tun], the retained TUN built from [plan]: with its coreToml, or with [fallback] its
+     * fallbackToml (RoutingConfig.Plan says why).
+     */
+    private fun startCore(plan: RoutingConfig.Plan, tun: ParcelFileDescriptor, verifier: CertificateVerificator = CertificateVerificator(),
+                          fallback: Boolean = false) {
         val token = generation + 1
         val listener = object : VpnClientListener {
             override fun protectSocket(socket: Int) = protect(socket)
@@ -281,6 +305,12 @@ class FreeTunnelVpnService : VpnService() {
                         publishState(state)
                         getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID,
                             notification(if (state == 2) getString(R.string.text_connected) else getString(R.string.text_recovering_connection), plan.warning))
+                        // Connected without the geo lists: the session is built again with them, once.
+                        if (state == 2 && onFallback) {
+                            onFallback = false
+                            logEvent("Reconnected without the geo lists; applying them")
+                            send(this@FreeTunnelVpnService, ACTION_START)
+                        }
                     }
                 }
             }
@@ -288,8 +318,11 @@ class FreeTunnelVpnService : VpnService() {
         var candidate: VpnClient? = null
         var descriptor: ParcelFileDescriptor? = null
         try {
-            candidate = VpnClient(plan.toml, listener)
+            // The core is given the geo lists' entries as well, which plan.toml leaves out (RoutingConfig.Plan).
+            candidate = VpnClient(if (fallback) plan.fallbackToml else plan.coreToml, listener)
             generation = token
+            onFallback = fallback && plan.fallbackToml != plan.coreToml
+            routedGeoVersion = if (onFallback) "" else plan.geoVersion
             client = candidate
             descriptor = ParcelFileDescriptor.dup(tun.fileDescriptor)
             if (!blocked) publishState(1)
@@ -428,7 +461,7 @@ class FreeTunnelVpnService : VpnService() {
         if (destroyed || !blocked || client != null) return
         attempts++
         try {
-            startCore(plan, tun)
+            startCore(plan, tun, fallback = true)
         } catch (error: Throwable) {
             fail("${getString(R.string.text_could_not_start_vpn)} (${error.javaClass.simpleName})")
         }

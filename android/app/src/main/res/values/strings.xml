@@ -232,4 +232,29 @@
     <string name="language_english" translatable="false">"English"</string>
     <string name="language_russian" translatable="false">"Русский"</string>
     <string name="text_no_browser">"This device has no browser to open that link."</string>
+    <string name="geo_section">"Routing"</string>
+    <string name="geo_mode_blocked">"Only blocked sites through VPN"</string>
+    <string name="geo_mode_blocked_details">"Sites blocked in Russia go through the VPN. Russian sites, and everything that opens without a VPN, go direct."</string>
+    <string name="geo_mode_except_ru">"Everything through VPN except Russian sites"</string>
+    <string name="geo_mode_except_ru_details">"Russian sites and addresses go direct; everything else goes through the VPN."</string>
+    <string name="geo_mode_off">"Everything through VPN"</string>
+    <string name="geo_mode_off_details">"Only your own rules below decide what goes around the tunnel."</string>
+    <string name="geo_update_now">"Update now"</string>
+    <string name="geo_hide_sources">"Hide sources"</string>
+    <string name="geo_sources">"Sources…"</string>
+    <string name="geo_sites_list">"Sites list"</string>
+    <string name="geo_addresses_list">"Addresses list"</string>
+    <string name="geo_auto_update">"Check for new lists every day"</string>
+    <string name="geo_restore_defaults">"Restore the default lists"</string>
+    <string name="geo_rules_added">"Your rules below are added to the lists."</string>
+    <string name="geo_rules_taken_off">"Your rules below take sites off the lists."</string>
+    <string name="geo_downloading">"Downloading the lists… Until they are in, everything goes through the VPN."</string>
+    <string name="geo_download_failed">"The lists could not be downloaded, so everything goes through the VPN for now. FreeTunnel tries again within the hour."</string>
+    <string name="geo_not_downloaded">"The lists are not downloaded yet, so everything goes through the VPN for now."</string>
+    <string name="geo_counts">"%1$s sites and %2$s addresses"</string>
+    <string name="geo_checked">"checked %1$s"</string>
+    <string name="geo_updating">"updating…"</string>
+    <string name="geo_update_failed">"the last update failed, see the log"</string>
+    <string name="geo_bad_source">"Not a list address: %1$s. Use an https address of a text list, or of a .dat file with its category after #, as in …/geoip.dat#ru-blocked."</string>
+    <string name="text_through_vpn_apps_are_not_applied_under_geo_routing">"Applications set to go through the VPN are not applied while routing follows the lists: Android would send everything else around the tunnel. Set applications to Bypass VPN, or choose Everything through VPN."</string>
 </resources>

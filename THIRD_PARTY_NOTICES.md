@@ -85,7 +85,7 @@ Every download carries this file, `LICENSE` and the `licenses/` folder it needs:
 `freetunnel-android-<version>.apk` contains:
 
 - FreeTunnel for Android.
-- [The TrustTunnel Android client](#trusttunnel-android-client) 1.1.7, whose
+- [The TrustTunnel Android client](#trusttunnel-android-client) 1.1.11, whose
   native library contains [the VPN core and its
   libraries](#the-vpn-core-and-its-libraries) and [Rust
   crates](#rust-crates-in-the-trusttunnel-native-library).
@@ -100,43 +100,35 @@ from source and link it statically into FreeTunnel. In the Android app it is
 part of the TrustTunnel Android client's native library
 (`libtrusttunnel_android.so`), built by the TrustTunnel project from its own
 release, which may be an older one than the desktop builds use: where the
-versions differ, both are given below. Unless noted, each library below is
+versions differ, both are given below. At present both are 1.1.11. Unless noted, each library below is
 compiled into the core in all downloads.
 
 ### TrustTunnel client core
 
-- Version: desktop, TrustTunnelClient 1.1.11, commit
+- Version: TrustTunnelClient 1.1.11, commit
   c0990e174fc75b2e52acd15882c62e69a3022581. The desktop builds apply
   FreeTunnel's changes to it, which are in
-  [vendor/trusttunnel/](vendor/trusttunnel/) in FreeTunnel's source. Android,
-  TrustTunnelClient 1.1.7, commit 170609c24ca865819fed68437b01c013049bc3fa
-  (see [the TrustTunnel Android client](#trusttunnel-android-client)).
+  [vendor/trusttunnel/](vendor/trusttunnel/) in FreeTunnel's source; the
+  Android app has it as TrustTunnel built it (see [the TrustTunnel Android
+  client](#trusttunnel-android-client)).
 - License: Apache-2.0
 - Copyright: Copyright 2020 Adguard Software Ltd
 - Source: <https://github.com/TrustTunnel/TrustTunnelClient/tree/c0990e174fc75b2e52acd15882c62e69a3022581>
-  (desktop), <https://github.com/TrustTunnel/TrustTunnelClient/tree/170609c24ca865819fed68437b01c013049bc3fa>
-  (Android)
 
 ### NativeLibsCommon
 
-- Version: desktop, 8.1.54, commit 00b38bb2a4b206b677ad1f2b901ccb8bb0d60372;
-  Android, 8.1.52, commit 58cef252031e2cc1f540ecaec2952f5f32afa3a1
+- Version: 8.1.54, commit 00b38bb2a4b206b677ad1f2b901ccb8bb0d60372
 - License: Apache-2.0
 - Copyright: Copyright 2022 Adguard Software Ltd
 - Source: <https://github.com/AdguardTeam/NativeLibsCommon/tree/00b38bb2a4b206b677ad1f2b901ccb8bb0d60372>
-  (desktop), <https://github.com/AdguardTeam/NativeLibsCommon/tree/58cef252031e2cc1f540ecaec2952f5f32afa3a1>
-  (Android)
 
 ### DnsLibs
 
-- Version: desktop, 2.10.2-6-gc68d7dde, commit
-  c68d7dde992a147587b8ac200ae3b7d978c3e378; Android, 2.10.2, commit
-  0c6e855b12eee2f696e7cc30719532fda4fdd512
+- Version: 2.10.2-6-gc68d7dde, commit
+  c68d7dde992a147587b8ac200ae3b7d978c3e378
 - License: Apache-2.0
 - Copyright: Copyright 2022 Adguard Software Ltd
 - Source: <https://github.com/AdguardTeam/DnsLibs/tree/c68d7dde992a147587b8ac200ae3b7d978c3e378>
-  (desktop), <https://github.com/AdguardTeam/DnsLibs/tree/0c6e855b12eee2f696e7cc30719532fda4fdd512>
-  (Android)
 
 ### BoringSSL
 
@@ -267,7 +259,7 @@ packages uses the system's OpenSSL, if one is installed.)
 AdGuard's library for looking up public suffixes. It compiles Chromium's lookup
 code and a table built from the Public Suffix List.
 
-- Version: 2022-12-26, in NativeLibsCommon 8.1.54 (desktop) and 8.1.52 (Android)
+- Version: 2022-12-26, in NativeLibsCommon 8.1.54
 - License: BSD-3-Clause (Chromium's code,
   [licenses/common/chromium-tldregistry.txt](licenses/common/chromium-tldregistry.txt))
   AND MPL-2.0 (the Public Suffix List, [licenses/common/MPL-2.0.txt](licenses/common/MPL-2.0.txt))
@@ -325,18 +317,18 @@ code and a table built from the Public Suffix List.
 - License: BSD-3-Clause, [licenses/common/lwip.txt](licenses/common/lwip.txt)
 - Copyright: Copyright (c) 2001, 2002 Swedish Institute of Computer Science;
   and the other holders listed in [licenses/common/lwip.txt](licenses/common/lwip.txt)
-- Source: <https://github.com/TrustTunnel/TrustTunnelClient/tree/170609c24ca865819fed68437b01c013049bc3fa/third-party/lwip/lwip>
+- Source: <https://github.com/TrustTunnel/TrustTunnelClient/tree/c0990e174fc75b2e52acd15882c62e69a3022581/third-party/lwip/lwip>
 
 ### pcap_savefile.h
 
 A header from libpcap that the core uses to write packet captures.
 
-- Version: as vendored in TrustTunnelClient at 170609c2
+- Version: as vendored in TrustTunnelClient at c0990e17
 - License: BSD-4-Clause-UC, [licenses/common/pcap_savefile.txt](licenses/common/pcap_savefile.txt).
   This product includes software developed by the Computer Systems Engineering
   Group at Lawrence Berkeley Laboratory.
 - Copyright: Copyright (c) 1994, 1995, 1996 The Regents of the University of California
-- Source: <https://github.com/TrustTunnel/TrustTunnelClient/blob/170609c24ca865819fed68437b01c013049bc3fa/third-party/pcap_savefile/include/pcap_savefile.h>
+- Source: <https://github.com/TrustTunnel/TrustTunnelClient/blob/c0990e174fc75b2e52acd15882c62e69a3022581/third-party/pcap_savefile/include/pcap_savefile.h>
 
 ### Microsoft Detours
 
@@ -622,22 +614,22 @@ and links libfuse, squashfuse, zstd, zlib, musl and mimalloc statically.
 
 ### TrustTunnel Android client
 
-The VPN client library the app is built on (`trusttunnel-client-android-1.1.7.aar`):
+The VPN client library the app is built on (`trusttunnel-client-android-1.1.11.aar`):
 its Java and Kotlin classes, its `assets/logback.xml`, and its native library,
 which contains the VPN core and its libraries listed above (all but Detours and
 wintun.h), the JNI adapter, and the Rust code below. The native library is
 built with the Android NDK's LLVM libc++ (Apache-2.0 WITH LLVM-exception),
 which asks for no notice in compiled form.
 
-- Version: 1.1.7 (TrustTunnelClient commit 170609c24ca865819fed68437b01c013049bc3fa)
+- Version: 1.1.11 (TrustTunnelClient commit c0990e174fc75b2e52acd15882c62e69a3022581)
 - License: Apache-2.0
 - Copyright: Copyright 2020 Adguard Software Ltd
-- Source: <https://github.com/TrustTunnel/TrustTunnelClient/tree/v1.1.7/platform/android>
+- Source: <https://github.com/TrustTunnel/TrustTunnelClient/tree/v1.1.11/platform/android>
 
 ### Rust crates in the TrustTunnel native library
 
 Compiled into `libtrusttunnel_android.so` with the Rust standard library, as
-TrustTunnelClient's `trusttunnel/Cargo.lock` at 170609c2 resolves them.
+TrustTunnelClient's `trusttunnel/Cargo.lock` at c0990e17 resolves them.
 
 - trusttunnel-deeplink-ffi 0.1.0 and trusttunnel-settings 0.1.0 (in
   TrustTunnelClient), Apache-2.0, Copyright 2020 Adguard Software Ltd

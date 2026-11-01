@@ -155,6 +155,30 @@ cat > "$TMP/table.jsonl" <<'TABLE'
 ["logs_turn_on", "LogsPage", "Turn on"]
 ["logs_placeholder", "LogsPage", "Logs will appear after connecting"]
 ["logs_auto_scroll", "LogsPage", "Auto-scroll"]
+["geo_section", "SplitPage", "Routing"]
+["geo_mode_blocked", "SplitPage", "Only blocked sites through VPN"]
+["geo_mode_blocked_details", "SplitPage", "Sites blocked in Russia go through the VPN. Russian sites, and everything that opens without a VPN, go direct."]
+["geo_mode_except_ru", "SplitPage", "Everything through VPN except Russian sites"]
+["geo_mode_except_ru_details", "SplitPage", "Russian sites and addresses go direct; everything else goes through the VPN."]
+["geo_mode_off", "SplitPage", "Everything through VPN"]
+["geo_mode_off_details", "SplitPage", "Only your own rules below decide what goes around the tunnel."]
+["geo_update_now", "SplitPage", "Update now"]
+["geo_hide_sources", "SplitPage", "Hide sources"]
+["geo_sources", "SplitPage", "Sources…"]
+["geo_sites_list", "SplitPage", "Sites list"]
+["geo_addresses_list", "SplitPage", "Addresses list"]
+["geo_auto_update", "SplitPage", "Check for new lists every day"]
+["geo_restore_defaults", "SplitPage", "Restore the default lists"]
+["geo_rules_added", "SplitPage", "Your rules below are added to the lists."]
+["geo_rules_taken_off", "SplitPage", "Your rules below take sites off the lists."]
+["geo_downloading", "Backend", "Downloading the lists… Until they are in, everything goes through the VPN."]
+["geo_download_failed", "Backend", "The lists could not be downloaded, so everything goes through the VPN for now. FreeTunnel tries again within the hour."]
+["geo_not_downloaded", "Backend", "The lists are not downloaded yet, so everything goes through the VPN for now."]
+["geo_counts", "Backend", "%1 sites and %2 addresses"]
+["geo_checked", "Backend", "checked %1"]
+["geo_updating", "Backend", "updating…"]
+["geo_update_failed", "Backend", "the last update failed, see the log"]
+["geo_bad_source", "Backend", "Not a list address: %1. Use an https address of a text list, or of a .dat file with its category after #, as in …/geoip.dat#ru-blocked."]
 TABLE
 
 # Every other string, in groups that each say why the desktop has no such text.
@@ -198,6 +222,9 @@ text_applications_and_addresses_are_selected_full_vpn_pro
 text_no_through_vpn_rules_full_vpn_is_enabled
 split_notice_both
 legacy_rules_removed
+
+## Geo routing: Android's allowlist cannot send listed applications through the tunnel while the lists route the rest
+text_through_vpn_apps_are_not_applied_under_geo_routing
 imported_routing_rules
 
 ## The update's own states, and the Android installer the update goes through (the desktop opens its installer or a folder)

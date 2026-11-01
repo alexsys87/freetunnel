@@ -670,4 +670,119 @@ class RoutingConfigTest {
         assertEquals(listOf("intranet.example", "example.org"), exclusionsOf(plan))
         assertEquals(true, backing.data["rules_migrated"])
     }
+
+    // ---------- geo routing (RoutingConfig.prepareGeo), as the desktop routes it ----------
+
+    private val blockedEntries = GeoLists.join(listOf("blocked.example", "*.blocked.example", "ozon.ru", "*.ozon.ru", "203.0.113.0/24"))
+    private val russianEntries = GeoLists.join(listOf("ru", "*.ru", "ozon.ru", "*.ozon.ru", "5.3.0.0/16"))
+    private fun geoPlan(mode: GeoRouting.Mode, entries: String?, enabled: Boolean = true, through: Boolean = false,
+                        domains: List<String> = emptyList(), apps: List<String> = emptyList()) =
+        RoutingConfig.prepare(source, enabled, through, domains, apps, true, emptyList(), RoutingConfig.Geo(mode, entries))
+    private fun modeOf(toml: String) = Toml.parse(toml).getString("vpn_mode")
+    private fun exclusionsOf(toml: String) = Toml.parse(toml).getArray("exclusions")!!.toList().map { it as String }
+
+    @Test fun onlyBlockedSitesGoThroughTheTunnel() {
+        val result = geoPlan(GeoRouting.Mode.BLOCKED, blockedEntries)
+        assertEquals("selective", modeOf(result.coreToml))
+        assertTrue(exclusionsOf(result.coreToml).containsAll(listOf("blocked.example", "*.blocked.example", "203.0.113.0/24")))
+        // The checked config has the mode and the user's rules, and not the lists, which can be far too many for its checks.
+        assertEquals("selective", modeOf(result.toml))
+        assertFalse(exclusionsOf(result.toml).contains("blocked.example"))
+        // The config's own exclusion was written for general mode, where it meant the opposite.
+        assertFalse(exclusionsOf(result.coreToml).contains("intranet.example"))
+        assertNull(result.warning)
+    }
+
+    @Test fun everythingButRussianSitesGoesThroughTheTunnel() {
+        val result = geoPlan(GeoRouting.Mode.EXCEPT_RUSSIA, russianEntries)
+        assertEquals("general", modeOf(result.coreToml))
+        assertTrue(exclusionsOf(result.coreToml).containsAll(listOf("ru", "*.ru", "5.3.0.0/16", "intranet.example")))
+        assertEquals(exclusionsOf(result.toml), listOf("intranet.example"))
+    }
+
+    // The bug the desktop had (FreeTunnel PR #7): a "Bypass VPN" rule for a Russian site went through the tunnel under
+    // "Only blocked sites through VPN". A rule pointing the other way takes the site off the list and goes its own way.
+    @Test fun aBypassRuleTakesItsSiteOffTheBlockedList() {
+        val result = geoPlan(GeoRouting.Mode.BLOCKED, blockedEntries, through = false, domains = listOf("ozon.ru", "*.ozon.ru"))
+        val core = exclusionsOf(result.coreToml)
+        assertEquals("selective", modeOf(result.coreToml))
+        assertFalse(core.contains("ozon.ru")); assertFalse(core.contains("*.ozon.ru"))
+        assertTrue(core.contains("blocked.example"))
+    }
+
+    @Test fun aThroughRuleTakesItsSiteOffTheRussianList() {
+        val result = geoPlan(GeoRouting.Mode.EXCEPT_RUSSIA, russianEntries, through = true, domains = listOf("ozon.ru", "*.ozon.ru"))
+        val core = exclusionsOf(result.coreToml)
+        assertEquals("general", modeOf(result.coreToml))
+        assertFalse(core.contains("ozon.ru")); assertFalse(core.contains("*.ozon.ru"))
+        // A wider entry stays: the rest of .ru still goes around the tunnel.
+        assertTrue(core.contains("*.ru"))
+    }
+
+    @Test fun rulesPointingTheListsWayAreMoreOfTheList() {
+        val blocked = geoPlan(GeoRouting.Mode.BLOCKED, blockedEntries, through = true, domains = listOf("extra.example"))
+        assertTrue(exclusionsOf(blocked.coreToml).contains("extra.example"))
+        assertTrue(exclusionsOf(blocked.toml).contains("extra.example"))
+        val russian = geoPlan(GeoRouting.Mode.EXCEPT_RUSSIA, russianEntries, through = false, domains = listOf("bank.example"))
+        assertTrue(exclusionsOf(russian.coreToml).contains("bank.example"))
+    }
+
+    @Test fun splitTunnellingOffLeavesTheListsAlone() {
+        val result = geoPlan(GeoRouting.Mode.BLOCKED, blockedEntries, enabled = false, domains = listOf("ozon.ru"), apps = listOf("test.browser"))
+        assertTrue(exclusionsOf(result.coreToml).contains("ozon.ru"))
+        assertTrue(result.apps.isEmpty())
+    }
+
+    // Until the lists are in, nothing is routed by a list: the full tunnel, with the user's own exceptions to it.
+    @Test fun withoutTheListsEverythingGoesThroughTheTunnel() {
+        val bypass = geoPlan(GeoRouting.Mode.BLOCKED, null, through = false, domains = listOf("bank.example"), apps = listOf("test.bank"))
+        assertEquals("general", modeOf(bypass.coreToml))
+        assertEquals(bypass.toml, bypass.coreToml)
+        assertTrue(exclusionsOf(bypass.coreToml).contains("bank.example"))
+        assertEquals(listOf("test.bank"), bypass.apps); assertFalse(bypass.allowApps)
+        val through = geoPlan(GeoRouting.Mode.BLOCKED, null, through = true, domains = listOf("extra.example"), apps = listOf("test.browser"))
+        assertEquals("general", modeOf(through.coreToml))
+        assertFalse(exclusionsOf(through.coreToml).contains("extra.example"))
+        assertTrue(through.apps.isEmpty()); assertNull(through.warning)
+    }
+
+    // Android's allowlist would send everything but the listed applications around the tunnel, lists or not; applications
+    // to bypass it are left out of it in any mode.
+    @Test fun applicationsToBypassAreLeftOutAndThoseToGoThroughAreNotApplied() {
+        val bypass = geoPlan(GeoRouting.Mode.BLOCKED, blockedEntries, through = false, apps = listOf("test.bank"))
+        assertEquals(listOf("test.bank"), bypass.apps); assertFalse(bypass.allowApps); assertNull(bypass.warning)
+        val through = geoPlan(GeoRouting.Mode.EXCEPT_RUSSIA, russianEntries, through = true, apps = listOf("test.browser"))
+        assertTrue(through.apps.isEmpty()); assertFalse(through.allowApps)
+        assertEquals(R.string.text_through_vpn_apps_are_not_applied_under_geo_routing, through.warning)
+    }
+
+    @Test fun offIsTheUsersOwnRulesAlone() {
+        val withOff = RoutingConfig.prepare(source, true, true, listOf("example.org"), emptyList(), true, emptyList(),
+            RoutingConfig.Geo(GeoRouting.Mode.OFF, blockedEntries))
+        val without = plan(domains = listOf("example.org"))
+        assertEquals(without, withOff)
+    }
+
+    // An automatic attempt is given the session as it is before the lists are in: the adapter keeps a copy of every config a
+    // core is made with, and the lists make that megabytes.
+    @Test fun automaticAttemptsAreGivenTheSessionWithoutTheLists() {
+        val blocked = geoPlan(GeoRouting.Mode.BLOCKED, blockedEntries, through = false, domains = listOf("bank.example"))
+        assertEquals("general", modeOf(blocked.fallbackToml))
+        val fallback = exclusionsOf(blocked.fallbackToml)
+        assertTrue(fallback.contains("bank.example"))
+        assertFalse(fallback.contains("blocked.example"))
+        val notReady = geoPlan(GeoRouting.Mode.BLOCKED, null, through = false, domains = listOf("bank.example"))
+        assertEquals(notReady.toml, blocked.fallbackToml)
+        // Without the lists there is nothing to leave out.
+        val off = plan(domains = listOf("example.org"))
+        assertEquals(off.coreToml, off.fallbackToml)
+    }
+
+    @Test fun manyListEntriesStayOutOfTheCheckedConfig() {
+        val many = GeoLists.join((0 until 60_000).map { "site$it.example" })
+        val result = geoPlan(GeoRouting.Mode.BLOCKED, many)
+        assertTrue(result.toml.length < 4096)
+        assertTrue(result.coreToml.length > 1_048_576)
+        assertEquals(60_000, exclusionsOf(result.coreToml).size)
+    }
 }

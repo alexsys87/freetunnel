@@ -169,6 +169,13 @@ public final class MainActivity extends Activity {
     // The "+" chip's field for the name of a new profile: open or not, what was typed in it, and the field itself while the
     // page shows it. It stays on the page, hidden, so that opening and closing it rebuilds nothing.
     private boolean profileNameOpen;
+    // Geo routing on the Split page: whether its sources are open, and what a change of the lists' state updates in place
+    // (GeoUpdater calls refreshGeo), which leaves the page and a field being typed in as they are.
+    private boolean geoSourcesOpen;
+    private TextView geoStatusView;
+    private TextView geoUpdateLink;
+    private android.content.res.ColorStateList geoUpdateColors;
+    private final Runnable geoListener = this::refreshGeo;
     private String profileNameDraft = "";
     private EditText profileNameInput;
     // True while render() takes the page apart: a field that loses its focus to that has not been left.
@@ -296,6 +303,9 @@ public final class MainActivity extends Activity {
         // After the receiver: the service sends a failure's reason here only while the app is on the screen.
         FreeTunnelVpnService.setAppVisible(true);
         AndroidUpdater.INSTANCE.observe(() -> { refreshUpdateDot(); if (page == 3) refreshUpdateControls(); });
+        // The geo lists: their state on the Split page as it changes, and a check of those that are due (GeoUpdater).
+        GeoUpdater.observe(geoListener);
+        GeoUpdater.check(this);
         AndroidUpdater.INSTANCE.recoverInstall(this);
         vpnState = FreeTunnelVpnService.state(this);
         if (vpnState == 0) stopping = false;
@@ -316,6 +326,7 @@ public final class MainActivity extends Activity {
         // The logo does not animate across the time the app was not shown.
         homeFresh = true;
         AndroidUpdater.INSTANCE.observe(null);
+        GeoUpdater.unobserve(geoListener);
         if (receiverRegistered) {
             unregisterReceiver(vpnReceiver);
             receiverRegistered = false;
@@ -2577,8 +2588,8 @@ public final class MainActivity extends Activity {
         } catch (Exception e) { toast(getString(R.string.text_could_not_open_file)); }
     }
 
-    // The Split page (qml/pages/SplitPage.qml), top to bottom: the Split Tunneling switch; the Mode, as a value and its ▾; the
-    // notices that apply; Profile and its chips, the edited one in accent, with a + that opens the field for a new name;
+    // The Split page (qml/pages/SplitPage.qml), top to bottom: Routing by geo lists (geoRouting); the Split Tunneling switch; the
+    // Mode, as a value and its ▾, and under geo routing what the rules do to the lists; the notices that apply; Profile and its chips, the edited one in accent, with a + that opens the field for a new name;
     // the rules header, with Recommended for Russia and Clear all, the domains as chips and the field to add them; and the
     // applications header, with Choose… and Clear all, the applications as chips and the field to type one's name in. The chips are the profile being edited
     // (SplitProfiles.edited), which is not the profile the selected config uses: that is chosen in the editor.
@@ -2589,6 +2600,8 @@ public final class MainActivity extends Activity {
         final String edited = model.edited();
         boolean enabled = prefs.getBoolean("split_enabled", false);
         boolean through = prefs.getBoolean("through", false);
+        GeoRouting.Mode geoMode = GeoUpdater.mode(prefs);
+        geoRouting(body, geoMode);
         ToggleView splitSwitch = ui.toggle(enabled, false, "split:enabled");
         splitSwitch.setContentDescription(getString(R.string.text_split_tunnelling));
         splitSwitch.setListener((v, checked) -> {
@@ -2604,6 +2617,15 @@ public final class MainActivity extends Activity {
                 new String[]{getString(R.string.text_bypass_vpn_61), getString(R.string.text_through_vpn_62)}, through ? 1 : 0, which -> {
                     prefs.edit().putBoolean("through", which == 1).apply(); applyCurrentRules(); render();
                 })), lp(-1, -2));
+        // Under geo routing the rules do not decide the mode, only what is taken off the lists or added to them; said, since
+        // the page's own Mode reads as if it did (the desktop's geoRulesHint).
+        if (geoMode != GeoRouting.Mode.OFF) {
+            TextView hint = label(getString((geoMode == GeoRouting.Mode.BLOCKED) == through ? R.string.geo_rules_added : R.string.geo_rules_taken_off),
+                    11, t().textFaint);
+            LinearLayout.LayoutParams hintLp = lp(-1, -2);
+            hintLp.topMargin = dp(2);
+            body.addView(hint, hintLp);
+        }
         for (CharSequence notice : splitNotices(model, enabled, through)) {
             gap(body, 6);
             body.addView(ui.notice(notice), lp(-1, -2));
@@ -2763,15 +2785,190 @@ public final class MainActivity extends Activity {
         return SplitProfiles.DEFAULT.equals(name) ? getString(R.string.split_profile_default) : name;
     }
 
+    // Routing by geo lists, as the desktop's Split page has it (SplitPage.qml): three rows with a line of explanation each rather
+    // than a dropdown, since what each choice sends around the tunnel is the whole question; then where the lists are, Update now
+    // and Sources…, which opens the two lists the chosen mode reads and the daily check. Keys: geo:blocked, geo:except_ru, geo:off,
+    // geo:update, geo:sources, geo:sites, geo:addresses, geo:auto and geo:reset.
+    private void geoRouting(LinearLayout body, GeoRouting.Mode mode) {
+        geoStatusView = null;
+        geoUpdateLink = null;
+        body.addView(ui.sectionLabel(getString(R.string.geo_section)), lp(-1, -2));
+        GeoRouting.Mode[] modes = {GeoRouting.Mode.BLOCKED, GeoRouting.Mode.EXCEPT_RUSSIA, GeoRouting.Mode.OFF};
+        int[][] texts = {{R.string.geo_mode_blocked, R.string.geo_mode_blocked_details},
+                {R.string.geo_mode_except_ru, R.string.geo_mode_except_ru_details},
+                {R.string.geo_mode_off, R.string.geo_mode_off_details}};
+        for (int i = 0; i < modes.length; i++) {
+            final GeoRouting.Mode m = modes[i];
+            LinearLayout choice = ui.choiceRow(getString(texts[i][0]), getString(texts[i][1]), m == mode, "geo:" + m.id, v -> setGeoMode(m));
+            LinearLayout.LayoutParams choiceLp = lp(-1, -2);
+            choiceLp.topMargin = dp(4);
+            body.addView(choice, choiceLp);
+        }
+        if (mode != GeoRouting.Mode.OFF) {
+            geoStatusView = label("", 12, t().textDim);
+            LinearLayout.LayoutParams statusLp = lp(-1, -2);
+            statusLp.topMargin = dp(6);
+            body.addView(geoStatusView, statusLp);
+            LinearLayout links = row();
+            geoUpdateLink = ui.link(getString(R.string.geo_update_now), 12, Ui.LinkKind.ACCENT, "geo:update");
+            geoUpdateLink.setOnClickListener(v -> { if (!GeoUpdater.busy()) GeoUpdater.check(this, true); });
+            geoUpdateColors = geoUpdateLink.getTextColors();
+            // The words start at the page's margin, and the next link 14 on, as the desktop's row spaces them.
+            LinearLayout.LayoutParams updateLp = ui.linkLp(false);
+            updateLp.leftMargin = -dp(Ui.LINK_PAD_H_DP);
+            links.addView(geoUpdateLink, updateLp);
+            TextView sourcesLink = ui.link(getString(geoSourcesOpen ? R.string.geo_hide_sources : R.string.geo_sources), 12, Ui.LinkKind.ACCENT, "geo:sources");
+            sourcesLink.setOnClickListener(v -> { geoSourcesOpen = !geoSourcesOpen; render(); });
+            LinearLayout.LayoutParams sourcesLp = ui.linkLp(false);
+            sourcesLp.leftMargin = dp(14 - 2 * Ui.LINK_PAD_H_DP);
+            links.addView(sourcesLink, sourcesLp);
+            LinearLayout.LayoutParams linksLp = lp(-1, -2);
+            linksLp.topMargin = dp(8);
+            body.addView(links, linksLp);
+            if (geoSourcesOpen) geoSources(body, mode);
+            refreshGeo();
+        }
+        gap(body, 14);
+    }
+
+    // The two lists the chosen mode reads: any https text list, or a .dat file with its category after '#'. Taken on Enter or when
+    // the field is left; an address that is not one is refused with the reason, and the field goes back to the one in use.
+    private void geoSources(LinearLayout body, GeoRouting.Mode mode) {
+        Map<String, String> sources = GeoUpdater.sources(prefs);
+        for (int i = 0; i < 2; i++) {
+            final boolean sites = i == 0;
+            GeoRouting.Slot slot = GeoRouting.slot(mode, sites);
+            TextView title = label(getString(sites ? R.string.geo_sites_list : R.string.geo_addresses_list), 12, t().textDim);
+            LinearLayout.LayoutParams titleLp = lp(-1, -2);
+            titleLp.topMargin = dp(sites ? 8 : 6);
+            body.addView(title, titleLp);
+            final EditText field = ui.pageInput(slot.defaultSource, sites ? "geo:sites" : "geo:addresses", true);
+            field.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+            field.setText(GeoRouting.sourceFor(slot, sources));
+            field.setImeOptions(EditorInfo.IME_ACTION_DONE);
+            field.setOnEditorActionListener((v, action, event) -> {
+                if (event != null && event.getAction() != KeyEvent.ACTION_DOWN) return true;
+                setGeoSource(mode, sites, field);
+                field.clearFocus();
+                return true;
+            });
+            field.setOnFocusChangeListener((v, hasFocus) -> { if (!hasFocus && !rendering) setGeoSource(mode, sites, field); });
+            LinearLayout.LayoutParams fieldLp = lp(-1, 34);
+            fieldLp.topMargin = dp(4);
+            body.addView(field, fieldLp);
+        }
+        ToggleView auto = ui.toggle(GeoUpdater.autoUpdate(prefs), false, "geo:auto");
+        auto.setContentDescription(getString(R.string.geo_auto_update));
+        auto.setListener((v, checked) -> {
+            prefs.edit().putBoolean(GeoRouting.AUTO_UPDATE_KEY, checked).apply();
+            GeoUpdater.check(this);
+        });
+        LinearLayout.LayoutParams autoLp = ui.focusRowLp();
+        autoLp.topMargin = dp(4);
+        body.addView(ui.toggleRow(getString(R.string.geo_auto_update), null, auto), autoLp);
+        GeoRouting.Slot sitesSlot = GeoRouting.slot(mode, true);
+        GeoRouting.Slot addressesSlot = GeoRouting.slot(mode, false);
+        if (sources.containsKey(sitesSlot.id) || sources.containsKey(addressesSlot.id)) {
+            TextView reset = ui.link(getString(R.string.geo_restore_defaults), 12, Ui.LinkKind.ACCENT, "geo:reset");
+            reset.setOnClickListener(v -> {
+                prefs.edit().remove(GeoRouting.SOURCE_KEY_PREFIX + sitesSlot.id).remove(GeoRouting.SOURCE_KEY_PREFIX + addressesSlot.id).apply();
+                geoSourcesChanged();
+            });
+            LinearLayout.LayoutParams resetLp = ui.linkLp(false);
+            resetLp.leftMargin = -dp(Ui.LINK_PAD_H_DP);
+            resetLp.topMargin += dp(4);
+            body.addView(reset, resetLp);
+        }
+    }
+
+    private void setGeoMode(GeoRouting.Mode mode) {
+        if (GeoUpdater.mode(prefs) == mode) return;
+        prefs.edit().putString(GeoRouting.MODE_KEY, mode.id).apply();
+        // The old mode's lists stop routing at once: until the new one's are in, the tunnel routes as the status line says, and
+        // they take over when they are (GeoUpdater, FreeTunnelVpnService.reroute).
+        GeoUpdater.forget();
+        GeoUpdater.check(this);
+        applyCurrentRules();
+        render();
+    }
+
+    private void setGeoSource(GeoRouting.Mode mode, boolean sites, EditText field) {
+        GeoRouting.Slot slot = GeoRouting.slot(mode, sites);
+        if (slot == null) return;
+        String key = GeoRouting.SOURCE_KEY_PREFIX + slot.id;
+        String typed = field.getText().toString().trim();
+        String current = GeoRouting.sourceFor(slot, GeoUpdater.sources(prefs));
+        if (typed.equals(current)) return;
+        if (typed.isEmpty() || typed.equals(slot.defaultSource)) {
+            prefs.edit().remove(key).apply();
+        } else if (GeoLists.parseSource(typed) == null) {
+            toast(getString(R.string.geo_bad_source, typed));
+            field.setText(current);
+            return;
+        } else {
+            prefs.edit().putString(key, typed).apply();
+        }
+        geoSourcesChanged();
+    }
+
+    private void geoSourcesChanged() {
+        GeoUpdater.forget();
+        GeoUpdater.check(this);
+        host.post(() -> { if (!isDestroyed() && page == 2) render(); });
+    }
+
+    // The line under the rows: how many sites and addresses the lists have and when they were checked, or, while there are none,
+    // what the tunnel does until there are; and Update now, which does nothing while lists are being downloaded.
+    private void refreshGeo() {
+        if (geoStatusView == null || isDestroyed()) return;
+        GeoRouting.Mode mode = GeoUpdater.mode(prefs);
+        GeoStore.Status status = GeoUpdater.status(mode);
+        boolean busy = GeoUpdater.busy();
+        String line;
+        boolean ready = status != null && status.ready;
+        if (status == null) line = busy ? getString(R.string.geo_downloading) : "";
+        else if (!ready) {
+            if (busy) line = getString(R.string.geo_downloading);
+            else if (!status.lastError.isEmpty()) line = getString(R.string.geo_download_failed);
+            else line = getString(R.string.geo_not_downloaded);
+        } else {
+            java.text.NumberFormat numbers = java.text.NumberFormat.getIntegerInstance(getResources().getConfiguration().getLocales().get(0));
+            line = getString(R.string.geo_counts, numbers.format(status.sites), numbers.format(status.addresses));
+            if (status.lastChecked > 0) {
+                String when = android.text.format.DateFormat.getDateFormat(this).format(new java.util.Date(status.lastChecked)) + " "
+                        + android.text.format.DateFormat.getTimeFormat(this).format(new java.util.Date(status.lastChecked));
+                line += " · " + getString(R.string.geo_checked, when);
+            }
+            if (busy) line += " · " + getString(R.string.geo_updating);
+            else if (!status.lastError.isEmpty()) line += " · " + getString(R.string.geo_update_failed);
+        }
+        geoStatusView.setText(line);
+        geoStatusView.setVisibility(line.isEmpty() ? View.GONE : View.VISIBLE);
+        geoStatusView.setTextColor(ready ? t().textDim : t().warn);
+        // As the update row does while it checks: not setEnabled, which would move a remote's focus off it, but not clickable,
+        // with no hover look, and in textFaint, as the desktop's is while it downloads.
+        if (geoUpdateLink instanceof Ui.LinkText) {
+            geoUpdateLink.setClickable(!busy);
+            ((Ui.LinkText) geoUpdateLink).setDormant(busy);
+            geoUpdateLink.setTextColor(busy ? android.content.res.ColorStateList.valueOf(t().textFaint) : geoUpdateColors);
+        }
+    }
+
     // What the page says is wrong or worth knowing, one notice each, in this order:
     //  - Through VPN would route nothing (the desktop's words, naming the config and the profile it uses), worked out by the
     //    code that builds the plan (RoutingConfig.prepare): its warning for no rules at all. The full tunnel stays on;
     //  - applications and domains both listed under Through VPN, which Android can not add together (VpnService takes the
     //    applications and the destinations as an intersection), so the full tunnel stays on then too: Android's own;
+    //  - under geo routing, in place of those two, Through VPN applications, which are not applied then (RoutingConfig);
     //  - rules the selected config brings in with it, which count too; and rules an older preview let be saved that were dropped.
     private List<CharSequence> splitNotices(SplitProfiles model, boolean enabled, boolean through) {
         List<CharSequence> notices = new ArrayList<>();
-        if (enabled && through) {
+        boolean geo = GeoUpdater.mode(prefs) != GeoRouting.Mode.OFF;
+        if (geo && enabled && through && !configs.isEmpty()) {
+            SplitStore.Rules rules = SplitStore.rules(splitPrefs, null, model.effective(activeConfig().profile));
+            if (!installedApps(rules.apps).isEmpty()) notices.add(getString(R.string.text_through_vpn_apps_are_not_applied_under_geo_routing));
+        }
+        if (enabled && through && !geo) {
             if (configs.isEmpty()) {
                 SplitStore.Rules rules = SplitStore.rules(splitPrefs, null, SplitProfiles.DEFAULT);
                 if (rules.domains.isEmpty() && installedApps(rules.apps).isEmpty()) notices.add(getString(R.string.split_notice_nothing_no_configs));

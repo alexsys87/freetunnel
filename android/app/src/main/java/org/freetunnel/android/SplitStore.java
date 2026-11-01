@@ -80,6 +80,9 @@ final class SplitStore {
         if (recommended != null && isNewInstallation(backing)) {
             made = SplitProfiles.seeded(recommended.get());
             extra.put("split_enabled", Boolean.TRUE);
+            // And routing by the lists, as the desktop's new installation does (AppSettings.cpp): only what is blocked goes
+            // through the tunnel. An update keeps what it had, which is no geo routing.
+            extra.put(GeoRouting.MODE_KEY, GeoRouting.Mode.BLOCKED.id);
         } else {
             made = SplitProfiles.migrated(setOf(backing, OLD_DOMAINS), setOf(backing, OLD_APPS));
         }

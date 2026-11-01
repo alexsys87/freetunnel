@@ -186,7 +186,7 @@ object RoutingConfig {
         val parsed = Toml.parse(source)
         if (parsed.hasErrors()) return Import(source, false)
         val endpoint = parsed.get(listOf("endpoint")) as? TomlTable ?: return endpointExport(parsed) ?: Import(source, false)
-        // A real auth key needs TrustTunnel 1.3: core 1.1.7 ignores it, and the server
+        // A real auth key needs TrustTunnel 1.3: core 1.1.11 ignores it, and the server
         // then refuses every connection without saying why. The endpoint writes an
         // empty one into every export, so only a key with something in it is refused.
         // Anything else that is there, blank or not a string, is refused too: no core
@@ -217,7 +217,23 @@ object RoutingConfig {
         return Import(document(root, subscriptionKeys, overrides), subscription, certificate != null)
     }
 
-    data class Plan(val toml: String, val apps: List<String>, val allowApps: Boolean, val warning: Int?)
+    /**
+     * A session's plan. [toml] is the config as checked (validate, and the service's own checks of it); [coreToml] is what
+     * the core is given, the same with the geo lists' entries added to its exclusions. Those can run to hundreds of
+     * thousands, far past what the checks take (a 1 MB config), and are GeoLists' own, already checked as they were read.
+     *
+     * [fallbackToml] is what the automatic attempts of a blocked episode give the core: the session as it is before the lists
+     * are in, the full tunnel with the user's own exceptions. The adapter keeps a copy of every config a core is made with
+     * until the process ends (its JNI never releases the string), which is a few KB for a config and megabytes with the
+     * lists, and an episode can make a core every 30 s for hours. The service builds the session again with the lists once
+     * an attempt connects.
+     */
+    data class Plan @JvmOverloads constructor(val toml: String, val apps: List<String>, val allowApps: Boolean, val warning: Int?,
+                                              val coreToml: String = toml, val geoVersion: String = "",
+                                              val fallbackToml: String = toml)
+
+    /** Geo routing for a session: the mode, and its entries (GeoStore.entries), null while there are none yet. */
+    data class Geo(val mode: GeoRouting.Mode, val entries: String?)
 
     /**
      * The plan for a session on this config with the rules of [profile], the split profile it uses: the
@@ -233,9 +249,15 @@ object RoutingConfig {
             try { context.packageManager.getApplicationInfo(it, 0); true }
             catch (_: android.content.pm.PackageManager.NameNotFoundException) { false }
         }
-        return prepare(source, prefs.getBoolean("split_enabled", false), prefs.getBoolean("through", false),
+        // Geo routing's entries, and their fingerprint, by which GeoUpdater tells whether the session has to take in new ones.
+        val geoMode = GeoUpdater.mode(prefs)
+        val store = GeoUpdater.store(context)
+        val sources = GeoUpdater.sources(prefs)
+        val geo = if (geoMode == GeoRouting.Mode.OFF) null else Geo(geoMode, store.entries(geoMode, sources))
+        val plan = prepare(source, prefs.getBoolean("split_enabled", false), prefs.getBoolean("through", false),
             rules.domains, apps, prefs.getBoolean("killswitch", true),
-            ExcludedRoutes.load(prefs.getString(ExcludedRoutes.KEY, null), ExcludedRoutes.defaults(context)))
+            ExcludedRoutes.load(prefs.getString(ExcludedRoutes.KEY, null), ExcludedRoutes.defaults(context)), geo)
+        return if (geo?.entries == null) plan else plan.copy(geoVersion = store.version(geoMode, sources))
     }
 
     /**
@@ -246,8 +268,10 @@ object RoutingConfig {
      */
     @JvmStatic @JvmOverloads fun prepare(source: String, enabled: Boolean, through: Boolean,
                            domains: List<String>, apps: List<String>, killSwitch: Boolean,
-                           excludedRoutes: List<String> = emptyList()): Plan {
+                           excludedRoutes: List<String> = emptyList(), geo: Geo? = null): Plan {
         val parsed = validate(source)
+        if (geo != null && geo.mode != GeoRouting.Mode.OFF)
+            return prepareGeo(parsed, geo, enabled, through, domains, apps, killSwitch, excludedRoutes)
         val originalMode = parsed.getString("vpn_mode") ?: "general"
         val original = parsed.getArray("exclusions")?.let { a -> (0 until a.size()).map { a.getString(it) } }.orEmpty()
         val requestedMode = if (enabled) { if (through) "selective" else "general" } else originalMode
@@ -273,6 +297,13 @@ object RoutingConfig {
                 }
             }
         }
+        val result = render(parsed, mode, rules, killSwitch, excludedRoutes)
+        validate(result)
+        return Plan(result, selectedApps, allowApps, warning)
+    }
+
+    // The config with this mode, these exclusions and the kill switch, and Settings' Excluded routes after its own.
+    private fun render(parsed: TomlTable, mode: String, rules: List<String>, killSwitch: Boolean, excludedRoutes: List<String>): String {
         val root = linkedMapOf<String, Any>()
         parsed.keySet().forEach { root[it] = parsed.get(listOf(it))!! }
         root["vpn_mode"] = mode
@@ -288,8 +319,50 @@ object RoutingConfig {
         // Keep configuration tables as ordinary headers and scalar assignments.
         // A config saved by an earlier version can still hold a subscription address;
         // the core does nothing with it, so it is not handed the password in it.
-        val result = document(root, subscriptionKeys, mapOf(listOf("listener", "tun", "excluded_routes") to excluded))
-        validate(result)
-        return Plan(result, selectedApps, allowApps, warning)
+        return document(root, subscriptionKeys, mapOf(listOf("listener", "tun", "excluded_routes") to excluded))
+    }
+
+    /**
+     * The plan under geo routing, as the desktop routes it (BackendSplit.cpp, applySplitRules). The mode's lists decide the
+     * core's mode: the blocked lists go through the tunnel (selective), the Russian ones around it (general). The user's own
+     * rules keep the meaning the Split page gives them, its mode included:
+     *  - pointing the lists' way, they are more of the list;
+     *  - pointing the other way, they take what they name off the list (an entry of it written the same way, as "ozon.ru"
+     *    and "*.ozon.ru"), and need nothing more: what no list names already goes their way;
+     *  - applications to bypass the VPN are left out of it whatever the mode, as they always are. Applications to go
+     *    through it cannot be: Android's allowlist would send everything else around the tunnel, lists or not. They are not
+     *    applied, and the session says so.
+     * Until the mode's lists are in, nothing is routed by a list: the full tunnel, with the user's own exceptions to it.
+     */
+    private fun prepareGeo(parsed: TomlTable, geo: Geo, enabled: Boolean, through: Boolean, domains: List<String>,
+                           apps: List<String>, killSwitch: Boolean, excludedRoutes: List<String>): Plan {
+        val ready = !geo.entries.isNullOrEmpty()
+        val geoSelective = ready && geo.mode == GeoRouting.Mode.BLOCKED
+        val mode = if (geoSelective) "selective" else "general"
+        var user = if (enabled) SplitRules.normalize(domains.joinToString("\n")).map { SplitRules.core(it)!! }.distinct() else emptyList()
+        var entries = geo.entries.orEmpty()
+        if (through != geoSelective) {
+            if (ready && user.isNotEmpty()) entries = GeoLists.without(entries, user)
+            user = emptyList()
+        }
+        // The config's own exclusions count where they mean what they say: in the mode they were written for.
+        val original = parsed.getArray("exclusions")?.let { a -> (0 until a.size()).map { a.getString(it) } }.orEmpty()
+        val rules = ((if ((parsed.getString("vpn_mode") ?: "general") == mode) original else emptyList()) + user).distinct()
+        val selected = if (enabled) apps.distinct().sorted() else emptyList()
+        var warning: Int? = null
+        val bypassApps = if (enabled && !through) selected else emptyList()
+        if (enabled && through && selected.isNotEmpty() && ready) warning = R.string.text_through_vpn_apps_are_not_applied_under_geo_routing
+        val checked = render(parsed, mode, rules, killSwitch, excludedRoutes)
+        validate(checked)
+        if (!ready) return Plan(checked, bypassApps, false, warning)
+        val all = (rules + GeoLists.lines(entries)).distinct()
+        // The lists are refused anything wider than a /8 or a /16 that would take traffic out of the tunnel; together
+        // with the user's own rules they must not take a whole address family out either.
+        if (mode == "general") require(!SplitRules.coversAddressFamily(all.filter { '/' in it } + platformExcludedRoutes)) {
+            "Destination exclusions cover an entire address family"
+        }
+        // The session without the lists, for the automatic attempts (Plan.fallbackToml): what it is before they are in.
+        val fallback = prepareGeo(parsed, Geo(geo.mode, null), enabled, through, domains, apps, killSwitch, excludedRoutes).toml
+        return Plan(checked, bypassApps, false, warning, render(parsed, mode, all, killSwitch, excludedRoutes), fallbackToml = fallback)
     }
 }
