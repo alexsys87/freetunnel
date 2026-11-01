@@ -41,6 +41,7 @@ public final class SplitStoreTest {
         SplitProfiles p = SplitStore.load(f, recommended);
         assertEquals(list("yandex.ru", "*.yandex.ru"), p.domains("Default"));
         assertEquals("Split tunnelling is on, as on the desktop", Boolean.TRUE, f.data.get("split_enabled"));
+        assertEquals("and only what is blocked goes through the tunnel, as on the desktop", "blocked", f.data.get(GeoRouting.MODE_KEY));
         assertNotNull(f.getString(SplitStore.KEY));
         assertEquals("the old lists are a copy of Default", set("yandex.ru", "*.yandex.ru"), f.set("domains"));
         assertEquals(new HashSet<String>(), f.set("apps"));
@@ -62,6 +63,7 @@ public final class SplitStoreTest {
             assertEquals(key, 0, recommended.calls.get());
             assertTrue(key + ": Default is empty", p.domains("Default").isEmpty());
             assertEquals(key + ": split tunnelling is as it was", key.equals("split_enabled") ? Boolean.FALSE : null, f.data.get("split_enabled"));
+            assertNull(key + ": no geo routing, as before", f.data.get(GeoRouting.MODE_KEY));
         }
     }
 

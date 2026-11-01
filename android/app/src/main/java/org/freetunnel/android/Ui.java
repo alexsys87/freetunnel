@@ -983,6 +983,67 @@ final class Ui {
         return r;
     }
     /**
+     * One choice of a group, as the desktop's Split page draws Routing's: a box, radius 8, with a 1 px border, accent on the
+     * chosen one and border otherwise, which rests on surface when chosen; in it a dot, 14 across with a 2 px ring, and a centre
+     * of 6 when chosen, accent, or a textFaint ring when not; and 10 on its title, 13 in text, over a line of detail, 11 in
+     * textFaint, both wrapped. The others fill with surfaceHover under the pointer and with the focus, as the desktop's do under
+     * the pointer; the chosen one, which the desktop leaves as it is, with the focus alone.
+     */
+    LinearLayout choiceRow(CharSequence title, CharSequence detail, boolean chosen, String key, View.OnClickListener choose) {
+        LinearLayout r = row();
+        r.setGravity(Gravity.TOP);
+        r.setPadding(dp(10), dp(8), dp(10), dp(8));
+        FrameLayout dot = new FrameLayout(context);
+        GradientDrawable ring = new GradientDrawable();
+        ring.setShape(GradientDrawable.OVAL);
+        ring.setStroke(dp(2), chosen ? t.accent : t.textFaint);
+        dot.setBackground(ring);
+        if (chosen) {
+            View centre = new View(context);
+            GradientDrawable fill = new GradientDrawable();
+            fill.setShape(GradientDrawable.OVAL);
+            fill.setColor(t.accent);
+            centre.setBackground(fill);
+            dot.addView(centre, new FrameLayout.LayoutParams(dp(6), dp(6), Gravity.CENTER));
+        }
+        LinearLayout.LayoutParams dotLp = lp(14, 14);
+        dotLp.topMargin = dp(2);
+        r.addView(dot, dotLp);
+        gapH(r, 10);
+        LinearLayout copy = column();
+        copy.addView(label(title, 13, t.text), lp(-1, -2));
+        TextView line = label(detail, 11, t.textFaint);
+        LinearLayout.LayoutParams lineLp = lp(-1, -2);
+        lineLp.topMargin = dp(2);
+        copy.addView(line, lineLp);
+        r.addView(copy, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+        r.setFocusable(true);
+        r.setTag(key);
+        r.setDefaultFocusHighlightEnabled(false);
+        StateListDrawable states = new StateListDrawable();
+        int rest = chosen ? t.surface : Color.TRANSPARENT;
+        int stroke = chosen ? t.accent : t.border;
+        int hot = chosen ? t.surface : t.surfaceHover;
+        // The desktop's chosen row stays as it is under the pointer; a remote's focus has to show on it all the same.
+        states.addState(new int[] {android.R.attr.state_focused}, bordered(t.surfaceHover, stroke));
+        states.addState(new int[] {android.R.attr.state_hovered}, bordered(hot, stroke));
+        states.addState(new int[] {android.R.attr.state_pressed}, bordered(hot, stroke));
+        states.addState(new int[0], bordered(rest, stroke));
+        states.setEnterFadeDuration(FADE_MS);
+        states.setExitFadeDuration(FADE_MS);
+        r.setBackground(states);
+        r.setOnClickListener(choose);
+        r.setContentDescription(title + ". " + detail);
+        return r;
+    }
+
+    private GradientDrawable bordered(int fill, int stroke) {
+        GradientDrawable d = shape(fill, 8);
+        d.setStroke(Math.max(1, dp(1)), stroke);
+        return d;
+    }
+
+    /**
      * A toggle with a label before it, as one small row at the right of a line, such as Logs' Auto-scroll: only as wide as it
      * is, with the same fill round it, so that the focus is never across empty width. Goes in its line with
      * {@link #focusRowLp}'s margin on the right alone.
