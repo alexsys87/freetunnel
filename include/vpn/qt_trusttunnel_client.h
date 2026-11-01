@@ -76,8 +76,15 @@ public:
     // useGeo says whether the geo list (setGeoExclusions) is part of the rules.
     // It travels here, with the mode, because the geo list means one direction:
     // turned on under the other mode, it would route what it names the wrong way.
+    //
+    // appsMode is which way the program rules point, when that is not the way
+    // the mode does: 1 through the tunnel, 0 around it, -1 (the default) the
+    // same as `selective`. Under geo routing the mode follows the lists, while
+    // the user's program rules keep their own meaning; each connection a rule
+    // matches is forced its way, whatever the mode.
     Q_INVOKABLE void setSplitRouting(const QStringList &domains, bool selective,
-                                     const QStringList &appRules, bool useGeo = false);
+                                     const QStringList &appRules, bool useGeo = false,
+                                     int appsMode = -1);
     // The geo list: core exclusion entries, one per line, built by the GUI from
     // the geosite/geoip lists it downloads (core/GeoRules.h). Kept apart from the
     // domain rules because it is large, and sent only when it changes; it is

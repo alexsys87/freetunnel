@@ -11,6 +11,7 @@
 #include <QHostAddress>
 #include <QPointer>
 #include <QRegularExpression>
+#include <QSet>
 #include <QThreadPool>
 
 #include "core/AppSettings.h"
@@ -484,6 +485,32 @@ bool Backend::selectiveModeWouldLeak() const {
             && !selectiveModeActive();
 }
 
+// The geo list without the lines that are, as written, one of `rules`: what a
+// user's rule pointing the other way takes off it. Exact lines only, so a rule
+// for "ozon.ru" takes "ozon.ru" and "*.ozon.ru" off, and leaves a wider entry
+// ("*.ru") or a narrower one ("pay.ozon.ru") where it is.
+static QString geoEntriesWithout(const QString &entries, const QStringList &rules)
+{
+    QSet<QStringView> drop;
+    for (const QString &r : rules)
+        drop.insert(QStringView(r));
+    QString out;
+    out.reserve(entries.size());
+    qsizetype start = 0;
+    while (start < entries.size()) {
+        qsizetype end = entries.indexOf(QLatin1Char('\n'), start);
+        if (end < 0)
+            end = entries.size();
+        const QStringView line = QStringView(entries).mid(start, end - start);
+        if (!line.isEmpty() && !drop.contains(line)) {
+            out.append(line);
+            out.append(QLatin1Char('\n'));
+        }
+        start = end + 1;
+    }
+    return out;
+}
+
 void Backend::applySplitRules(bool warnOfLeak) {
     const bool on = m_settings.domain_bypass_enabled;
     const QStringList profileDomains = m_settings.profiles.value(activeConfigProfile());
@@ -514,21 +541,34 @@ void Backend::applySplitRules(bool warnOfLeak) {
                        std::back_inserter(appRules),
                        [](const QString &r) { return r.toStdString(); });
     }
-    // Geo routing decides the mode, and the user's own rules point the same way
-    // as its lists: under "blocked" they are more of what goes through the tunnel,
-    // under "except_ru" more of what goes around it. Until the mode's lists are
-    // in, nothing is routed by a list: the full tunnel, and under "except_ru" the
-    // user's own exceptions to it. Under "blocked" those rules would add to a
-    // tunnel that already takes everything, so they are left out.
+    // Geo routing decides the mode: the blocked lists go through the tunnel (the
+    // core's selective mode), the Russian ones around it (general). The user's
+    // own rules keep the meaning the page gives them, its Mode switch included:
+    //   - pointing the lists' way, they are more of the list;
+    //   - pointing the other way, they take what they name off the list (an
+    //     entry of it written the same way, as "ozon.ru" and "*.ozon.ru"), and
+    //     need nothing more: what no list names already goes their way;
+    //   - the program rules are forced their own way per connection, whatever
+    //     the mode (appsMode).
+    // They used to be turned the lists' way, which put a "Bypass VPN" rule for a
+    // Russian site through the tunnel under "Only blocked sites through VPN".
+    // Until the mode's lists are in, nothing is routed by a list: the full
+    // tunnel, with the user's own exceptions to it.
     const freetunnel::GeoRoutingMode geoMode = effectiveGeoMode();
     if (geoMode != freetunnel::GeoRoutingMode::Off) {
         const bool ready = geoModeInUse() == geoMode;
-        if (!ready && geoMode == freetunnel::GeoRoutingMode::Blocked) {
+        const bool userSelective = m_settings.vpn_mode == QLatin1String("selective");
+        const bool geoSelective = ready && geoMode == freetunnel::GeoRoutingMode::Blocked;
+        QString entries = ready ? m_geo->entries() : QString();
+        if (userSelective != geoSelective) {
+            if (ready && on && !coreDomains.isEmpty())
+                entries = geoEntriesWithout(entries, coreDomains);
             ex.clear();
-            appRules.clear();
         }
-        m_client.setGeoRouting(ready ? m_geo->entries() : QString(), ready);
-        m_client.setSplitRouting(ex, ready && geoMode == freetunnel::GeoRoutingMode::Blocked, appRules);
+        if (!ready && userSelective)
+            appRules.clear(); // "through the tunnel" adds nothing to the full one
+        m_client.setGeoRouting(entries, ready, userSelective != geoSelective && ready ? int(userSelective) : -1);
+        m_client.setSplitRouting(ex, geoSelective, appRules);
     } else {
         // "selective" routes ONLY the listed rules through the tunnel, so an empty
         // list routes nothing — every byte leaves in the clear while the UI still

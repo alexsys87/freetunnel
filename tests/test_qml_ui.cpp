@@ -4929,10 +4929,10 @@ void TestQmlUi::theDesktopAsksWhetherTheTrayHasAHost()
     QVERIFY(chrome.trayCanHoldWindow(&icon));
 }
 
-// Geo routing's three rows set the mode, and under a geo mode the page's own
-// rules are labelled the way the mode points them: through the tunnel under
-// "Only blocked sites", around it under "Except Russian sites". "Update now"
-// asks for an update, but not while one is running.
+// Geo routing's three rows set the mode. The page's own rules keep their
+// meaning under it, and a line says what they do there: under "Only blocked
+// sites" a "Bypass VPN" rule takes a site off the lists. "Update now" asks for
+// an update, but not while one is running.
 void TestQmlUi::routingRowsChooseTheModeAndPointTheRules()
 {
     const auto restore = qScopeGuard([this]() {
@@ -4952,7 +4952,13 @@ void TestQmlUi::routingRowsChooseTheModeAndPointTheRules()
     QVERIFY2(blocked && blocked->isVisible(), "the routing rows");
     QTest::mouseClick(&window, Qt::LeftButton, Qt::NoModifier, centreOf(blocked));
     QCOMPARE(m_backend.geoMode(), QStringLiteral("blocked"));
-    QTRY_VERIFY(everyText(root).contains(QStringLiteral("Rules — via VPN")));
+    // The rules keep their own meaning ("Bypass VPN" here), and the page says
+    // what that does under this routing: they take sites off the blocked lists.
+    QTRY_VERIFY(everyText(root).contains(QStringLiteral("Rules — bypass VPN")));
+    QQuickItem *hint = namedIn(page, QStringLiteral("geoRulesHint"));
+    QVERIFY(hint);
+    QTRY_VERIFY(hint->isVisible());
+    QCOMPARE(hint->property("text").toString(), QStringLiteral("Your rules below take sites off the lists."));
 
     m_backend.setGeoState(false, true, QStringLiteral("Downloading the lists…"));
     auto *status = root->findChild<QQuickItem *>(QStringLiteral("geoStatus"));
@@ -4967,13 +4973,14 @@ void TestQmlUi::routingRowsChooseTheModeAndPointTheRules()
     QCOMPARE(m_backend.m_geoUpdates, 1);
 
     m_backend.setGeoMode(QStringLiteral("except_ru"));
-    QTRY_VERIFY(everyText(root).contains(QStringLiteral("Rules — bypass VPN")));
+    QTRY_COMPARE(hint->property("text").toString(), QStringLiteral("Your rules below are added to the lists."));
 
     QQuickItem *off = namedIn(page, QStringLiteral("geoMode_off"));
     QVERIFY(off);
     QTest::mouseClick(&window, Qt::LeftButton, Qt::NoModifier, centreOf(off));
     QCOMPARE(m_backend.geoMode(), QStringLiteral("off"));
     QTRY_VERIFY(!status->isVisible());
+    QVERIFY(!hint->isVisible());
     delete root;
 }
 

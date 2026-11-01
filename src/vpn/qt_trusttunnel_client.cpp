@@ -313,13 +313,13 @@ void QtTrustTunnelClient::setGeoExclusions(const QString &entries) {
 }
 
 void QtTrustTunnelClient::setSplitRouting(const QStringList &domains, bool selective,
-                                          const QStringList &appRules, bool useGeo) {
+                                          const QStringList &appRules, bool useGeo, int appsMode) {
     // The order of the two steps below is what keeps an edit safe, and it holds
     // only if both run here, on the thread that owns the session.
     if (QThread::currentThread() != thread()) {
         QMetaObject::invokeMethod(
-                this, [this, domains, selective, appRules, useGeo]() {
-                    setSplitRouting(domains, selective, appRules, useGeo);
+                this, [this, domains, selective, appRules, useGeo, appsMode]() {
+                    setSplitRouting(domains, selective, appRules, useGeo, appsMode);
                 },
                 Qt::QueuedConnection);
         return;
@@ -354,7 +354,7 @@ void QtTrustTunnelClient::setSplitRouting(const QStringList &domains, bool selec
     applyRoutingToSession();
     std::lock_guard<std::mutex> lk(m_appRules->mutex);
     m_appRules->rules = clean;
-    m_appRules->selective = selective;
+    m_appRules->selective = appsMode < 0 ? selective : appsMode == 1;
 }
 
 void QtTrustTunnelClient::applyRoutingToSession() {
