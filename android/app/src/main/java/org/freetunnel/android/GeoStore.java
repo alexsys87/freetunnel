@@ -32,7 +32,7 @@ import java.util.regex.Pattern;
  * holds it during a download. Downloading goes through {@link Fetcher}, so that this is tested on a plain JVM
  * (GeoStoreTest).
  */
-final class GeoStore {
+public final class GeoStore {
     /** How long a list is trusted before it is checked again, and how long after a failed check the next try is. */
     static final long CHECK_INTERVAL_MS = 24L * 60 * 60 * 1000;
     static final long RETRY_INTERVAL_MS = 60L * 60 * 1000;
@@ -50,7 +50,7 @@ final class GeoStore {
     }
 
     /** What the window shows of a mode's lists. */
-    static final class Status {
+    public static final class Status {
         /** Whether the mode has entries, which is what it routes by. */
         boolean ready;
         int sites;

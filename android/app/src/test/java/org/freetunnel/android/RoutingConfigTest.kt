@@ -763,6 +763,21 @@ class RoutingConfigTest {
         assertEquals(without, withOff)
     }
 
+    // An automatic attempt is given the session as it is before the lists are in: the adapter keeps a copy of every config a
+    // core is made with, and the lists make that megabytes.
+    @Test fun automaticAttemptsAreGivenTheSessionWithoutTheLists() {
+        val blocked = geoPlan(GeoRouting.Mode.BLOCKED, blockedEntries, through = false, domains = listOf("bank.example"))
+        assertEquals("general", modeOf(blocked.fallbackToml))
+        val fallback = exclusionsOf(blocked.fallbackToml)
+        assertTrue(fallback.contains("bank.example"))
+        assertFalse(fallback.contains("blocked.example"))
+        val notReady = geoPlan(GeoRouting.Mode.BLOCKED, null, through = false, domains = listOf("bank.example"))
+        assertEquals(notReady.toml, blocked.fallbackToml)
+        // Without the lists there is nothing to leave out.
+        val off = plan(domains = listOf("example.org"))
+        assertEquals(off.coreToml, off.fallbackToml)
+    }
+
     @Test fun manyListEntriesStayOutOfTheCheckedConfig() {
         val many = GeoLists.join((0 until 60_000).map { "site$it.example" })
         val result = geoPlan(GeoRouting.Mode.BLOCKED, many)

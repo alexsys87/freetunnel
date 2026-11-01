@@ -152,7 +152,7 @@ final class DeepLinkImport {
     // any certificate. Damage to a link's certificate was refused while decoding.
     private static Imported finish(Fields fields, boolean subscription, boolean link) throws ParseException {
         // An empty key is how a server without one is exported. A real key needs
-        // TrustTunnel 1.3: core 1.1.7 would ignore it, and the server would then
+        // TrustTunnel 1.3: core 1.1.11 would ignore it, and the server would then
         // refuse every connection without saying why.
         if (!fields.authKey.isEmpty()) throw new ParseException(R.string.text_this_server_needs_a_newer_trusttunnel_core);
         String hostname = fields.hostname == null ? "" : clean(fields.hostname).trim();

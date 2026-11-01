@@ -269,7 +269,6 @@ class FreeTunnelVpnService : VpnService() {
         close(publish = false)
         retainedTun = newTun
         activePlan = plan
-        routedGeoVersion = plan.geoVersion
         keepBlocked = parsed.getBoolean("killswitch_enabled") ?: true
         activeSource = plan.toml
         check(!destroyed && epoch == permissionEpoch) { "VPN start cancelled" }
@@ -278,8 +277,16 @@ class FreeTunnelVpnService : VpnService() {
         logEvent("TrustTunnel: starting connection")
     }
 
-    /** Starts a core on a duplicate of [tun], the retained TUN built from [plan]. */
-    private fun startCore(plan: RoutingConfig.Plan, tun: ParcelFileDescriptor, verifier: CertificateVerificator = CertificateVerificator()) {
+    // Whether the core runs on the plan's fallbackToml, as an automatic attempt does: the session is built again with the
+    // geo lists once it connects.
+    private var onFallback = false
+
+    /**
+     * Starts a core on a duplicate of [tun], the retained TUN built from [plan]: with its coreToml, or with [fallback] its
+     * fallbackToml (RoutingConfig.Plan says why).
+     */
+    private fun startCore(plan: RoutingConfig.Plan, tun: ParcelFileDescriptor, verifier: CertificateVerificator = CertificateVerificator(),
+                          fallback: Boolean = false) {
         val token = generation + 1
         val listener = object : VpnClientListener {
             override fun protectSocket(socket: Int) = protect(socket)
@@ -298,6 +305,12 @@ class FreeTunnelVpnService : VpnService() {
                         publishState(state)
                         getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID,
                             notification(if (state == 2) getString(R.string.text_connected) else getString(R.string.text_recovering_connection), plan.warning))
+                        // Connected without the geo lists: the session is built again with them, once.
+                        if (state == 2 && onFallback) {
+                            onFallback = false
+                            logEvent("Reconnected without the geo lists; applying them")
+                            send(this@FreeTunnelVpnService, ACTION_START)
+                        }
                     }
                 }
             }
@@ -306,8 +319,10 @@ class FreeTunnelVpnService : VpnService() {
         var descriptor: ParcelFileDescriptor? = null
         try {
             // The core is given the geo lists' entries as well, which plan.toml leaves out (RoutingConfig.Plan).
-            candidate = VpnClient(plan.coreToml, listener)
+            candidate = VpnClient(if (fallback) plan.fallbackToml else plan.coreToml, listener)
             generation = token
+            onFallback = fallback && plan.fallbackToml != plan.coreToml
+            routedGeoVersion = if (onFallback) "" else plan.geoVersion
             client = candidate
             descriptor = ParcelFileDescriptor.dup(tun.fileDescriptor)
             if (!blocked) publishState(1)
@@ -446,7 +461,7 @@ class FreeTunnelVpnService : VpnService() {
         if (destroyed || !blocked || client != null) return
         attempts++
         try {
-            startCore(plan, tun)
+            startCore(plan, tun, fallback = true)
         } catch (error: Throwable) {
             fail("${getString(R.string.text_could_not_start_vpn)} (${error.javaClass.simpleName})")
         }

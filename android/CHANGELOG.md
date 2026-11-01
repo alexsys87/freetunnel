@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- Routing by geo lists, as on the desktop: *Only blocked sites through VPN*
+  (sites and addresses blocked in Russia go through the VPN, everything else
+  direct), *Everything through VPN except Russian sites*, or *Everything
+  through VPN*, at the top of the Split page. A new installation starts with
+  only blocked sites through the VPN; an update keeps everything through it.
+  The lists are downloaded and checked once a day, and their sources can be
+  changed. Your own Bypass VPN rules keep their sites direct, and your own
+  Through VPN rules add to the lists. Applications set to go through the VPN
+  can't be applied while the lists route, and the app says so.
+- Built on TrustTunnel's Android library 1.1.11 (was 1.1.7), the core the
+  desktop has: TLS certificate parsing and the network and QUIC fixes of
+  1.1.8 to 1.1.11.
 - Keep split-tunnelling edits intact and report a save failure when Android
   storage refuses to persist a change.
 

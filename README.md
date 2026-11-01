@@ -179,9 +179,9 @@ switch at the top of the page:
 Under *Through VPN* with no rule that can be used, FreeTunnel keeps the full
 tunnel and the page says so, rather than send everything around it.
 
-### Routing by geo lists (Windows)
+### Routing by geo lists (Windows and Android)
 
-On Windows, **Routing** at the top of the page decides what goes through the
+On Windows and Android, **Routing** at the top of the page decides what goes through the
 tunnel by lists of what is blocked in Russia, or of Russian sites, that
 FreeTunnel downloads and keeps up to date:
 
@@ -207,6 +207,9 @@ FreeTunnel downloads and keeps up to date:
   good list.
 - An install that already had settings stays on *Everything through VPN* until
   you choose otherwise.
+- On Android, applications set to go *Through VPN* can't be applied while the
+  lists route: Android would send everything else around the tunnel. The app
+  says so; applications set to *Bypass VPN* stay outside it as always.
 
 The default lists, under **Sources…**:
 

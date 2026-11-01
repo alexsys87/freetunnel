@@ -15,7 +15,7 @@ import java.util.Map;
  * <p>The choice is in the app's preferences: {@link #MODE_KEY} holds a mode's name, and {@code geo_source_<slot>} a
  * source the user chose for a slot instead of its default.
  */
-final class GeoRouting {
+public final class GeoRouting {
     private GeoRouting() { }
 
     static final String MODE_KEY = "geo_mode";
@@ -26,7 +26,7 @@ final class GeoRouting {
      * How traffic is split by geo lists. OFF: the user's own split-tunnelling rules alone, as before; BLOCKED: only what is
      * blocked in Russia goes through the tunnel; EXCEPT_RUSSIA: everything goes through the tunnel but Russian sites.
      */
-    enum Mode {
+    public enum Mode {
         OFF("off"), BLOCKED("blocked"), EXCEPT_RUSSIA("except_ru");
 
         final String id;

@@ -186,7 +186,7 @@ object RoutingConfig {
         val parsed = Toml.parse(source)
         if (parsed.hasErrors()) return Import(source, false)
         val endpoint = parsed.get(listOf("endpoint")) as? TomlTable ?: return endpointExport(parsed) ?: Import(source, false)
-        // A real auth key needs TrustTunnel 1.3: core 1.1.7 ignores it, and the server
+        // A real auth key needs TrustTunnel 1.3: core 1.1.11 ignores it, and the server
         // then refuses every connection without saying why. The endpoint writes an
         // empty one into every export, so only a key with something in it is refused.
         // Anything else that is there, blank or not a string, is refused too: no core
@@ -221,9 +221,16 @@ object RoutingConfig {
      * A session's plan. [toml] is the config as checked (validate, and the service's own checks of it); [coreToml] is what
      * the core is given, the same with the geo lists' entries added to its exclusions. Those can run to hundreds of
      * thousands, far past what the checks take (a 1 MB config), and are GeoLists' own, already checked as they were read.
+     *
+     * [fallbackToml] is what the automatic attempts of a blocked episode give the core: the session as it is before the lists
+     * are in, the full tunnel with the user's own exceptions. The adapter keeps a copy of every config a core is made with
+     * until the process ends (its JNI never releases the string), which is a few KB for a config and megabytes with the
+     * lists, and an episode can make a core every 30 s for hours. The service builds the session again with the lists once
+     * an attempt connects.
      */
     data class Plan @JvmOverloads constructor(val toml: String, val apps: List<String>, val allowApps: Boolean, val warning: Int?,
-                                              val coreToml: String = toml, val geoVersion: String = "")
+                                              val coreToml: String = toml, val geoVersion: String = "",
+                                              val fallbackToml: String = toml)
 
     /** Geo routing for a session: the mode, and its entries (GeoStore.entries), null while there are none yet. */
     data class Geo(val mode: GeoRouting.Mode, val entries: String?)
@@ -354,6 +361,8 @@ object RoutingConfig {
         if (mode == "general") require(!SplitRules.coversAddressFamily(all.filter { '/' in it } + platformExcludedRoutes)) {
             "Destination exclusions cover an entire address family"
         }
-        return Plan(checked, bypassApps, false, warning, render(parsed, mode, all, killSwitch, excludedRoutes))
+        // The session without the lists, for the automatic attempts (Plan.fallbackToml): what it is before they are in.
+        val fallback = prepareGeo(parsed, Geo(geo.mode, null), enabled, through, domains, apps, killSwitch, excludedRoutes).toml
+        return Plan(checked, bypassApps, false, warning, render(parsed, mode, all, killSwitch, excludedRoutes), fallbackToml = fallback)
     }
 }
