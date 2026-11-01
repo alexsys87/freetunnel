@@ -187,12 +187,17 @@ FreeTunnel downloads and keeps up to date:
 
 | Routing | Through the tunnel | Around it |
 | --- | --- | --- |
-| *Only blocked sites through VPN* (a new install's choice) | sites and addresses blocked in Russia, and your own rules | everything else: Russian sites, and whatever opens without a VPN |
-| *Everything through VPN except Russian sites* | everything else | Russian sites and addresses, and your own rules |
+| *Only blocked sites through VPN* (a new install's choice) | sites and addresses blocked in Russia, and your own *Through VPN* rules | everything else: Russian sites, whatever opens without a VPN, and your own *Bypass VPN* rules |
+| *Everything through VPN except Russian sites* | everything else, and your own *Through VPN* rules | Russian sites and addresses, and your own *Bypass VPN* rules |
 | *Everything through VPN* | everything | only what your own rules send around it, with the **Mode** switch as above |
 
-- Under the first two, your rules and programs point the same way as the lists,
-  and the **Mode** switch is not used.
+- Your own rules and programs keep the meaning the **Mode** switch gives them.
+  Pointing the lists' way, they are added to them: a *Through VPN* rule under
+  *Only blocked sites through VPN*. Pointing the other way, they take what
+  they name off the lists: a *Bypass VPN* rule such as the
+  *Recommended for Russia* set keeps those sites direct even if a blocked
+  list names them. A rule takes off an entry written the same way, so
+  `ozon.ru` and `*.ozon.ru` together take the site and every name under it.
 - Until the lists are downloaded, everything goes through the VPN, and the page
   says so.
 - The lists are checked again once a day (**Sources…**, *Check for new lists

@@ -92,7 +92,8 @@ compare link at the bottom of its release notes.
   - Until the lists are in, everything goes through the VPN. A damaged
     download, or one that does not match its published SHA-256, never
     replaces a good list.
-  - Your own rules and programs point the same way as the lists.
+  - Your own rules and programs keep their meaning: added to the lists when
+    they point the same way, taking sites off them when they point the other.
 - **Windows, macOS and Linux: the helper takes rule lists of megabytes.** A
   line from the app may be up to 16 MB once it has proved its token (512 KB
   before), and is read in linear time.

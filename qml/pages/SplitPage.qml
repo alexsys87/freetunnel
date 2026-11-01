@@ -13,10 +13,10 @@ Item {
     // The built-in profile is stored as "Default" and shown in the UI's language.
     function profileLabel(name) { return name === "Default" ? qsTr("Default") : name }
 
-    // Geo routing (Windows): when it is on, it decides which way the rules below
-    // point, and the page's own Mode is not used.
+    // Geo routing (Windows). The rules below keep the meaning the Mode switch
+    // gives them under it too: they add to the lists or take sites off them.
     readonly property bool geoOn: backend.geoRoutingAvailable && backend.geoMode !== "off"
-    readonly property bool rulesSelective: geoOn ? backend.geoMode === "blocked" : backend.vpnMode === "selective"
+    readonly property bool rulesSelective: backend.vpnMode === "selective"
     property bool geoSourcesOpen: false
 
     // Clicking empty page area clears focus from a text field.
@@ -169,11 +169,20 @@ Item {
                 Toggle { accent: theme.accent; offColor: theme.toggleOff; checked: backend.splitEnabled; onToggled: function(v){ backend.splitEnabled = v } }
             }
             Dropdown { label: qsTr("Mode"); value: backend.vpnMode; shell: splitRoot.shell; theme: splitRoot.theme
-                // Under geo routing the chosen routing decides which way the rules
-                // point; this one waits for "Everything through VPN".
-                visible: !splitRoot.geoOn
                 model: [{v:"general",t:qsTr("Bypass VPN")},{v:"selective",t:qsTr("Through VPN")}]
                 onPicked: function(v){ backend.vpnMode = v } }
+            // Under geo routing the rules do not decide the mode, only what is
+            // taken off the lists or added to them; said, since the page's own
+            // words ("Rules — bypass VPN") would not tell it.
+            Text {
+                objectName: "geoRulesHint"
+                Layout.fillWidth: true; Layout.topMargin: 2
+                visible: splitRoot.geoOn
+                wrapMode: Text.WordWrap; font.pixelSize: 11; color: theme.textFaint
+                text: (backend.geoMode === "blocked") === splitRoot.rulesSelective
+                      ? qsTr("Your rules below are added to the lists.")
+                      : qsTr("Your rules below take sites off the lists.")
+            }
             // "Through VPN" with no rules would route nothing; the backend keeps the
             // full tunnel instead. Standing notice rather than a one-off toast: the
             // mode stays chosen but inactive, so the explanation has to stay visible

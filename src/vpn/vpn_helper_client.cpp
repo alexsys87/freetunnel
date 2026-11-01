@@ -182,15 +182,16 @@ void VpnHelperClient::forgetHelperGeo() {
     m_helperSelective = false;
 }
 
-void VpnHelperClient::setGeoRouting(const QString &entries, bool useGeo) {
+void VpnHelperClient::setGeoRouting(const QString &entries, bool useGeo, int appsMode) {
     m_geoEntries = entries;
     m_useGeo = useGeo;
+    m_appsMode = appsMode;
 }
 
 void VpnHelperClient::sendSplitRoutingCommand(const std::vector<std::string> &exclusions,
                                               bool selective,
                                               const std::vector<std::string> &appRules,
-                                              bool useGeo) {
+                                              bool useGeo, int appsMode) {
     QJsonArray domains;
     for (const auto &d : exclusions) domains.append(QString::fromStdString(d));
     QJsonArray apps;
@@ -204,6 +205,9 @@ void VpnHelperClient::sendSplitRoutingCommand(const std::vector<std::string> &ex
     // lists existed whenever they are not in use.
     if (useGeo)
         c["geo"] = true;
+    // Likewise only when the program rules point another way than the mode.
+    if (appsMode >= 0)
+        c["appsSelective"] = appsMode == 1;
     send(c);
     m_helperUsesGeo = useGeo;
     m_helperSelective = selective;
@@ -228,7 +232,7 @@ void VpnHelperClient::sendSplitRouting() {
         send(g);
         m_geoEntriesSent = m_geoEntries;
     }
-    sendSplitRoutingCommand(m_exclusions, m_selective, m_appRules, wantGeo);
+    sendSplitRoutingCommand(m_exclusions, m_selective, m_appRules, wantGeo, m_appsMode);
 }
 
 void VpnHelperClient::setVpnMode(bool selective) {
@@ -594,7 +598,7 @@ void VpnHelperClient::handleReadyEvent()
     setAppRules(m_appRules);
     // The geo list, and the routing that uses it, after the settings above: a new
     // helper has neither, and the commands above do not carry them.
-    if (m_useGeo && !m_geoEntries.isEmpty())
+    if ((m_useGeo && !m_geoEntries.isEmpty()) || m_appsMode >= 0)
         sendSplitRouting();
     if (!m_connectPending)
         return;

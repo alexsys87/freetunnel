@@ -59,7 +59,11 @@ public:
     // The geo list (core/GeoRules.h: entries one per line) and whether the next
     // setSplitRouting() routes by it. Nothing is sent from here: the list goes out
     // with the split routing it belongs to, and only when it has changed.
-    void setGeoRouting(const QString &entries, bool useGeo);
+    //
+    // appsMode is which way the program rules point when it is not the mode's
+    // way (1 through the tunnel, 0 around it, -1 the mode's): under geo routing
+    // the mode follows the lists and the program rules keep their own meaning.
+    void setGeoRouting(const QString &entries, bool useGeo, int appsMode = -1);
     void setKillSwitch(bool enabled);
     // Whether the config's own kill-switch exceptions apply. The helper drops
     // them unless this says otherwise.
@@ -113,7 +117,8 @@ private:
     void sendSplitRouting();
     void forgetHelperGeo();
     void sendSplitRoutingCommand(const std::vector<std::string> &exclusions, bool selective,
-                                 const std::vector<std::string> &appRules, bool useGeo);
+                                 const std::vector<std::string> &appRules, bool useGeo,
+                                 int appsMode = -1);
     void onReadyRead();
     void onSocketConnected();
     void handleEvent(const QJsonObject &ev);
@@ -153,6 +158,7 @@ private:
     // with the helper, which takes its copy with it.
     QString m_geoEntries;
     bool m_useGeo = false;
+    int m_appsMode = -1;
     QString m_geoEntriesSent;
     bool m_helperUsesGeo = false;
     bool m_helperSelective = false;

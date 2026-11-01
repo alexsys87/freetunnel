@@ -746,11 +746,12 @@ void TestIntegrationBackendVpn::aRuleEditReachesTheRunningSessionWithoutARebuild
 // tunnelling's own switch go the same way, and none of these builds a new session.
 // Geo routing, from the Split page's choice to the helper. "Only blocked sites
 // through VPN" routes by two downloaded lists, and until they are in it keeps
-// the full tunnel, the user's own via-VPN rules being moot under it: nothing
-// may be sent around the tunnel by a list that is not there yet. Once they are,
-// the helper gets the list and then, in one command, the selective mode with
-// the list switched on and the user's rules beside it. Back to "Everything
-// through VPN", the list is switched off and the page's own mode is used again.
+// the full tunnel: nothing may be sent around the tunnel by a list that is not
+// there yet. Once they are, the helper gets the list and then, in one command,
+// the selective mode with the list switched on. The user's own rules keep their
+// meaning: a "Bypass VPN" rule takes its site off the list (it once sent a
+// Russian site through the tunnel instead), a "Through VPN" rule is added to
+// it. Back to "Everything through VPN", the list is switched off.
 void TestIntegrationBackendVpn::geoRoutingRoutesByTheListsOnceTheyAreIn()
 {
     qputenv("FT_TEST_GEO_ROUTING", "1");
@@ -793,19 +794,22 @@ void TestIntegrationBackendVpn::geoRoutingRoutesByTheListsOnceTheyAreIn()
     Backend backend;
     QVERIFY(backend.geoRoutingAvailable());
     QCOMPARE(backend.geoMode(), QStringLiteral("blocked"));
-    QVERIFY(backend.addDomain(QStringLiteral("own.example")));
+    // Written as "Recommended for Russia" writes its sites: the name and every
+    // name under it.
+    QVERIFY(backend.addDomain(QStringLiteral("own.example, *.own.example")));
     backend.connectVpn();
     QVERIFY(QTest::qWaitFor([&]() { return backend.connected(); }, 10000));
 
-    // Not in yet: the full tunnel, and no list. A new helper is told the mode and
-    // the rules one by one, as before there were lists.
+    // Not in yet: the full tunnel, with the user's own exception to it, and no
+    // list. A new helper is told the mode and the rules one by one, as before
+    // there were lists.
     QVERIFY(!backend.geoActive());
     QCOMPARE(env.server.lastMessageFor(QStringLiteral("setMode")).value(QStringLiteral("selective")).toBool(),
              false);
     QVERIFY(env.server.lastMessageFor(QStringLiteral("setExclusions"))
                     .value(QStringLiteral("domains"))
                     .toArray()
-                    .isEmpty());
+                    .contains(QJsonValue(QStringLiteral("own.example"))));
     QCOMPARE(env.server.countFor(QStringLiteral("setGeoRules")), 0);
     QVERIFY(!env.server.lastMessageFor(QStringLiteral("setSplitRouting")).value(QStringLiteral("geo")).toBool());
 
@@ -823,7 +827,8 @@ void TestIntegrationBackendVpn::geoRoutingRoutesByTheListsOnceTheyAreIn()
     QVERIFY(!backend.geoActive());
     MockHttpServer::Route list;
     list.contentType = QByteArrayLiteral("text/plain");
-    list.body = QByteArrayLiteral("domain:blocked.example\n");
+    // own.example is on the list too: the user's own rule says otherwise.
+    list.body = QByteArrayLiteral("domain:blocked.example\ndomain:own.example\n");
     http.setRoute(QStringLiteral("/sites.txt"), list);
     list.body = QByteArrayLiteral("203.0.113.0/24\n");
     http.setRoute(QStringLiteral("/addresses.txt"), list);
@@ -844,11 +849,35 @@ void TestIntegrationBackendVpn::geoRoutingRoutesByTheListsOnceTheyAreIn()
     const QString entries = geoEntries();
     QVERIFY2(entries.contains(QStringLiteral("*.blocked.example")), qPrintable(entries));
     QVERIFY2(entries.contains(QStringLiteral("203.0.113.0/24")), qPrintable(entries));
+    // The user's own rule is a "Bypass VPN" one, and keeps that meaning: it takes
+    // own.example off the blocked list rather than send it through the tunnel.
+    const QStringList lines = entries.split(QLatin1Char('\n'), Qt::SkipEmptyParts);
+    QVERIFY2(!lines.contains(QStringLiteral("own.example")) && !lines.contains(QStringLiteral("*.own.example")),
+             qPrintable(entries));
     const QJsonObject routing = env.server.lastMessageFor(QStringLiteral("setSplitRouting"));
     QCOMPARE(routing.value(QStringLiteral("selective")).toBool(), true);
-    QVERIFY(routing.value(QStringLiteral("domains")).toArray().contains(QJsonValue(QStringLiteral("own.example"))));
+    QVERIFY(routing.value(QStringLiteral("domains")).toArray().isEmpty());
+    // And the program rules are told their own way, around the tunnel.
+    QCOMPARE(routing.value(QStringLiteral("appsSelective")).toBool(true), false);
     QVERIFY(!backend.selectiveModeWouldLeak());
     QVERIFY(backend.geoStatus().contains(QLatin1Char('1')));
+
+    // A "Through VPN" rule points the blocked lists' way: it is added to them.
+    backend.setVpnMode(QStringLiteral("selective"));
+    QVERIFY(QTest::qWaitFor(
+            [&]() {
+                const QJsonObject m = env.server.lastMessageFor(QStringLiteral("setSplitRouting"));
+                return m.value(QStringLiteral("geo")).toBool() && m.value(QStringLiteral("selective")).toBool()
+                        && m.value(QStringLiteral("domains")).toArray().contains(QJsonValue(QStringLiteral("own.example")))
+                        && !m.contains(QStringLiteral("appsSelective"));
+            },
+            5000));
+    QVERIFY(env.server.lastMessageFor(QStringLiteral("setGeoRules"))
+                    .value(QStringLiteral("entries"))
+                    .toString()
+                    .split(QLatin1Char('\n'))
+                    .contains(QStringLiteral("*.own.example")));
+    backend.setVpnMode(QStringLiteral("general"));
 
     // Off: the page's own mode, Bypass VPN here, with its rules and no list.
     backend.setGeoMode(QStringLiteral("off"));

@@ -165,6 +165,7 @@ private slots:
     void aBurstOfEditsLeavesTheSessionOnTheLastOne();
     void theGeoListRoutesOnlyWhileSwitchedOn();
     void aSessionIsBuiltWithTheGeoListInUse();
+    void programRulesCanPointAnotherWayThanTheMode();
     void aFirstConnectTheCoreKeepsRetryingStaysConnectingAndSaysWhy();
     void disconnectStopsASessionTheCoreIsStillRetrying();
     void aNewSessionSaysWhyItIsNotConnectingAgain();
@@ -1268,6 +1269,39 @@ void TestQtTrustTunnelClient::theGeoListRoutesOnlyWhileSwitchedOn()
                               Q_ARG(bool, true), Q_ARG(QStringList, QStringList()));
     updates = ctl.exclusionUpdates();
     QVERIFY(!has(updates.back(), "third.example"));
+}
+
+// Under geo routing the mode follows the lists, and the user's program rules
+// keep their own meaning: a "Bypass VPN" program goes around the tunnel even
+// while the core is selective for the blocked lists, and a "Through VPN" one
+// stays in it while the core is general for the Russian ones.
+void TestQtTrustTunnelClient::programRulesCanPointAnotherWayThanTheMode()
+{
+    auto &ctl = mockcore::Controller::instance();
+    QTcpServer server;
+    QVERIFY(server.listen(QHostAddress::LocalHost, 0));
+    const quint64 id = connectedWithLiveSession();
+    QVERIFY(id != 0);
+
+    QMetaObject::invokeMethod(m_client, "setSplitRouting", Qt::BlockingQueuedConnection,
+                              Q_ARG(QStringList, QStringList()), Q_ARG(bool, true),
+                              Q_ARG(QStringList, QStringList({ownProgram()})), Q_ARG(bool, false),
+                              Q_ARG(int, 0));
+    QCOMPARE(ctl.exclusionUpdates().back().mode, int(ag::VPN_MODE_SELECTIVE));
+    QCOMPARE(ctl.fireConnectRequest(id, ownConnection(server, 40)).action, ag::VPN_CA_FORCE_BYPASS);
+
+    QMetaObject::invokeMethod(m_client, "setSplitRouting", Qt::BlockingQueuedConnection,
+                              Q_ARG(QStringList, QStringList()), Q_ARG(bool, false),
+                              Q_ARG(QStringList, QStringList({ownProgram()})), Q_ARG(bool, false),
+                              Q_ARG(int, 1));
+    QCOMPARE(ctl.exclusionUpdates().back().mode, int(ag::VPN_MODE_GENERAL));
+    QCOMPARE(ctl.fireConnectRequest(id, ownConnection(server, 41)).action, ag::VPN_CA_FORCE_REDIRECT);
+
+    // -1, and an older GUI's three arguments: the mode's way, as before.
+    QMetaObject::invokeMethod(m_client, "setSplitRouting", Qt::BlockingQueuedConnection,
+                              Q_ARG(QStringList, QStringList()), Q_ARG(bool, false),
+                              Q_ARG(QStringList, QStringList({ownProgram()})));
+    QCOMPARE(ctl.fireConnectRequest(id, ownConnection(server, 42)).action, ag::VPN_CA_FORCE_BYPASS);
 }
 
 // The list switched on before connecting is in what the session is built with.

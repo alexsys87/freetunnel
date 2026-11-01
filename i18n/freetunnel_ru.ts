@@ -1244,6 +1244,14 @@
         <source>Restore the default lists</source>
         <translation>Вернуть списки по умолчанию</translation>
     </message>
+    <message>
+        <source>Your rules below are added to the lists.</source>
+        <translation>Ваши правила ниже добавляются к спискам.</translation>
+    </message>
+    <message>
+        <source>Your rules below take sites off the lists.</source>
+        <translation>Ваши правила ниже исключают сайты из списков.</translation>
+    </message>
 </context>
 <context>
     <name>SubscriptionFetcher</name>

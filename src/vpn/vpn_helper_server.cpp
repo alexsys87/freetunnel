@@ -436,7 +436,15 @@ private:
                                   Q_ARG(QStringList, stringList(c, QStringLiteral("domains"))),
                                   Q_ARG(bool, c.value(QStringLiteral("selective")).toBool()),
                                   Q_ARG(QStringList, stringList(c, QStringLiteral("rules"))),
-                                  Q_ARG(bool, c.value(QStringLiteral("geo")).toBool()));
+                                  Q_ARG(bool, c.value(QStringLiteral("geo")).toBool()),
+                                  Q_ARG(int, appsModeOf(c)));
+    }
+
+    // "appsSelective", when present, says which way the program rules point
+    // apart from the mode; absent, they point the mode's way, as they always did.
+    static int appsModeOf(const QJsonObject &c) {
+        const QJsonValue v = c.value(QStringLiteral("appsSelective"));
+        return v.isBool() ? (v.toBool() ? 1 : 0) : -1;
     }
 
     // The geo list as one string, entries separated by newlines: as an array of
