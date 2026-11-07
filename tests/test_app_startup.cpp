@@ -569,8 +569,11 @@ void TestAppStartup::guiWiringBuildsTheAppInAKnownOrder()
     // qml-loaded would have left this window on Direct3D, Metal or OpenGL.
     QVERIFY(startup.trace.indexOf(QStringLiteral("renderer"))
             < startup.trace.indexOf(QStringLiteral("qml-loaded")));
+    // Asked of the window, not QQuickWindow::graphicsApi(): that static reports
+    // the RHI's API (OpenGL, Metal, Direct3D) even with the software backend on.
+    QVERIFY(quickWindow->rendererInterface() != nullptr);
     if (freetunnel::softwareRenderingWanted(qgetenv("QSG_RHI_BACKEND"), qgetenv("QT_QUICK_BACKEND")))
-        QCOMPARE(QQuickWindow::graphicsApi(), QSGRendererInterface::Software);
+        QCOMPARE(quickWindow->rendererInterface()->graphicsApi(), QSGRendererInterface::Software);
 
     // The listener is the one that checks a peer as it accepts it
     // (newInstanceServer()). A plain QLocalServer checks it only once the
@@ -613,31 +616,20 @@ void TestAppStartup::theWindowIsDrawnOnTheCpuUnlessARendererIsAskedFor()
     QVERIFY(!freetunnel::softwareRenderingWanted(QByteArrayLiteral("opengl"), QByteArray()));
     QVERIFY(!freetunnel::softwareRenderingWanted(QByteArray(), QByteArrayLiteral("software")));
 
+    // And useSoftwareRendering() leaves the choice alone when one is named. The
+    // other way, where it sets the backend, is what the window in
+    // guiWiringBuildsTheAppInAKnownOrder is checked for: the backend is fixed for
+    // the process once the first window exists, so it is not set again here.
     const QByteArray rhiWas = qgetenv("QSG_RHI_BACKEND");
-    const QByteArray quickWas = qgetenv("QT_QUICK_BACKEND");
     const bool hadRhi = qEnvironmentVariableIsSet("QSG_RHI_BACKEND");
-    const bool hadQuick = qEnvironmentVariableIsSet("QT_QUICK_BACKEND");
     const auto restore = qScopeGuard([&] {
         if (hadRhi)
             qputenv("QSG_RHI_BACKEND", rhiWas);
         else
             qunsetenv("QSG_RHI_BACKEND");
-        if (hadQuick)
-            qputenv("QT_QUICK_BACKEND", quickWas);
-        else
-            qunsetenv("QT_QUICK_BACKEND");
-        QQuickWindow::setGraphicsApi(QSGRendererInterface::Software);
     });
-
     qputenv("QSG_RHI_BACKEND", "opengl");
-    qunsetenv("QT_QUICK_BACKEND");
-    QQuickWindow::setGraphicsApi(QSGRendererInterface::OpenGL);
     QVERIFY(!freetunnel::useSoftwareRendering());
-    QCOMPARE(QQuickWindow::graphicsApi(), QSGRendererInterface::OpenGL);
-
-    qunsetenv("QSG_RHI_BACKEND");
-    QVERIFY(freetunnel::useSoftwareRendering());
-    QCOMPARE(QQuickWindow::graphicsApi(), QSGRendererInterface::Software);
 }
 
 void TestAppStartup::wireInstanceServerForwardsCommand()
