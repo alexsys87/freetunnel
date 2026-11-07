@@ -17,6 +17,7 @@
 #include <QQmlApplicationEngine>
 #include <QQuickItem>
 #include <QQuickWindow>
+#include <QSGRendererInterface>
 #include <QSettings>
 #include <QWindow>
 #include <QSignalSpy>
@@ -56,6 +57,7 @@ private slots:
     void applyLanguageLoadsQtsOwnRussianToo();
     void qtsOwnRussianIsFoundWhereWindowsAndMacShipIt();
     void guiWiringBuildsTheAppInAKnownOrder();
+    void theWindowIsDrawnOnTheCpuUnlessARendererIsAskedFor();
     void wireInstanceServerForwardsCommand();
     void aSecondLaunchBringsTheWindowBack();
     void aForwardedToggleLeavesTheWindowAlone();
@@ -533,7 +535,8 @@ void TestAppStartup::guiWiringBuildsTheAppInAKnownOrder()
             QStringLiteral("branding"),      QStringLiteral("forward-check"),
             QStringLiteral("instance-server"), QStringLiteral("url-filter"),
             QStringLiteral("backend"),       QStringLiteral("lifecycle"),
-            QStringLiteral("font"),          QStringLiteral("qml-loaded"),
+            QStringLiteral("font"),          QStringLiteral("renderer"),
+            QStringLiteral("qml-loaded"),
             QStringLiteral("language"),      QStringLiteral("mac-window"),
             QStringLiteral("deferred-control"), QStringLiteral("dock-reopen"),
             QStringLiteral("instance-wired")};
@@ -560,6 +563,17 @@ void TestAppStartup::guiWiringBuildsTheAppInAKnownOrder()
     QVERIFY2(firstText != nullptr, "the window has no Text that names no family");
     QCOMPARE(QFontInfo(firstText->property("font").value<QFont>()).family(),
              QStringLiteral("Inter"));
+
+    // The renderer is chosen before the window exists, and it is the CPU one: Qt
+    // picks a window's renderer when it creates it, so a choice made after
+    // qml-loaded would have left this window on Direct3D, Metal or OpenGL.
+    QVERIFY(startup.trace.indexOf(QStringLiteral("renderer"))
+            < startup.trace.indexOf(QStringLiteral("qml-loaded")));
+    // Asked of the window, not QQuickWindow::graphicsApi(): that static reports
+    // the RHI's API (OpenGL, Metal, Direct3D) even with the software backend on.
+    QVERIFY(quickWindow->rendererInterface() != nullptr);
+    if (freetunnel::softwareRenderingWanted(qgetenv("QSG_RHI_BACKEND"), qgetenv("QT_QUICK_BACKEND")))
+        QCOMPARE(quickWindow->rendererInterface()->graphicsApi(), QSGRendererInterface::Software);
 
     // The listener is the one that checks a peer as it accepts it
     // (newInstanceServer()). A plain QLocalServer checks it only once the
@@ -591,6 +605,33 @@ void TestAppStartup::guiWiringBuildsTheAppInAKnownOrder()
 // configs stored). An import link is the exception: only ControlAction::ImportLink
 // produces deepLinkImportConfirmationRequired, and the signal carries the link
 // back, so the payload can be compared byte for byte with what was sent.
+// Qt Quick draws on the CPU unless the user names a renderer through Qt's own
+// variables, which stay the way to ask for the GPU (QSG_RHI_BACKEND=d3d11,
+// opengl, metal, vulkan) or to say software outright (QT_QUICK_BACKEND).
+void TestAppStartup::theWindowIsDrawnOnTheCpuUnlessARendererIsAskedFor()
+{
+    QVERIFY(freetunnel::softwareRenderingWanted(QByteArray(), QByteArray()));
+    QVERIFY(freetunnel::softwareRenderingWanted(QByteArrayLiteral("  "), QByteArray()));
+    QVERIFY(!freetunnel::softwareRenderingWanted(QByteArrayLiteral("d3d11"), QByteArray()));
+    QVERIFY(!freetunnel::softwareRenderingWanted(QByteArrayLiteral("opengl"), QByteArray()));
+    QVERIFY(!freetunnel::softwareRenderingWanted(QByteArray(), QByteArrayLiteral("software")));
+
+    // And useSoftwareRendering() leaves the choice alone when one is named. The
+    // other way, where it sets the backend, is what the window in
+    // guiWiringBuildsTheAppInAKnownOrder is checked for: the backend is fixed for
+    // the process once the first window exists, so it is not set again here.
+    const QByteArray rhiWas = qgetenv("QSG_RHI_BACKEND");
+    const bool hadRhi = qEnvironmentVariableIsSet("QSG_RHI_BACKEND");
+    const auto restore = qScopeGuard([&] {
+        if (hadRhi)
+            qputenv("QSG_RHI_BACKEND", rhiWas);
+        else
+            qunsetenv("QSG_RHI_BACKEND");
+    });
+    qputenv("QSG_RHI_BACKEND", "opengl");
+    QVERIFY(!freetunnel::useSoftwareRendering());
+}
+
 void TestAppStartup::wireInstanceServerForwardsCommand()
 {
     Backend backend;

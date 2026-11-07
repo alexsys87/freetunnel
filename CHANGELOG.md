@@ -5,6 +5,15 @@ built from the section below it, so this file is the description of the release 
 write it before tagging. For the full commit history of a release, follow the
 compare link at the bottom of its release notes.
 
+## Unreleased
+
+### Fixed
+
+- **The window is drawn on the CPU, so FreeTunnel no longer needs DirectX 11,
+  Metal or OpenGL from the video driver.** On old hardware, Windows 7 in
+  particular, it starts instead of crashing or showing a black window, and it
+  no longer competes with full-screen games for the GPU.
+
 ## 1.3.0
 
 ### Highlights
