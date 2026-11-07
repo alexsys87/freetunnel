@@ -29,7 +29,7 @@ them from the Actions cache and take about as long as the regular Windows build.
   | Update | Why |
   | --- | --- |
   | KB2533623 | `SetDefaultDllDirectories`, which Qt calls at startup |
-  | KB2670838 (Platform Update) | Direct3D 11.1 and DXGI 1.2, which Qt Quick draws with |
+  | KB2670838 (Platform Update) | DXGI 1.2. Asked for since Qt Quick drew with Direct3D 11; the window is now drawn on the CPU, so it may no longer be needed |
   | KB4474419 and KB4490628 | SHA-2 code signing: without them Windows refuses to load the Wintun driver, and the VPN cannot create its adapter |
 
 - **Up-to-date root certificates** for HTTPS inside the app (update checks,
@@ -38,7 +38,9 @@ them from the Actions cache and take about as long as the regular Windows build.
   example) may be rejected.
 
 The C and C++ runtimes are in the package, so KB2999226 (the Universal C
-Runtime) is not needed.
+Runtime) is not needed. Nor is Direct3D 11 or a particular video card or
+driver: the window is drawn on the CPU (see the main README's
+[Graphics](../README.md#graphics)).
 
 ## How it differs from the Windows release
 
@@ -97,9 +99,9 @@ an issue with what happened.
 
 - "The procedure entry point ... could not be located in ...": an import the
   check did not know about. Please report the function and DLL names.
-- A black or empty window: try `set QSG_RHI_BACKEND=opengl` before starting
-  `FreeTunnel.exe` from a command prompt, which makes Qt Quick draw with OpenGL
-  instead of Direct3D 11.
+- A black or empty window: please report it. The window is drawn on the CPU
+  and asks nothing of the video driver, unless `QSG_RHI_BACKEND` is set in the
+  environment; if it is, remove it.
 - No HTTPS (updates or subscriptions fail with a certificate error): update the
   root certificates.
 

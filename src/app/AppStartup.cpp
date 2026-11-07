@@ -11,6 +11,8 @@
 #include <QPointer>
 #include <QScopeGuard>
 #include <QQmlApplicationEngine>
+#include <QQuickWindow>
+#include <QSGRendererInterface>
 #include <QTimer>
 #include <QTranslator>
 #include <QVariant>
@@ -135,6 +137,26 @@ void raiseFdLimit()
         setrlimit(RLIMIT_NOFILE, &rl);
     }
 #endif
+}
+
+// The window is a handful of rounded rectangles, text and icons that change a
+// few times a second at most. A GPU renderer draws that no faster than the CPU
+// does, and it is what made the app need Direct3D 11 on Windows (Metal on macOS,
+// OpenGL on Linux): a machine whose video driver lacks it, which on Windows 7 is
+// most of them, got a crash or a black window, and a game in full screen could
+// have its GPU device fought over. Drawn with QPainter, the window needs nothing
+// of the video driver but a place to put its pixels.
+bool softwareRenderingWanted(const QByteArray &rhiBackend, const QByteArray &quickBackend)
+{
+    return rhiBackend.trimmed().isEmpty() && quickBackend.trimmed().isEmpty();
+}
+
+bool useSoftwareRendering()
+{
+    if (!softwareRenderingWanted(qgetenv("QSG_RHI_BACKEND"), qgetenv("QT_QUICK_BACKEND")))
+        return false;
+    QQuickWindow::setGraphicsApi(QSGRendererInterface::Software);
+    return true;
 }
 
 #ifdef Q_OS_MACOS

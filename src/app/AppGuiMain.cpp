@@ -288,6 +288,10 @@ std::optional<int> wireGuiApplication(QGuiApplication &app, int argc, char *argv
     useInterFont();
     step("font");
 
+    // Before the engine creates the window, which is when Qt picks its renderer.
+    useSoftwareRendering();
+    step("renderer");
+
     createDesktopAndEngine(out);
 #if defined(Q_OS_WIN) && defined(FT_HAVE_QWINDOWKIT)
     // Only on the real Windows platform: under offscreen the window's id is a

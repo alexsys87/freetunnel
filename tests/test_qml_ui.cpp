@@ -4993,6 +4993,9 @@ int main(int argc, char *argv[])
     // Isolate from the real app's on-disk state: never read or clobber the
     // user's configs.json / settings under the production app/org names.
     QStandardPaths::setTestModeEnabled(true);
+    // Drawn the way the app draws it (useSoftwareRendering() in AppStartup.cpp):
+    // on the CPU, where nothing that needs a shader shows at all.
+    QQuickWindow::setGraphicsApi(QSGRendererInterface::Software);
     QGuiApplication app(argc, argv);
     app.setApplicationName(QStringLiteral("QmlUiTest"));
     app.setOrganizationName(QStringLiteral("FreeTunnelTest"));

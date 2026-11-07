@@ -501,9 +501,9 @@ jobs:
           # HTTPS in the app goes through this one (see OPENSSL_VER above).
           if (-not (Test-Path dist\tls\qopensslbackend.dll)) { throw "windeployqt deployed no OpenSSL TLS backend" }
           # The DirectX Shader Compiler, which only Qt's Direct3D 12 backend
-          # uses and which needs Windows 8 API sets. Qt Quick draws with
-          # Direct3D 11 here (the backport gives Windows 7 that one), whose
-          # shaders go through d3dcompiler_47.dll, which stays.
+          # uses and which needs Windows 8 API sets. The app draws on the CPU
+          # (useSoftwareRendering()); d3dcompiler_47.dll stays for anyone who
+          # asks Qt for Direct3D 11 with QSG_RHI_BACKEND=d3d11.
           Remove-Item -Force -ErrorAction SilentlyContinue dist\dxcompiler.dll, dist\dxil.dll
 
           # Qt's Russian words (the reason in a network error), merged the way

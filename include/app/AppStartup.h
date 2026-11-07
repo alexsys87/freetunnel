@@ -9,6 +9,7 @@
 
 #include "app/DesktopChrome.h"
 
+#include <QByteArray>
 #include <QEvent>
 #include <QObject>
 #include <QString>
@@ -71,6 +72,17 @@ bool installQtCatalogues(QGuiApplication &app, QTranslator *owner, const QString
 QString controlArgFrom(int argc, char *argv[]);
 
 void raiseFdLimit();
+
+// Whether Qt Quick is to draw the window on the CPU, given the environment's
+// QSG_RHI_BACKEND and QT_QUICK_BACKEND. Yes unless either names a renderer:
+// those are how a user asks Qt for one, and they are left to decide.
+bool softwareRenderingWanted(const QByteArray &rhiBackend, const QByteArray &quickBackend);
+
+// Has every Qt Quick window drawn by Qt's software renderer (QPainter, on the
+// CPU) instead of Direct3D 11, Metal or OpenGL, unless the environment chose a
+// renderer (softwareRenderingWanted()). Before the first window is created.
+// Returns whether it did.
+bool useSoftwareRendering();
 
 void setupMacDockIcon(QGuiApplication &app, Backend &backend);
 

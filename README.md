@@ -104,6 +104,13 @@ administrator command prompt, and FreeTunnel asks through UAC again:
 sc sdset FreeTunnelHelper "D:(A;;CCLCSWRPWPDTLOCRRC;;;SY)(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;BA)(A;;CCLCSWLORC;;;AU)"
 ```
 
+### Graphics
+
+FreeTunnel draws its window on the CPU, so it does not need DirectX 11, Metal
+or OpenGL from the video driver, and does not compete with games for the GPU.
+To draw it on the GPU anyway, start FreeTunnel with `QSG_RHI_BACKEND` set to
+`d3d11`, `opengl`, `metal` or `vulkan`.
+
 ## Quick start
 
 1. On the **Configs** tab (＋), create a config or import one (see
