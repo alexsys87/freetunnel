@@ -13,6 +13,8 @@ compare link at the bottom of its release notes.
   Metal or OpenGL from the video driver.** On old hardware, Windows 7 in
   particular, it starts instead of crashing or showing a black window, and it
   no longer competes with full-screen games for the GPU.
+- **The logo on Home, which connects and disconnects, turns green while the VPN
+  is connected, like the tray icon.** On Windows, macOS, Linux and Android.
 
 ## 1.3.0
 
