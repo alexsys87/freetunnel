@@ -3,8 +3,8 @@ set -euo pipefail
 repo_dir="$(cd -- "$(dirname -- "$0")/.." && pwd)"
 # The core the app is built on: its version, and the SHA-256 of the official AAR of it. Its name must match
 # coreAar in android/app/build.gradle, and its digest verifyPinnedRuntime's there.
-version="1.1.11"
-expected="da0886c22a2a1fad1fdd25d8f5d3d85c6ffa89188292bd000d41e885db446eca"
+version="1.1.12"
+expected="ef66909c00813fd50255900f89b320a998e2a1c74bbd4aa83369fc7f7e310aca"
 artifact="trusttunnel-client-android-$version.aar"
 destination="$repo_dir/android/app/libs/$artifact"
 if [[ -f "$destination" ]] && printf '%s  %s\n' "$expected" "$destination" | shasum -a 256 -c - >/dev/null 2>&1; then
