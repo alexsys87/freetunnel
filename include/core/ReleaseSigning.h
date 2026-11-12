@@ -8,7 +8,7 @@ namespace freetunnel {
 // ED25519_SIGNING_KEY GitHub Actions secret (see CONTRIBUTING.md).
 inline constexpr const char *kReleaseSigningPublicKeyPem =
     "-----BEGIN PUBLIC KEY-----\n"
-    "MCowBQYDK2VwAyEAr/wYp5oJpToWK5jv84K5QiBuNyJKjyzhRVGsjKyuPtg=\n"
+    "MCowBQYDK2VwAyEAhE4HiZRtNxI+p9u++f1wvKCvYXa/7Zb5TlPpEyvURlE=\n"
     "-----END PUBLIC KEY-----\n";
 
 } // namespace freetunnel
