@@ -96,8 +96,10 @@ class UpdatePolicyTest {
         assertEquals(pin, BuildConfig.RELEASE_CERTIFICATE_SHA256)
     }
     // The real release key against a signature openssl made, not one this test
-    // made. The v1.2.3 desktop manifest and its .sig were signed the way the
-    // Android release job signs SHA256SUMS-android.txt (openssl pkeyutl -rawin).
+    // made. The v1.2.3 desktop manifest's .sig was made with this repository's
+    // release key, the way the Android release job signs SHA256SUMS-android.txt
+    // (openssl pkeyutl -rawin). It has to be made again whenever the key in
+    // ReleaseSigning.h changes.
     // That manifest names no APK, so a good signature gets past the check and
     // stops at the missing entry: that is the proof the signature verified.
     @Test fun theReleaseKeyVerifiesASignatureOpensslMade() {
