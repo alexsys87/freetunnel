@@ -503,6 +503,18 @@ scripts/prepare-trusttunnel-android.sh
 The public AAR download needs no GitHub PAT. Its SHA-256 is checked during
 preparation and every build:
 `da0886c22a2a1fad1fdd25d8f5d3d85c6ffa89188292bd000d41e885db446eca`.
+
+The script fetches the AAR from this repository's own mirror first, a release
+named `core-android-1.1.11` with `trusttunnel-client-android-1.1.11.aar` attached,
+and only if that is missing from the public package page, whose HTML GitHub
+changes without notice (the build then stops with "Official package asset
+missing"). Whichever source answers, the file must have the SHA-256 above.
+To create the mirror once, download the AAR of the version from the
+[package page](https://github.com/TrustTunnel/TrustTunnelClient/packages/2733074)
+in a browser, check `shasum -a 256` against the digest above, and attach it to a
+new release with the tag `core-android-1.1.11` (not `android-*`, which publishes
+an app release). Pin a new core version by changing its name, digest and mirror
+together.
 Gradle 8.11.1 wrapper and distribution checksums are pinned too.
 
 Debug APK: `android/app/build/outputs/apk/debug/app-debug.apk` (debug signing).
