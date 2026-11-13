@@ -12,7 +12,7 @@ import java.util.Base64
 
 /** Pure policy shared by discovery, download verification and installation. */
 object UpdatePolicy {
-    const val REPOSITORY = "dimmmmmmmer/freetunnel"
+    const val REPOSITORY = "alexsys87/freetunnel"
     private val versionPattern = Regex("[0-9]{1,20}\\.[0-9]{1,20}\\.[0-9]{1,20}")
     private val pinPattern = Regex("[0-9a-f]{64}")
 

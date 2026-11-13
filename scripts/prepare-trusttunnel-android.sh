@@ -22,7 +22,7 @@ trap 'rm -rf "$temporary_dir"' EXIT
 #  2. The public package page, which supplies download links to the original artifacts. It is HTML that
 #     GitHub changes without notice ("Official package asset missing"), so it is the fallback, not the way.
 # No PAT, old APK extraction, or alternate native core.
-mirror_repository="${TRUSTTUNNEL_ANDROID_MIRROR_REPOSITORY:-${GITHUB_REPOSITORY:-dimmmmmmmer/freetunnel}}"
+mirror_repository="${TRUSTTUNNEL_ANDROID_MIRROR_REPOSITORY:-${GITHUB_REPOSITORY:-alexsys87/freetunnel}}"
 mirror_url="https://github.com/$mirror_repository/releases/download/core-android-$version/$artifact"
 file="$temporary_dir/$artifact"
 fetched=false

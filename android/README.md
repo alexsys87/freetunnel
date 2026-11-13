@@ -3,9 +3,13 @@
 Android VPN client using the official, checksum-pinned **TrustTunnel 1.1.12**
 adapter, for phones, tablets and Android TV (Android 8.0 or later). Official
 releases are the `android-X.Y.Z` releases of
-[dimmmmmmmer/freetunnel](https://github.com/dimmmmmmmer/freetunnel), signed with
-the certificate pinned in `release-certificate.sha256`; a fork's release name or
-certificate is not an official release or an update compatibility contract.
+[alexsys87/freetunnel](https://github.com/alexsys87/freetunnel), signed with
+the certificate pinned in `release-certificate.sha256`, and the app looks for its
+updates there (`UpdatePolicy.REPOSITORY`); a fork's release name or certificate
+is not an official release or an update compatibility contract. This
+repository is itself a fork of
+[dimmmmmmmer/freetunnel](https://github.com/dimmmmmmmer/freetunnel) and keeps
+its own signing key, so the two projects' releases do not update each other.
 
 ## Features
 
@@ -579,10 +583,10 @@ in one shell, so that `KS` names the keystore throughout.
 
    ```sh
    echo '{"deployment_branch_policy": {"protected_branches": false, "custom_branch_policies": true}}' |
-     gh api -X PUT repos/dimmmmmmmer/freetunnel/environments/android-release --input -
-   gh api -X POST repos/dimmmmmmmer/freetunnel/environments/android-release/deployment-branch-policies \
+     gh api -X PUT repos/alexsys87/freetunnel/environments/android-release --input -
+   gh api -X POST repos/alexsys87/freetunnel/environments/android-release/deployment-branch-policies \
      -f name='android-*' -f type=tag
-   gh api repos/dimmmmmmmer/freetunnel/environments/android-release/deployment-branch-policies \
+   gh api repos/alexsys87/freetunnel/environments/android-release/deployment-branch-policies \
      --jq '.branch_policies[] | .name + " " + .type'
    ```
 
@@ -601,9 +605,9 @@ in one shell, so that `KS` names the keystore throughout.
    password twice.
 
    ```sh
-   base64 < "$KS" | tr -d '\n' | gh secret set ANDROID_KEYSTORE_BASE64 --env android-release -R dimmmmmmmer/freetunnel
-   gh secret set ANDROID_KEYSTORE_PASSWORD --env android-release -R dimmmmmmmer/freetunnel
-   gh secret set ANDROID_KEY_PASSWORD --env android-release -R dimmmmmmmer/freetunnel
+   base64 < "$KS" | tr -d '\n' | gh secret set ANDROID_KEYSTORE_BASE64 --env android-release -R alexsys87/freetunnel
+   gh secret set ANDROID_KEYSTORE_PASSWORD --env android-release -R alexsys87/freetunnel
+   gh secret set ANDROID_KEY_PASSWORD --env android-release -R alexsys87/freetunnel
    ```
 
    The key's alias, `freetunnel`, is set in the workflow, not as a secret. The
