@@ -1,5 +1,14 @@
 # Android changes
 
+## 1.0.2
+
+- Updates come from this project's releases. Until now the app looked for them in
+  another project's repository (dimmmmmmmer/freetunnel), found a newer version
+  there, and refused to install it, because it is signed with another key. It now
+  looks in alexsys87/freetunnel. Because 1.0.1 still asks the old place, **install
+  this version by hand once**; later ones are offered in Settings. It installs
+  over 1.0.1 and keeps your servers.
+
 ## 1.0.1
 
 - Installs on Huawei phones (EMUI, HarmonyOS). The installer there refused the

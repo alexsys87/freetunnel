@@ -39,7 +39,7 @@ class UpdatePolicyTest {
         val original = candidate("android-1.2.0")
         val filename = "freetunnel-android-1.2.0.apk"
         val url = original.assets[filename]!!
-        for (foreign in listOf(url.replace("dimmmmmmmer", "attacker"), url.replace("android-1.2.0/", "android-1.1.0/"),
+        for (foreign in listOf(url.replace(UpdatePolicy.REPOSITORY.substringBefore('/'), "attacker"), url.replace("android-1.2.0/", "android-1.1.0/"),
                 url.replace("https:", "http:"), url + "?x=1", url + "#fragment", url.replace("github.com", "github.com.evil.test"),
                 url.replace("github.com", "github.com@evil.test"), url.replace("android-1.2.0/", "android-1.2.0/%2e%2e/"))) {
             assertNull(foreign, UpdatePolicy.select(listOf(original.copy(assets = original.assets + (filename to foreign))), "1.0.0"))
