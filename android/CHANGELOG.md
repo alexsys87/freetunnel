@@ -1,17 +1,5 @@
 # Android changes
 
-## 1.0.1
-
-- Installs on Huawei phones (EMUI, HarmonyOS). The installer there refused 1.0.0
-  with "no certificates were found in the installation package": it could not
-  read the signing certificate, which used a 4096-bit RSA key. 1.0.1 is signed
-  with a new certificate that uses a 2048-bit key, the usual size. Nothing else
-  changed.
-- **Android does not update an app across signing keys, so 1.0.0 has to be
-  uninstalled first.** That deletes its saved servers: keep your configs or
-  links at hand to import them again. Later releases install over 1.0.1 and
-  keep the servers.
-
 ## 1.0.0
 
 The first official FreeTunnel for Android: a TrustTunnel VPN client for phones,
