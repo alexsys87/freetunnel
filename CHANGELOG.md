@@ -5,7 +5,7 @@ built from the section below it, so this file is the description of the release 
 write it before tagging. For the full commit history of a release, follow the
 compare link at the bottom of its release notes.
 
-## Unreleased
+## 1.3.1
 
 ### Fixed
 
@@ -15,6 +15,10 @@ compare link at the bottom of its release notes.
   be offered to you and then refused. Because the versions built before this
   one still ask the old place, **install this version by hand once**; later
   ones are found here.
+
+### Already in 1.3.0
+
+These two were in 1.3.0 but are missing from its release notes:
 
 - **The window is drawn on the CPU, so FreeTunnel no longer needs DirectX 11,
   Metal or OpenGL from the video driver.** On old hardware, Windows 7 in
