@@ -1,26 +1,9 @@
 # Android changes
 
-## Unreleased
-
-- Routing by geo lists, as on the desktop: *Only blocked sites through VPN*
-  (sites and addresses blocked in Russia go through the VPN, everything else
-  direct), *Everything through VPN except Russian sites*, or *Everything
-  through VPN*, at the top of the Split page. A new installation starts with
-  only blocked sites through the VPN; an update keeps everything through it.
-  The lists are downloaded and checked once a day, and their sources can be
-  changed. Your own Bypass VPN rules keep their sites direct, and your own
-  Through VPN rules add to the lists. Applications set to go through the VPN
-  can't be applied while the lists route, and the app says so.
-- Built on TrustTunnel's Android library 1.1.12 (was 1.1.7): TLS certificate
-  parsing and the network and QUIC fixes of 1.1.8 to 1.1.11, and the TLS
-  handshake of 1.1.12, which looks like the current Chrome's.
-- Keep split-tunnelling edits intact and report a save failure when Android
-  storage refuses to persist a change.
-
 ## 1.0.0
 
 The first official FreeTunnel for Android: a TrustTunnel VPN client for phones,
-tablets and Android TV, built on TrustTunnel's own Android library 1.1.7. It
+tablets and Android TV, built on TrustTunnel's own Android library 1.1.12. It
 needs Android 8.0 or later.
 
 ### Highlights
@@ -32,7 +15,18 @@ needs Android 8.0 or later.
   blocked and FreeTunnel reconnects by itself: after 1 s, then up to every
   30 s, and at once when a network appears. An alert offers Reconnect and
   Disconnect.
-- Split tunnelling by app or by destination (domains and addresses).
+- Split tunnelling by app or by destination (domains and addresses). A change
+  you make is kept intact, and the app tells you when Android storage refuses
+  to save it.
+- Routing by geo lists, as on the desktop: *Only blocked sites through VPN*
+  (sites and addresses blocked in Russia go through the VPN, everything else
+  direct), *Everything through VPN except Russian sites*, or *Everything
+  through VPN*, at the top of the Split page. A new installation starts with
+  only blocked sites through the VPN. The lists are downloaded and checked once
+  a day, and their sources can be changed. Your own Bypass VPN rules keep their
+  sites direct, and your own Through VPN rules add to the lists. Applications
+  set to go through the VPN can't be applied while the lists route, and the app
+  says so.
 - Android TV: FreeTunnel is on the TV launcher, and every control is reachable
   with a remote. **Receive from phone** shows a QR code on the TV; a phone,
   tablet or laptop on the same network opens it in a browser and sends a link

@@ -649,12 +649,6 @@ merge the fix, delete the tag (only an admin can, because of the ruleset) with
 tag `main` again. Once a version is published, its files never change: release
 the next version instead.
 
-Before `android-1.0.0`: the `## Unreleased` section of `android/CHANGELOG.md`
-still holds the preview's notes, partly written for reviewers ("No fork signing
-identity or stable-release claim is part of this PR"), and a stray line that
-reads only "preview", left from a split heading. Everything from `## 1.0.0` down to the next
-heading is published, so rewrite all of it in the 1.0.0 release pull request.
-
 The workflow checks the tag, that its commit is on `main`, that the version is
 not published yet, the pin, the notes and that the secrets are set. It runs the
 whole Android CI on the tagged commit, builds the APK unsigned, then signs it
