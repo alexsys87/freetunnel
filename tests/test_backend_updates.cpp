@@ -178,7 +178,7 @@ void TestBackendUpdates::serveRealRelease(MockHttpServer &http, const QString &t
     release[QStringLiteral("assets")] = assets;
     MockHttpServer::Route route;
     route.body = QJsonDocument(release).toJson(QJsonDocument::Compact);
-    http.setRoute(QStringLiteral("/repos/dimmmmmmmer/freetunnel/releases/latest"), route);
+    http.setRoute(QStringLiteral("/repos/alexsys87/freetunnel/releases/latest"), route);
 }
 
 void TestBackendUpdates::serveRelease(MockHttpServer &http, const QString &tag, bool withInstaller,
@@ -217,7 +217,7 @@ void TestBackendUpdates::serveRelease(MockHttpServer &http, const QString &tag, 
     MockHttpServer::Route route;
     route.body = QJsonDocument(release).toJson(QJsonDocument::Compact);
     route.delayMs = delayMs;
-    http.setRoute(QStringLiteral("/repos/dimmmmmmmer/freetunnel/releases/latest"), route);
+    http.setRoute(QStringLiteral("/repos/alexsys87/freetunnel/releases/latest"), route);
 }
 
 bool TestBackendUpdates::settled(const Backend &backend)
@@ -298,7 +298,7 @@ void TestBackendUpdates::aCheckJoinsTheBackgroundCheckStillOut()
     MockHttpServer::Route stalled;
     stalled.silent = true;
     http.setRoute(QStringLiteral("/checksums"), stalled); // the download stays under way
-    const QString latest = QStringLiteral("/repos/dimmmmmmmer/freetunnel/releases/latest");
+    const QString latest = QStringLiteral("/repos/alexsys87/freetunnel/releases/latest");
 
     Backend backend;
     backend.checkForUpdates(false);
@@ -359,7 +359,7 @@ void TestBackendUpdates::asecondCheckWhileOneIsRunningIsIgnored()
     QTRY_VERIFY_WITH_TIMEOUT(settled(backend), 10000);
 
     QCOMPARE(backend.updateState(), QStringLiteral("available"));
-    QCOMPARE(http.requestCount(QStringLiteral("/repos/dimmmmmmmer/freetunnel/releases/latest")), 1);
+    QCOMPARE(http.requestCount(QStringLiteral("/repos/alexsys87/freetunnel/releases/latest")), 1);
 
     // And only one updater exists to have made it. ensureUpdater() parents each
     // one to the Backend, so a missing guard would leave a pile of them wired to
@@ -370,7 +370,7 @@ void TestBackendUpdates::asecondCheckWhileOneIsRunningIsIgnored()
     // one-shot latch.
     backend.checkForUpdates(true);
     QTRY_VERIFY_WITH_TIMEOUT(settled(backend), 10000);
-    QCOMPARE(http.requestCount(QStringLiteral("/repos/dimmmmmmmer/freetunnel/releases/latest")), 2);
+    QCOMPARE(http.requestCount(QStringLiteral("/repos/alexsys87/freetunnel/releases/latest")), 2);
     QCOMPARE(backend.findChildren<UpdateChecker *>().size(), 1);
 
     qunsetenv("FT_GITHUB_API_BASE");
@@ -434,7 +434,7 @@ void TestBackendUpdates::retryAfterFailedCheckChecksAgainInsteadOfDownloading()
     MockHttpServer::Route broken;
     broken.status = 500;
     broken.body = QByteArrayLiteral("nope");
-    http.setRoute(QStringLiteral("/repos/dimmmmmmmer/freetunnel/releases/latest"), broken);
+    http.setRoute(QStringLiteral("/repos/alexsys87/freetunnel/releases/latest"), broken);
 
     backend.checkForUpdates(true);
     QTRY_VERIFY_WITH_TIMEOUT(settled(backend), 10000);
@@ -592,7 +592,7 @@ void TestBackendUpdates::aStalledCheckGivesUp()
     });
     MockHttpServer::Route silent;
     silent.silent = true;
-    http.setRoute(QStringLiteral("/repos/dimmmmmmmer/freetunnel/releases/latest"), silent);
+    http.setRoute(QStringLiteral("/repos/alexsys87/freetunnel/releases/latest"), silent);
 
     Backend backend;
     backend.checkForUpdates(true);
@@ -659,7 +659,7 @@ void TestBackendUpdates::aStagingDirThatIsALinkIsLeftAlone()
     QVERIFY(QFile::link(elsewhere.path(), stagingDir()));
     const auto noLink = qScopeGuard([] { QFile::remove(stagingDir()); });
 
-    UpdateChecker(QStringLiteral("dimmmmmmmer/freetunnel"), QStringLiteral("1.0.0"))
+    UpdateChecker(QStringLiteral("alexsys87/freetunnel"), QStringLiteral("1.0.0"))
             .discardStagedDownloads();
     QVERIFY(QFile::exists(theirs));
 }

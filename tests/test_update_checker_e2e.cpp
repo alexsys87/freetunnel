@@ -239,7 +239,7 @@ static bool runCheck(MockHttpServer &http, const QJsonObject &release, UpdateChe
 {
     MockHttpServer::Route route;
     route.body = QJsonDocument(release).toJson(QJsonDocument::Compact);
-    http.setRoute(QStringLiteral("/repos/dimmmmmmmer/freetunnel/releases/latest"), route);
+    http.setRoute(QStringLiteral("/repos/alexsys87/freetunnel/releases/latest"), route);
     checker.checkNow();
     return QTest::qWaitFor([&]() { return available.count() > 0 || none.count() > 0; }, 5000);
 }
@@ -255,9 +255,9 @@ void TestUpdateCheckerE2e::checkNowFindsNewerRelease()
             makeReleaseJson(QStringLiteral("v2.0.0"), base, QStringLiteral("freetunnel-test.AppImage"));
     MockHttpServer::Route route;
     route.body = QJsonDocument(release).toJson(QJsonDocument::Compact);
-    http.setRoute(QStringLiteral("/repos/dimmmmmmmer/freetunnel/releases/latest"), route);
+    http.setRoute(QStringLiteral("/repos/alexsys87/freetunnel/releases/latest"), route);
 
-    UpdateChecker checker(QStringLiteral("dimmmmmmmer/freetunnel"), QStringLiteral("1.0.0"));
+    UpdateChecker checker(QStringLiteral("alexsys87/freetunnel"), QStringLiteral("1.0.0"));
     QSignalSpy available(&checker, &UpdateChecker::updateAvailable);
     QSignalSpy none(&checker, &UpdateChecker::noUpdateAvailable);
 
@@ -279,9 +279,9 @@ void TestUpdateCheckerE2e::checkNowNoUpdateWhenCurrent()
             makeReleaseJson(QStringLiteral("v1.0.0"), base, QStringLiteral("freetunnel-test.AppImage"));
     MockHttpServer::Route route;
     route.body = QJsonDocument(release).toJson(QJsonDocument::Compact);
-    http.setRoute(QStringLiteral("/repos/dimmmmmmmer/freetunnel/releases/latest"), route);
+    http.setRoute(QStringLiteral("/repos/alexsys87/freetunnel/releases/latest"), route);
 
-    UpdateChecker checker(QStringLiteral("dimmmmmmmer/freetunnel"), QStringLiteral("1.0.0"));
+    UpdateChecker checker(QStringLiteral("alexsys87/freetunnel"), QStringLiteral("1.0.0"));
     QSignalSpy none(&checker, &UpdateChecker::noUpdateAvailable);
     checker.checkNow();
     QVERIFY(QTest::qWaitFor([&]() { return none.count() > 0; }, 5000));
@@ -305,7 +305,7 @@ void TestUpdateCheckerE2e::downloadVerifiesChecksum()
     const QJsonObject release = makeReleaseJson(QStringLiteral("v2.0.0"), base, installerName);
     MockHttpServer::Route releaseRoute;
     releaseRoute.body = QJsonDocument(release).toJson(QJsonDocument::Compact);
-    http.setRoute(QStringLiteral("/repos/dimmmmmmmer/freetunnel/releases/latest"), releaseRoute);
+    http.setRoute(QStringLiteral("/repos/alexsys87/freetunnel/releases/latest"), releaseRoute);
 
     MockHttpServer::Route sumsRoute;
     sumsRoute.body = sums;
@@ -317,7 +317,7 @@ void TestUpdateCheckerE2e::downloadVerifiesChecksum()
     installerRoute.contentType = QByteArrayLiteral("application/octet-stream");
     http.setRoute(QStringLiteral("/installer"), installerRoute);
 
-    UpdateChecker checker(QStringLiteral("dimmmmmmmer/freetunnel"), QStringLiteral("1.0.0"));
+    UpdateChecker checker(QStringLiteral("alexsys87/freetunnel"), QStringLiteral("1.0.0"));
     QSignalSpy available(&checker, &UpdateChecker::updateAvailable);
     checker.checkNow();
     QVERIFY(QTest::qWaitFor([&]() { return available.count() > 0; }, 5000));
@@ -337,7 +337,7 @@ void TestUpdateCheckerE2e::checkNowNetworkError()
 {
     qputenv("FT_GITHUB_API_BASE", QByteArrayLiteral("http://127.0.0.1:1"));
 
-    UpdateChecker checker(QStringLiteral("dimmmmmmmer/freetunnel"), QStringLiteral("1.0.0"));
+    UpdateChecker checker(QStringLiteral("alexsys87/freetunnel"), QStringLiteral("1.0.0"));
     QSignalSpy none(&checker, &UpdateChecker::noUpdateAvailable);
     checker.checkNow();
     QVERIFY(QTest::qWaitFor([&]() { return none.count() > 0; }, 5000));
@@ -356,9 +356,9 @@ void TestUpdateCheckerE2e::checkNowInvalidJson()
 
     MockHttpServer::Route route;
     route.body = QByteArrayLiteral("not-json");
-    http.setRoute(QStringLiteral("/repos/dimmmmmmmer/freetunnel/releases/latest"), route);
+    http.setRoute(QStringLiteral("/repos/alexsys87/freetunnel/releases/latest"), route);
 
-    UpdateChecker checker(QStringLiteral("dimmmmmmmer/freetunnel"), QStringLiteral("1.0.0"));
+    UpdateChecker checker(QStringLiteral("alexsys87/freetunnel"), QStringLiteral("1.0.0"));
     QSignalSpy none(&checker, &UpdateChecker::noUpdateAvailable);
     checker.checkNow();
     QVERIFY(QTest::qWaitFor([&]() { return none.count() > 0; }, 5000));
@@ -387,9 +387,9 @@ void TestUpdateCheckerE2e::downloadRejectsMissingChecksums()
 
     MockHttpServer::Route releaseRoute;
     releaseRoute.body = QJsonDocument(release).toJson(QJsonDocument::Compact);
-    http.setRoute(QStringLiteral("/repos/dimmmmmmmer/freetunnel/releases/latest"), releaseRoute);
+    http.setRoute(QStringLiteral("/repos/alexsys87/freetunnel/releases/latest"), releaseRoute);
 
-    UpdateChecker checker(QStringLiteral("dimmmmmmmer/freetunnel"), QStringLiteral("1.0.0"));
+    UpdateChecker checker(QStringLiteral("alexsys87/freetunnel"), QStringLiteral("1.0.0"));
     QSignalSpy available(&checker, &UpdateChecker::updateAvailable);
     checker.checkNow();
     QVERIFY(QTest::qWaitFor([&]() { return available.count() > 0; }, 5000));
@@ -414,7 +414,7 @@ void TestUpdateCheckerE2e::downloadRejectsMissingSignature()
     const QJsonObject release = makeReleaseJson(QStringLiteral("v2.0.0"), base, installerName);
     MockHttpServer::Route releaseRoute;
     releaseRoute.body = QJsonDocument(release).toJson(QJsonDocument::Compact);
-    http.setRoute(QStringLiteral("/repos/dimmmmmmmer/freetunnel/releases/latest"), releaseRoute);
+    http.setRoute(QStringLiteral("/repos/alexsys87/freetunnel/releases/latest"), releaseRoute);
 
     const QByteArray sums = QByteArrayLiteral("abc123  ") + installerName.toUtf8() + "\n";
     MockHttpServer::Route sumsRoute;
@@ -422,7 +422,7 @@ void TestUpdateCheckerE2e::downloadRejectsMissingSignature()
     sumsRoute.contentType = QByteArrayLiteral("text/plain");
     http.setRoute(QStringLiteral("/checksums"), sumsRoute);
 
-    UpdateChecker checker(QStringLiteral("dimmmmmmmer/freetunnel"), QStringLiteral("1.0.0"));
+    UpdateChecker checker(QStringLiteral("alexsys87/freetunnel"), QStringLiteral("1.0.0"));
     QSignalSpy available(&checker, &UpdateChecker::updateAvailable);
     checker.checkNow();
     QVERIFY(QTest::qWaitFor([&]() { return available.count() > 0; }, 5000));
@@ -454,7 +454,7 @@ void TestUpdateCheckerE2e::downloadRejectsInvalidSignature()
 
     MockHttpServer::Route releaseRoute;
     releaseRoute.body = QJsonDocument(release).toJson(QJsonDocument::Compact);
-    http.setRoute(QStringLiteral("/repos/dimmmmmmmer/freetunnel/releases/latest"), releaseRoute);
+    http.setRoute(QStringLiteral("/repos/alexsys87/freetunnel/releases/latest"), releaseRoute);
 
     const QByteArray sums = QByteArrayLiteral("abc123  ") + installerName.toUtf8() + "\n";
     MockHttpServer::Route sumsRoute;
@@ -467,7 +467,7 @@ void TestUpdateCheckerE2e::downloadRejectsInvalidSignature()
     sigRoute.contentType = QByteArrayLiteral("application/octet-stream");
     http.setRoute(QStringLiteral("/signature"), sigRoute);
 
-    UpdateChecker checker(QStringLiteral("dimmmmmmmer/freetunnel"), QStringLiteral("1.0.0"));
+    UpdateChecker checker(QStringLiteral("alexsys87/freetunnel"), QStringLiteral("1.0.0"));
     QSignalSpy available(&checker, &UpdateChecker::updateAvailable);
     checker.checkNow();
     QVERIFY(QTest::qWaitFor([&]() { return available.count() > 0; }, 5000));
@@ -517,7 +517,7 @@ static void serveSignedRelease(MockHttpServer &http, const QString &base,
 
     MockHttpServer::Route releaseRoute;
     releaseRoute.body = QJsonDocument(release).toJson(QJsonDocument::Compact);
-    http.setRoute(QStringLiteral("/repos/dimmmmmmmer/freetunnel/releases/latest"), releaseRoute);
+    http.setRoute(QStringLiteral("/repos/alexsys87/freetunnel/releases/latest"), releaseRoute);
 
     MockHttpServer::Route sumsRoute;
     sumsRoute.body = sums;
@@ -574,7 +574,7 @@ void TestUpdateCheckerE2e::downloadAcceptsGenuinelySignedRelease()
     QVERIFY(!signature.isEmpty());
     serveSignedRelease(http, base, installerBody, sums, signature);
 
-    UpdateChecker checker(QStringLiteral("dimmmmmmmer/freetunnel"), QStringLiteral("1.0.0"));
+    UpdateChecker checker(QStringLiteral("alexsys87/freetunnel"), QStringLiteral("1.0.0"));
     QSignalSpy available(&checker, &UpdateChecker::updateAvailable);
     checker.checkNow();
     QVERIFY(QTest::qWaitFor([&]() { return available.count() > 0; }, 5000));
@@ -633,7 +633,7 @@ void TestUpdateCheckerE2e::downloadRejectsSignatureOverOtherContent()
     QVERIFY(signature != signWithTestKey(sums));
     serveSignedRelease(http, base, installerBody, sums, signature);
 
-    UpdateChecker checker(QStringLiteral("dimmmmmmmer/freetunnel"), QStringLiteral("1.0.0"));
+    UpdateChecker checker(QStringLiteral("alexsys87/freetunnel"), QStringLiteral("1.0.0"));
     QSignalSpy available(&checker, &UpdateChecker::updateAvailable);
     checker.checkNow();
     QVERIFY(QTest::qWaitFor([&]() { return available.count() > 0; }, 5000));
@@ -667,7 +667,7 @@ void TestUpdateCheckerE2e::downloadRejectsBadChecksum()
     const QJsonObject release = makeReleaseJson(QStringLiteral("v2.0.0"), base, installerName);
     MockHttpServer::Route releaseRoute;
     releaseRoute.body = QJsonDocument(release).toJson(QJsonDocument::Compact);
-    http.setRoute(QStringLiteral("/repos/dimmmmmmmer/freetunnel/releases/latest"), releaseRoute);
+    http.setRoute(QStringLiteral("/repos/alexsys87/freetunnel/releases/latest"), releaseRoute);
 
     MockHttpServer::Route sumsRoute;
     sumsRoute.body = sums;
@@ -679,7 +679,7 @@ void TestUpdateCheckerE2e::downloadRejectsBadChecksum()
     installerRoute.contentType = QByteArrayLiteral("application/octet-stream");
     http.setRoute(QStringLiteral("/installer"), installerRoute);
 
-    UpdateChecker checker(QStringLiteral("dimmmmmmmer/freetunnel"), QStringLiteral("1.0.0"));
+    UpdateChecker checker(QStringLiteral("alexsys87/freetunnel"), QStringLiteral("1.0.0"));
     QSignalSpy available(&checker, &UpdateChecker::updateAvailable);
     checker.checkNow();
     QVERIFY(QTest::qWaitFor([&]() { return available.count() > 0; }, 5000));
@@ -715,14 +715,14 @@ void TestUpdateCheckerE2e::rejectsAssetsFromAnotherRepo()
     QVERIFY(http.listen());
     qputenv("FT_GITHUB_API_BASE", http.baseUrl().toUtf8());
 
-    UpdateChecker checker(QStringLiteral("dimmmmmmmer/freetunnel"), QStringLiteral("1.0.0"));
+    UpdateChecker checker(QStringLiteral("alexsys87/freetunnel"), QStringLiteral("1.0.0"));
     QSignalSpy available(&checker, &UpdateChecker::updateAvailable);
     QSignalSpy none(&checker, &UpdateChecker::noUpdateAvailable);
     QVERIFY(runCheck(http,
                      releaseWithAssetBase(
                              QStringLiteral("v2.0.0"),
                              QStringLiteral("https://github.com/attacker/freetunnel/releases/download/v2.0.0"),
-                             QStringLiteral("https://github.com/dimmmmmmmer/freetunnel/releases/tag/v2.0.0")),
+                             QStringLiteral("https://github.com/alexsys87/freetunnel/releases/tag/v2.0.0")),
                      checker, available, none));
 
     // The release itself is newer, so it is announced — but nothing downloadable
@@ -748,14 +748,14 @@ void TestUpdateCheckerE2e::rejectsAssetsWhosePathTagDiffersFromTheRelease()
     QVERIFY(http.listen());
     qputenv("FT_GITHUB_API_BASE", http.baseUrl().toUtf8());
 
-    UpdateChecker checker(QStringLiteral("dimmmmmmmer/freetunnel"), QStringLiteral("1.0.0"));
+    UpdateChecker checker(QStringLiteral("alexsys87/freetunnel"), QStringLiteral("1.0.0"));
     QSignalSpy available(&checker, &UpdateChecker::updateAvailable);
     QSignalSpy none(&checker, &UpdateChecker::noUpdateAvailable);
     QVERIFY(runCheck(http,
                      releaseWithAssetBase(
                              QStringLiteral("v9.9.9"),
-                             QStringLiteral("https://github.com/dimmmmmmmer/freetunnel/releases/download/v1.1.5"),
-                             QStringLiteral("https://github.com/dimmmmmmmer/freetunnel/releases/tag/v9.9.9")),
+                             QStringLiteral("https://github.com/alexsys87/freetunnel/releases/download/v1.1.5"),
+                             QStringLiteral("https://github.com/alexsys87/freetunnel/releases/tag/v9.9.9")),
                      checker, available, none));
 
     QCOMPARE(available.count(), 1);
@@ -773,14 +773,14 @@ void TestUpdateCheckerE2e::acceptsAssetsPublishedUnderThisReleaseTag()
     qputenv("FT_GITHUB_API_BASE", http.baseUrl().toUtf8());
 
     const QString assetBase =
-            QStringLiteral("https://github.com/dimmmmmmmer/freetunnel/releases/download/v2.0.0");
-    UpdateChecker checker(QStringLiteral("dimmmmmmmer/freetunnel"), QStringLiteral("1.0.0"));
+            QStringLiteral("https://github.com/alexsys87/freetunnel/releases/download/v2.0.0");
+    UpdateChecker checker(QStringLiteral("alexsys87/freetunnel"), QStringLiteral("1.0.0"));
     QSignalSpy available(&checker, &UpdateChecker::updateAvailable);
     QSignalSpy none(&checker, &UpdateChecker::noUpdateAvailable);
     QVERIFY(runCheck(http,
                      releaseWithAssetBase(
                              QStringLiteral("v2.0.0"), assetBase,
-                             QStringLiteral("https://github.com/dimmmmmmmer/freetunnel/releases/tag/v2.0.0")),
+                             QStringLiteral("https://github.com/alexsys87/freetunnel/releases/tag/v2.0.0")),
                      checker, available, none));
 
     QCOMPARE(available.count(), 1);
@@ -788,7 +788,7 @@ void TestUpdateCheckerE2e::acceptsAssetsPublishedUnderThisReleaseTag()
              assetBase + QStringLiteral("/") + testInstallerAssetName());
     QCOMPARE(checker.latestRelease().checksumsUrl, assetBase + QStringLiteral("/SHA256SUMS.txt"));
     QCOMPARE(checker.latestRelease().htmlUrl,
-             QStringLiteral("https://github.com/dimmmmmmmer/freetunnel/releases/tag/v2.0.0"));
+             QStringLiteral("https://github.com/alexsys87/freetunnel/releases/tag/v2.0.0"));
     qunsetenv("FT_GITHUB_API_BASE");
 }
 
@@ -800,20 +800,20 @@ void TestUpdateCheckerE2e::replacesHostileHtmlUrlWithTheCanonicalReleasePage()
     QVERIFY(http.listen());
     qputenv("FT_GITHUB_API_BASE", http.baseUrl().toUtf8());
 
-    UpdateChecker checker(QStringLiteral("dimmmmmmmer/freetunnel"), QStringLiteral("1.0.0"));
+    UpdateChecker checker(QStringLiteral("alexsys87/freetunnel"), QStringLiteral("1.0.0"));
     QSignalSpy available(&checker, &UpdateChecker::updateAvailable);
     QSignalSpy none(&checker, &UpdateChecker::noUpdateAvailable);
     QVERIFY(runCheck(http,
                      releaseWithAssetBase(
                              QStringLiteral("v2.0.0"),
-                             QStringLiteral("https://github.com/dimmmmmmmer/freetunnel/releases/download/v2.0.0"),
+                             QStringLiteral("https://github.com/alexsys87/freetunnel/releases/download/v2.0.0"),
                              QStringLiteral("https://evil.example/phish")),
                      checker, available, none));
 
     QCOMPARE(available.count(), 1);
     const QString shown = checker.latestRelease().htmlUrl;
     QVERIFY2(!shown.contains(QStringLiteral("evil.example")), qPrintable(shown));
-    QVERIFY(shown.startsWith(QStringLiteral("https://github.com/dimmmmmmmer/freetunnel/")));
+    QVERIFY(shown.startsWith(QStringLiteral("https://github.com/alexsys87/freetunnel/")));
     qunsetenv("FT_GITHUB_API_BASE");
 }
 
@@ -823,14 +823,14 @@ void TestUpdateCheckerE2e::rejectsImplausibleTag()
     QVERIFY(http.listen());
     qputenv("FT_GITHUB_API_BASE", http.baseUrl().toUtf8());
 
-    UpdateChecker checker(QStringLiteral("dimmmmmmmer/freetunnel"), QStringLiteral("1.0.0"));
+    UpdateChecker checker(QStringLiteral("alexsys87/freetunnel"), QStringLiteral("1.0.0"));
     QSignalSpy available(&checker, &UpdateChecker::updateAvailable);
     QSignalSpy none(&checker, &UpdateChecker::noUpdateAvailable);
     QVERIFY(runCheck(http,
                      releaseWithAssetBase(
                              QStringLiteral("../../etc/passwd"),
-                             QStringLiteral("https://github.com/dimmmmmmmer/freetunnel/releases/download/v2.0.0"),
-                             QStringLiteral("https://github.com/dimmmmmmmer/freetunnel/releases/latest")),
+                             QStringLiteral("https://github.com/alexsys87/freetunnel/releases/download/v2.0.0"),
+                             QStringLiteral("https://github.com/alexsys87/freetunnel/releases/latest")),
                      checker, available, none));
 
     QCOMPARE(available.count(), 0);
@@ -838,13 +838,13 @@ void TestUpdateCheckerE2e::rejectsImplausibleTag()
     QVERIFY(none.first().at(0).toString().contains(QStringLiteral("Invalid response")));
     // Refused, not worked around: a tag like that is a broken response, not
     // another kind of release for the release list to stand in for.
-    QCOMPARE(http.requestCount(QStringLiteral("/repos/dimmmmmmmer/freetunnel/releases")), 0);
+    QCOMPARE(http.requestCount(QStringLiteral("/repos/alexsys87/freetunnel/releases")), 0);
     qunsetenv("FT_GITHUB_API_BASE");
 }
 
-static const QString kLatestPath = QStringLiteral("/repos/dimmmmmmmer/freetunnel/releases/latest");
-static const QString kListPath = QStringLiteral("/repos/dimmmmmmmer/freetunnel/releases");
-static const QString kReleasesUrl = QStringLiteral("https://github.com/dimmmmmmmer/freetunnel/releases/");
+static const QString kLatestPath = QStringLiteral("/repos/alexsys87/freetunnel/releases/latest");
+static const QString kListPath = QStringLiteral("/repos/alexsys87/freetunnel/releases");
+static const QString kReleasesUrl = QStringLiteral("https://github.com/alexsys87/freetunnel/releases/");
 
 // A desktop release as GitHub lists it: this platform's installer and the
 // manifest on github.com under its own tag, so the URL checks run against
@@ -913,7 +913,7 @@ void TestUpdateCheckerE2e::anAndroidLatestOffersTheNewestDesktopRelease()
                             desktopRelease(QStringLiteral("v1.5.0"))});
     expectFallbackWarning(QStringLiteral("android-1.0.1"));
 
-    UpdateChecker checker(QStringLiteral("dimmmmmmmer/freetunnel"), QStringLiteral("1.0.0"));
+    UpdateChecker checker(QStringLiteral("alexsys87/freetunnel"), QStringLiteral("1.0.0"));
     QSignalSpy available(&checker, &UpdateChecker::updateAvailable);
     QSignalSpy none(&checker, &UpdateChecker::noUpdateAvailable);
     QVERIFY(runCheck(http, otherRelease(QStringLiteral("android-1.0.1")), checker, available, none));
@@ -951,7 +951,7 @@ void TestUpdateCheckerE2e::aListWithNoDesktopReleaseIsNoUpdate()
                             desktopRelease(QStringLiteral("v5.0.0/../../etc/passwd"))});
     expectFallbackWarning(QStringLiteral("android-1.0.2"));
 
-    UpdateChecker checker(QStringLiteral("dimmmmmmmer/freetunnel"), QStringLiteral("1.0.0"));
+    UpdateChecker checker(QStringLiteral("alexsys87/freetunnel"), QStringLiteral("1.0.0"));
     QSignalSpy available(&checker, &UpdateChecker::updateAvailable);
     QSignalSpy none(&checker, &UpdateChecker::noUpdateAvailable);
     QVERIFY(runCheck(http, otherRelease(QStringLiteral("android-1.0.2")), checker, available, none));
@@ -976,7 +976,7 @@ void TestUpdateCheckerE2e::theHighestDesktopReleaseInTheListIsOfferedNotTheFirst
                             desktopRelease(QStringLiteral("v1.2.0"))});
     expectFallbackWarning(QStringLiteral("android-9.9.9"));
 
-    UpdateChecker checker(QStringLiteral("dimmmmmmmer/freetunnel"), QStringLiteral("1.0.0"));
+    UpdateChecker checker(QStringLiteral("alexsys87/freetunnel"), QStringLiteral("1.0.0"));
     QSignalSpy available(&checker, &UpdateChecker::updateAvailable);
     QSignalSpy none(&checker, &UpdateChecker::noUpdateAvailable);
     QVERIFY(runCheck(http, otherRelease(QStringLiteral("android-9.9.9")), checker, available, none));
@@ -1008,7 +1008,7 @@ void TestUpdateCheckerE2e::aListThatCannotBeReadFailsTheCheck()
     for (const auto &[list, said] : cases) {
         http.setRoute(kListPath, list);
         expectFallbackWarning(QStringLiteral("android-1.0.1"));
-        UpdateChecker checker(QStringLiteral("dimmmmmmmer/freetunnel"), QStringLiteral("1.0.0"));
+        UpdateChecker checker(QStringLiteral("alexsys87/freetunnel"), QStringLiteral("1.0.0"));
         QSignalSpy available(&checker, &UpdateChecker::updateAvailable);
         QSignalSpy none(&checker, &UpdateChecker::noUpdateAvailable);
         QVERIFY(runCheck(http, otherRelease(QStringLiteral("android-1.0.1")), checker, available,
@@ -1030,7 +1030,7 @@ void TestUpdateCheckerE2e::aDesktopLatestIsTheOnlyRequest()
     serveReleaseList(http, {desktopRelease(QStringLiteral("v9.0.0"))});
     QTest::failOnWarning(QRegularExpression(QStringLiteral("is not a desktop release")));
 
-    UpdateChecker checker(QStringLiteral("dimmmmmmmer/freetunnel"), QStringLiteral("1.0.0"));
+    UpdateChecker checker(QStringLiteral("alexsys87/freetunnel"), QStringLiteral("1.0.0"));
     QSignalSpy available(&checker, &UpdateChecker::updateAvailable);
     QSignalSpy none(&checker, &UpdateChecker::noUpdateAvailable);
     QVERIFY(runCheck(http, desktopRelease(QStringLiteral("v2.0.0")), checker, available, none));
@@ -1058,7 +1058,7 @@ void TestUpdateCheckerE2e::aCheckWaitingForTheListIsStillInFlight()
     http.setRoute(kLatestPath, latest);
     expectFallbackWarning(QStringLiteral("build-tools-2026-08-02"));
 
-    UpdateChecker checker(QStringLiteral("dimmmmmmmer/freetunnel"), QStringLiteral("1.0.0"));
+    UpdateChecker checker(QStringLiteral("alexsys87/freetunnel"), QStringLiteral("1.0.0"));
     QSignalSpy available(&checker, &UpdateChecker::updateAvailable);
     QSignalSpy none(&checker, &UpdateChecker::noUpdateAvailable);
     checker.checkNow();
@@ -1091,14 +1091,14 @@ static const QStringList kRealReleaseAssets = {
 };
 
 static const QString kRealAssetBase =
-        QStringLiteral("https://github.com/dimmmmmmmer/freetunnel/releases/download/v2.0.0/");
+        QStringLiteral("https://github.com/alexsys87/freetunnel/releases/download/v2.0.0/");
 
 static QJsonObject realRelease(const QStringList &assetNames)
 {
     QJsonObject release;
     release[QStringLiteral("tag_name")] = QStringLiteral("v2.0.0");
     release[QStringLiteral("html_url")] =
-            QStringLiteral("https://github.com/dimmmmmmmer/freetunnel/releases/tag/v2.0.0");
+            QStringLiteral("https://github.com/alexsys87/freetunnel/releases/tag/v2.0.0");
     QJsonArray assets;
     for (const QString &name : assetNames)
         assets.append(assetJson(name, kRealAssetBase + name));
@@ -1111,7 +1111,7 @@ static QJsonObject realRelease(const QStringList &assetNames)
 // sent a .deb install an AppImage.
 static QString chosenInstaller(MockHttpServer &http, const QStringList &assetNames)
 {
-    UpdateChecker checker(QStringLiteral("dimmmmmmmer/freetunnel"), QStringLiteral("1.0.0"));
+    UpdateChecker checker(QStringLiteral("alexsys87/freetunnel"), QStringLiteral("1.0.0"));
     QSignalSpy available(&checker, &UpdateChecker::updateAvailable);
     QSignalSpy none(&checker, &UpdateChecker::noUpdateAvailable);
     if (!runCheck(http, realRelease(assetNames), checker, available, none) || available.isEmpty())
@@ -1221,7 +1221,7 @@ void TestUpdateCheckerE2e::downloadRejectsAManifestSignedForAnotherVersion()
     QVERIFY(!signature.isEmpty());
     serveSignedRelease(http, base, installerBody, sums, signature);
 
-    UpdateChecker checker(QStringLiteral("dimmmmmmmer/freetunnel"), QStringLiteral("1.0.0"));
+    UpdateChecker checker(QStringLiteral("alexsys87/freetunnel"), QStringLiteral("1.0.0"));
     QSignalSpy available(&checker, &UpdateChecker::updateAvailable);
     checker.checkNow();
     QVERIFY(QTest::qWaitFor([&]() { return available.count() > 0; }, 5000));
@@ -1265,7 +1265,7 @@ void TestUpdateCheckerE2e::downloadRefusesAManifestThatNamesNoVersion()
     QVERIFY(!signature.isEmpty());
     serveSignedRelease(http, base, installerBody, sums, signature);
 
-    UpdateChecker checker(QStringLiteral("dimmmmmmmer/freetunnel"), QStringLiteral("1.0.0"));
+    UpdateChecker checker(QStringLiteral("alexsys87/freetunnel"), QStringLiteral("1.0.0"));
     QSignalSpy available(&checker, &UpdateChecker::updateAvailable);
     checker.checkNow();
     QVERIFY(QTest::qWaitFor([&]() { return available.count() > 0; }, 5000));

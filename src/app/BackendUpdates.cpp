@@ -18,6 +18,20 @@
 
 // ---------- updater ----------
 
+// Where updates come from: this project's GitHub releases, and the page of the
+// latest one that the app opens when it cannot download by itself. One place, so
+// the check, the download's trust rule (UpdateChecker) and the page never name
+// different repositories.
+static QString releaseRepository()
+{
+    return QStringLiteral("alexsys87/freetunnel");
+}
+
+static QString latestReleasePage()
+{
+    return QStringLiteral("https://github.com/%1/releases/latest").arg(releaseRepository());
+}
+
 // Whether installing this release closes FreeTunnel, taking the tunnel down with
 // it: on Windows the installer replaces it, and an AppImage is replaced and then
 // restarted (applyLinuxUpdate). A function rather than a constant per platform:
@@ -349,7 +363,7 @@ void Backend::ensureUpdater()
 {
     if (m_updater)
         return;
-    m_updater = new UpdateChecker(QStringLiteral("dimmmmmmmer/freetunnel"), appVersion(), this);
+    m_updater = new UpdateChecker(releaseRepository(), appVersion(), this);
     // Made once a run and before any download, so anything staged is an earlier
     // run's, done with.
     m_updater->discardStagedDownloads();
@@ -392,7 +406,7 @@ void Backend::openLatestRelease() {
     // download failure and silently started downloading instead of retrying.
     if (m_updateState == QLatin1String("error") && m_updateErrorOpensPage) {
         openHttpUrl(m_latestUrl.isEmpty()
-                            ? QStringLiteral("https://github.com/dimmmmmmmer/freetunnel/releases/latest")
+                            ? latestReleasePage()
                             : m_latestUrl);
     } else if (m_updateState == QLatin1String("error") && !m_updateErrorFromDownload) {
         checkForUpdates(true);
@@ -401,7 +415,7 @@ void Backend::openLatestRelease() {
         downloadUpdate();
     } else {
         const QString url = m_latestUrl.isEmpty()
-                ? QStringLiteral("https://github.com/dimmmmmmmer/freetunnel/releases/latest")
+                ? latestReleasePage()
                 : m_latestUrl;
         openHttpUrl(url);
     }
