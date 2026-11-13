@@ -566,8 +566,15 @@ in one shell, so that `KS` names the keystore throughout.
    KS=~/freetunnel-android-signing/freetunnel-release.jks
    mkdir -p -m 700 "$(dirname "$KS")"
    keytool -genkeypair -storetype PKCS12 -keystore "$KS" -alias freetunnel \
-     -keyalg RSA -keysize 4096 -validity 10000 -dname 'CN=FreeTunnel, O=FreeTunnel'
+     -keyalg RSA -keysize 2048 -sigalg SHA256withRSA -validity 10000 \
+     -dname 'CN=FreeTunnel, O=FreeTunnel'
    ```
+
+   The key is 2048 bits on purpose. 1.0.0 was signed with a 4096-bit key
+   (SHA384withRSA), and the installer of Huawei phones (EMUI, HarmonyOS)
+   refused that APK with "no certificates were found in the installation
+   package", while the same APK signed with a 2048-bit key (SHA256withRSA)
+   installed. Android itself accepts both.
 
 2. Back up the keystore file and its password in two separate places, for
    example a password manager and an encrypted offline drive. Never commit

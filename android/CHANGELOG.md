@@ -2,12 +2,15 @@
 
 ## 1.0.1
 
-- Installs on Huawei phones (EMUI, HarmonyOS). 1.0.0 was signed with the
-  modern signature schemes only, and Huawei's installer, which reads the
-  certificate from the classic one, refused it with "no certificates were found
-  in the installation package". The APK now carries both. Nothing else changed,
-  and the signing certificate is the same, so 1.0.1 installs over 1.0.0 and
-  keeps your profiles.
+- Installs on Huawei phones (EMUI, HarmonyOS). The installer there refused 1.0.0
+  with "no certificates were found in the installation package": it could not
+  read the signing certificate, which used a 4096-bit RSA key. 1.0.1 is signed
+  with a new certificate that uses a 2048-bit key, the usual size. Nothing else
+  changed.
+- **Android does not update an app across signing keys, so 1.0.0 has to be
+  uninstalled first.** That deletes its saved servers: keep your configs or
+  links at hand to import them again. Later releases install over 1.0.1 and
+  keep the servers.
 
 ## 1.0.0
 

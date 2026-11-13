@@ -91,11 +91,8 @@ case "$cmd" in
       echo "Signer #1 certificate SHA-256 digest: $signer"
       echo "Signer #1 certificate SHA-1 digest: 0123456789abcdef0123456789abcdef01234567"
       echo "Signer #1 certificate MD5 digest: 0123456789abcdef0123456789abcdef"
-    elif [[ " $* " == *" --min-sdk-version 23 "* ]]; then
-      cat "$FIXTURES/verify"
     else
-      # As the real one: for the APK's own minSdk (26) it ignores v1.
-      sed 's/(JAR signing): true/(JAR signing): false/' "$FIXTURES/verify"
+      cat "$FIXTURES/verify"
     fi
     ;;
   *) echo "unknown command $cmd" >&2; exit 2 ;;
@@ -103,11 +100,10 @@ esac
 EOF
 chmod +x "$TMP/bt/zipalign" "$TMP/bt/aapt2" "$TMP/bt/apksigner"
 
-# verbose <v2> <v3> <signers>: what apksigner verify --verbose prints; v1 is
-# true unless V1 says otherwise.
+# verbose <v2> <v3> <signers>: what apksigner verify --verbose prints.
 verbose() {
   echo "Verifies"
-  echo "Verified using v1 scheme (JAR signing): ${V1:-true}"
+  echo "Verified using v1 scheme (JAR signing): false"
   echo "Verified using v2 scheme (APK Signature Scheme v2): $1"
   echo "Verified using v3 scheme (APK Signature Scheme v3): $2"
   echo "Verified using v3.1 scheme (APK Signature Scheme v3.1): false"
@@ -203,7 +199,7 @@ grep -qx "Verified using v3 scheme (APK Signature Scheme v3): true" <<<"$out" \
   || problem "apksigner verify's report is not in the log"
 want_sign="apksigner sign --ks $F/release.p12 --ks-key-alias freetunnel"
 want_sign+=" --ks-pass env:ANDROID_KEYSTORE_PASSWORD --key-pass env:ANDROID_KEY_PASSWORD"
-want_sign+=" --v1-signing-enabled true --v2-signing-enabled true --v3-signing-enabled true"
+want_sign+=" --v1-signing-enabled false --v2-signing-enabled true --v3-signing-enabled true"
 want_sign+=" --v4-signing-enabled false --debuggable-apk-permitted false --out $F/tmp/[^ ]+/signed.apk $F/unsigned.apk"
 # Every tool call, in order: nothing is signed before both checks of the
 # unsigned APK, and the signed one is checked four ways.
@@ -211,7 +207,7 @@ calls="$(sed -E "s#^apksigner sign .*#SIGN#; s#$F/tmp/[^ /]+/#TMP/#g" "$F/calls.
 want_calls="zipalign -c -P 16 -v 4 $F/unsigned.apk
 aapt2 dump badging $F/unsigned.apk
 SIGN
-apksigner verify --verbose --min-sdk-version 23 TMP/signed.apk
+apksigner verify --verbose TMP/signed.apk
 zipalign -c -P 16 -v 4 TMP/signed.apk
 apksigner verify --print-certs TMP/signed.apk
 aapt2 dump badging TMP/signed.apk"
@@ -325,12 +321,6 @@ for case in "false true 1 v2" "true false 1 v3" "true true 2 signers: 1" "true t
   expect "verify says v2 $v2, v3 $v3, $n signer(s)" 1 "::error title=Unexpected signature::.*does not say '.*$what"
   nothing_out "verify says v2 $v2, v3 $v3, $n signer(s)"
 done
-# A v1 signature that did not verify: an APK Huawei's installer would not read.
-fresh
-V1=false verbose true true 1 > "$F/verify"
-run
-expect "verify says v1 false" 1 "::error title=Unexpected signature::.*does not say '.*v1 scheme"
-nothing_out "verify says v1 false"
 fresh
 grep -vx 'Verifies' "$F/verify" > "$F/x" && mv "$F/x" "$F/verify"
 run
