@@ -11,9 +11,9 @@
   changed. Your own Bypass VPN rules keep their sites direct, and your own
   Through VPN rules add to the lists. Applications set to go through the VPN
   can't be applied while the lists route, and the app says so.
-- Built on TrustTunnel's Android library 1.1.11 (was 1.1.7), the core the
-  desktop has: TLS certificate parsing and the network and QUIC fixes of
-  1.1.8 to 1.1.11.
+- Built on TrustTunnel's Android library 1.1.12 (was 1.1.7): TLS certificate
+  parsing and the network and QUIC fixes of 1.1.8 to 1.1.11, and the TLS
+  handshake of 1.1.12, which looks like the current Chrome's.
 - Keep split-tunnelling edits intact and report a save failure when Android
   storage refuses to persist a change.
 

@@ -1,6 +1,6 @@
 # FreeTunnel for Android
 
-Android VPN client using the official, checksum-pinned **TrustTunnel 1.1.11**
+Android VPN client using the official, checksum-pinned **TrustTunnel 1.1.12**
 adapter, for phones, tablets and Android TV (Android 8.0 or later). Official
 releases are the `android-X.Y.Z` releases of
 [dimmmmmmmer/freetunnel](https://github.com/dimmmmmmmer/freetunnel), signed with
@@ -148,7 +148,7 @@ Android-only list.
   the only control, so the texts that tell what to do next say "this line", and there is no *Install update* button
   on the screen (that is what a screen reader adds to the line, and the red button of the question). Outside the
   official build the section says it doesn't come from the official channel.
-- The footer, **FreeTunnel 1.0.0 · TrustTunnel core 1.1.11**, each name a link to its page (a toast where there is no
+- The footer, **FreeTunnel 1.0.0 · TrustTunnel core 1.1.12**, each name a link to its page (a toast where there is no
   browser, as on most TVs; the core's version is read from the AAR's name by the build). There is no screen for
   the third-party notices, as the desktop has none: they are files in the APK (see License below).
 
@@ -502,7 +502,19 @@ scripts/prepare-trusttunnel-android.sh
 
 The public AAR download needs no GitHub PAT. Its SHA-256 is checked during
 preparation and every build:
-`da0886c22a2a1fad1fdd25d8f5d3d85c6ffa89188292bd000d41e885db446eca`.
+`ef66909c00813fd50255900f89b320a998e2a1c74bbd4aa83369fc7f7e310aca`.
+
+The script fetches the AAR from this repository's own mirror first, a release
+named `core-android-1.1.12` with `trusttunnel-client-android-1.1.12.aar` attached,
+and only if that is missing from the public package page, whose HTML GitHub
+changes without notice (the build then stops with "Official package asset
+missing"). Whichever source answers, the file must have the SHA-256 above.
+To create the mirror once, download the AAR of the version from the
+[package page](https://github.com/TrustTunnel/TrustTunnelClient/packages/2733074)
+in a browser, check `shasum -a 256` against the digest above, and attach it to a
+new release with the tag `core-android-1.1.12` (not `android-*`, which publishes
+an app release). Pin a new core version by changing its name, digest and mirror
+together.
 Gradle 8.11.1 wrapper and distribution checksums are pinned too.
 
 Debug APK: `android/app/build/outputs/apk/debug/app-debug.apk` (debug signing).
@@ -743,7 +755,7 @@ remote-server, DNS or HTTP/3 coverage.
 ## License
 
 FreeTunnel and TrustTunnel are Apache-2.0. See [LICENSE](../LICENSE) and
-[TrustTunnelClient v1.1.11](https://github.com/TrustTunnel/TrustTunnelClient/tree/v1.1.11).
+[TrustTunnelClient v1.1.12](https://github.com/TrustTunnel/TrustTunnelClient/tree/v1.1.12).
 
 The APK also contains the libraries in the Android section of
 [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md), under their own
