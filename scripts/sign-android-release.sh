@@ -22,13 +22,18 @@
 #   signature; so this only checks.
 # - Its package, versionName and versionCode are this release's (aapt2), so a
 #   wrong build is never signed with the release key.
-# - apksigner signs with v2 and v3 only, set explicitly rather than left to
+# - apksigner signs with v1, v2 and v3, set explicitly rather than left to
 #   apksigner's defaults. Android 7 and later read v2, so with minSdk 26 a v1
-#   (JAR) signature adds nothing. v4 would be an .idsig file beside the APK,
-#   used only for adb's incremental installs. A debuggable APK is refused.
-# - apksigner verify --verbose: the APK verifies, with v2 and v3, and has one
-#   signer. Then the alignment again, since apksigner rewrites the alignment of
-#   uncompressed entries as it signs.
+#   (JAR) signature adds nothing for Android itself, and apksigner would leave
+#   it out. It is there for installers that read the certificate from META-INF
+#   instead: Huawei's (EMUI, HarmonyOS) answers "no certificates were found in
+#   the installation package" to an APK with only v2 and v3, as 1.0.0 was.
+#   v2 still covers the whole APK, so a v1-only signature is no downgrade
+#   path. v4 would be an .idsig file beside the APK, used only for adb's
+#   incremental installs. A debuggable APK is refused.
+# - apksigner verify --verbose: the APK verifies, with v1, v2 and v3, and has
+#   one signer. Then the alignment again, since apksigner rewrites the
+#   alignment of uncompressed entries as it signs.
 # - check-android-signer.sh: that signer is the pinned certificate.
 # - aapt2 again on the signed APK.
 #
@@ -135,7 +140,7 @@ badging "$unsigned" "the unsigned APK"
 if ! "$tools/apksigner" sign \
        --ks "$ANDROID_KEYSTORE_PATH" --ks-key-alias "$alias" \
        --ks-pass env:ANDROID_KEYSTORE_PASSWORD --key-pass env:ANDROID_KEY_PASSWORD \
-       --v1-signing-enabled false --v2-signing-enabled true \
+       --v1-signing-enabled true --v2-signing-enabled true \
        --v3-signing-enabled true --v4-signing-enabled false \
        --debuggable-apk-permitted false \
        --out "$tmp/signed.apk" "$unsigned"; then
@@ -148,6 +153,7 @@ if ! "$tools/apksigner" verify --verbose "$tmp/signed.apk" > "$tmp/verify" 2>&1;
 fi
 cat "$tmp/verify"
 for want in "Verifies" \
+            "Verified using v1 scheme (JAR signing): true" \
             "Verified using v2 scheme (APK Signature Scheme v2): true" \
             "Verified using v3 scheme (APK Signature Scheme v3): true" \
             "Number of signers: 1"; do

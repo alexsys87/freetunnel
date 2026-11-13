@@ -1,5 +1,14 @@
 # Android changes
 
+## 1.0.1
+
+- Installs on Huawei phones (EMUI, HarmonyOS). 1.0.0 was signed with the
+  modern signature schemes only, and Huawei's installer, which reads the
+  certificate from the classic one, refused it with "no certificates were found
+  in the installation package". The APK now carries both. Nothing else changed,
+  and the signing certificate is the same, so 1.0.1 installs over 1.0.0 and
+  keeps your profiles.
+
 ## 1.0.0
 
 The first official FreeTunnel for Android: a TrustTunnel VPN client for phones,
