@@ -91,8 +91,11 @@ case "$cmd" in
       echo "Signer #1 certificate SHA-256 digest: $signer"
       echo "Signer #1 certificate SHA-1 digest: 0123456789abcdef0123456789abcdef01234567"
       echo "Signer #1 certificate MD5 digest: 0123456789abcdef0123456789abcdef"
-    else
+    elif [[ " $* " == *" --min-sdk-version 23 "* ]]; then
       cat "$FIXTURES/verify"
+    else
+      # As the real one: for the APK's own minSdk (26) it ignores v1.
+      sed 's/(JAR signing): true/(JAR signing): false/' "$FIXTURES/verify"
     fi
     ;;
   *) echo "unknown command $cmd" >&2; exit 2 ;;
@@ -208,7 +211,7 @@ calls="$(sed -E "s#^apksigner sign .*#SIGN#; s#$F/tmp/[^ /]+/#TMP/#g" "$F/calls.
 want_calls="zipalign -c -P 16 -v 4 $F/unsigned.apk
 aapt2 dump badging $F/unsigned.apk
 SIGN
-apksigner verify --verbose TMP/signed.apk
+apksigner verify --verbose --min-sdk-version 23 TMP/signed.apk
 zipalign -c -P 16 -v 4 TMP/signed.apk
 apksigner verify --print-certs TMP/signed.apk
 aapt2 dump badging TMP/signed.apk"

@@ -31,8 +31,8 @@
 #   v2 still covers the whole APK, so a v1-only signature is no downgrade
 #   path. v4 would be an .idsig file beside the APK, used only for adb's
 #   incremental installs. A debuggable APK is refused.
-# - apksigner verify --verbose: the APK verifies, with v1, v2 and v3, and has
-#   one signer. Then the alignment again, since apksigner rewrites the
+# - apksigner verify --verbose --min-sdk-version 23: the APK verifies, with v1,
+#   v2 and v3, and has one signer. Then the alignment again, since apksigner rewrites the
 #   alignment of uncompressed entries as it signs.
 # - check-android-signer.sh: that signer is the pinned certificate.
 # - aapt2 again on the signed APK.
@@ -147,7 +147,11 @@ if ! "$tools/apksigner" sign \
   fail "Signing failed" "apksigner could not sign $unsigned with the key $alias from the keystore"
 fi
 
-if ! "$tools/apksigner" verify --verbose "$tmp/signed.apk" > "$tmp/verify" 2>&1; then
+# --min-sdk-version 23: apksigner verifies an APK as for its own minSdk (26), and
+# from Android 7 on a v1 signature is ignored, so it would report v1 "false" for
+# an APK that has one. Asked to verify as for API 23, where only v1 is read, it
+# checks v1 too, and refuses an APK that has none.
+if ! "$tools/apksigner" verify --verbose --min-sdk-version 23 "$tmp/signed.apk" > "$tmp/verify" 2>&1; then
   cat "$tmp/verify" >&2
   fail "Signed APK does not verify" "apksigner verify refuses the APK it has just signed"
 fi
