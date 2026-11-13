@@ -2,8 +2,8 @@
 
 FreeTunnel's releases need Windows 10 or 11. This folder and
 [`.github/workflows/win7.yml`](../.github/workflows/win7.yml) produce a separate,
-**unofficial** build for Windows 7 SP1 (x64). It is not published with
-releases, is not a required check, and nobody has yet run it on a real
+**unofficial** build for Windows 7 SP1 (x64). It is not part of the
+desktop's releases, is not a required check, and nobody has yet run it on a real
 Windows 7 machine — see [What has been checked](#what-has-been-checked).
 
 ## Getting the build
@@ -17,6 +17,15 @@ on any pull request that changes the files it is built from. Its artifact,
 | `freetunnel-windows7-x86_64-Setup.exe` | The usual NSIS installer, with the VPN helper service |
 | `freetunnel-windows7-x86_64-portable.zip` | The same files, unpacked. Connecting then asks for administrator rights through UAC each time |
 | `win7-import-check.md` | What [`scripts/check-win7-imports.py`](../scripts/check-win7-imports.py) found |
+
+To publish the result as a release, run it on `main` with **publish** ticked
+(Actions → Run workflow → Use workflow from `main`). Once the build and its
+import check have passed, the `release` job signs the checksums with the
+project's release key and makes the pre-release `win7-X.Y.Z` (X.Y.Z is the
+project version) with the two files, `win7-import-check.md`,
+`SHA256SUMS-windows7.txt` and its `.sig`. It is never the latest release, so the
+in-app update check keeps following the desktop's `v*` releases. A published
+version is not replaced: for a new release, bump the project version.
 
 The first run builds OpenSSL and Qt, which takes a few hours. Later runs reuse
 them from the Actions cache and take about as long as the regular Windows build.

@@ -23,8 +23,19 @@ name: Windows 7 (experimental)
 # Runs by hand (Actions -> Windows 7 (experimental) -> Run workflow) and on pull
 # requests that touch the files it is made of. The artifacts are a Setup.exe
 # and a portable zip.
+#
+# A run by hand on main with "publish" ticked also publishes them, as the
+# pre-release win7-X.Y.Z (X.Y.Z is the project version): a release of its own,
+# never the latest one, so the desktop's v* release stays what the in-app updater
+# reads, and its tag matches neither v* nor android-*, which start other
+# workflows. See the release job at the end.
 on:
   workflow_dispatch:
+    inputs:
+      publish:
+        description: 'Publish a win7-X.Y.Z pre-release from this run (main only; needs the ED25519_SIGNING_KEY secret)'
+        type: boolean
+        default: false
   pull_request:
     paths:
       - '.github/workflows/win7.yml'
@@ -600,3 +611,141 @@ jobs:
         run: |
           echo "::error::The package imports something Windows 7 does not have; see out/win7-import-check.md in the artifact or the job summary."
           exit 1
+
+  # Not part of a v* release: this build is unofficial and has not been tried on a
+  # Windows 7 machine (win7/README.md). It gets a pre-release of its own, made
+  # only by hand from main, and only once the build above, with its import check,
+  # has passed. The release is never marked latest, so /releases/latest, which the
+  # in-app updater asks, keeps naming the desktop's v* release.
+  release:
+    name: Publish the Windows 7 pre-release
+    needs: build
+    if: github.event_name == 'workflow_dispatch' && inputs.publish && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - name: Check out the version, the notes and the signing helpers
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          sparse-checkout: |
+            /CMakeLists.txt
+            /CHANGELOG.md
+            /scripts/verify-release-signature.sh
+            /include/core/ReleaseSigning.h
+          sparse-checkout-cone-mode: false
+
+      - name: The release to make
+        id: rel
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          version="$(sed -nE 's/^project\(FreeTunnel VERSION ([0-9.]+).*/\1/p' CMakeLists.txt)"
+          : "${version:?could not read project(FreeTunnel VERSION ...) from CMakeLists.txt}"
+          tag="win7-$version"
+          # A published release's files never change: the next version is the next
+          # release. Fail here, before anything is signed or uploaded.
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "::error title=Already published::The release $tag exists. Bump the project version for a new one."
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Download the build
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: freetunnel-windows7-x86_64
+          path: artifacts
+
+      - name: Generate checksums
+        env:
+          VERSION: ${{ steps.rel.outputs.version }}
+        run: |
+          set -eu
+          cd artifacts
+          test -f freetunnel-windows7-x86_64-Setup.exe
+          test -f freetunnel-windows7-x86_64-portable.zip
+          # '#'-prefixed and one field, like the desktop's SHA256SUMS.txt, so that
+          # `sha256sum -c` accepts it. A different name, so that nothing mistakes
+          # it for the manifest of the desktop release.
+          echo "#version=${VERSION}+win7" > SHA256SUMS-windows7.txt
+          sha256sum freetunnel-windows7-x86_64-Setup.exe freetunnel-windows7-x86_64-portable.zip >> SHA256SUMS-windows7.txt
+          cat SHA256SUMS-windows7.txt
+
+      - name: Sign checksums
+        env:
+          ED25519_SIGNING_KEY: ${{ secrets.ED25519_SIGNING_KEY }}
+        run: |
+          # NOTE: no -x here, so that the private key is never echoed into the log.
+          set -eu
+          if [ -z "${ED25519_SIGNING_KEY:-}" ]; then
+            echo "ED25519_SIGNING_KEY is not configured: refusing to publish unsigned files." >&2
+            exit 1
+          fi
+          cd artifacts
+          (umask 077; printf '%s' "$ED25519_SIGNING_KEY" > ed25519.pem)
+          openssl pkeyutl -sign -inkey ed25519.pem -rawin -in SHA256SUMS-windows7.txt -out SHA256SUMS-windows7.txt.sig
+          rm -f ed25519.pem
+          ls -la SHA256SUMS-windows7.txt.sig
+
+      - name: Check the signature against the app's public key
+        run: |
+          bash scripts/verify-release-signature.sh include/core/ReleaseSigning.h \
+            artifacts/SHA256SUMS-windows7.txt artifacts/SHA256SUMS-windows7.txt.sig
+
+      - name: Assemble the release notes
+        env:
+          VERSION: ${{ steps.rel.outputs.version }}
+        run: |
+          set -eu
+          {
+            echo "**Unofficial, experimental build of FreeTunnel ${VERSION} for Windows 7 SP1 (64-bit).**"
+            echo "It has not been run on a real Windows 7 machine yet: what was checked, what the"
+            echo "machine needs (Windows updates, root certificates) and what to do if it does not"
+            echo "start are in [win7/README.md](https://github.com/${GITHUB_REPOSITORY}/blob/${GITHUB_SHA}/win7/README.md)."
+            echo "The official releases need Windows 10 or 11."
+            echo
+            echo "- **Setup.exe**: the installer, with the VPN helper service."
+            echo "- **portable.zip**: the same files unpacked; connecting asks for administrator rights"
+            echo "  through UAC each time."
+            echo "- **win7-import-check.md**: what the build's check for imports Windows 7 lacks found."
+            echo
+            echo "Verify a download against \`SHA256SUMS-windows7.txt\` (signed as"
+            echo "\`SHA256SUMS-windows7.txt.sig\` with the project's release key)."
+            echo "SmartScreen may warn: choose \"More info\" → \"Run anyway\"."
+            echo
+            echo "The app's own update check follows the desktop's releases, not this one."
+            echo
+            echo "### What is in FreeTunnel ${VERSION}"
+            echo
+            awk -v want="## ${VERSION}" '
+              $0 == want { found = 1; next }
+              found && /^## / { exit }
+              found { print }
+            ' CHANGELOG.md
+          } > notes.md
+          echo "--- release body ---"
+          cat notes.md
+
+      - name: Publish the pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.rel.outputs.tag }}
+          VERSION: ${{ steps.rel.outputs.version }}
+        run: |
+          set -eu
+          gh release create "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "FreeTunnel ${VERSION} for Windows 7 (experimental)" \
+            --notes-file notes.md \
+            --prerelease \
+            --latest=false \
+            artifacts/freetunnel-windows7-x86_64-Setup.exe \
+            artifacts/freetunnel-windows7-x86_64-portable.zip \
+            artifacts/win7-import-check.md \
+            artifacts/SHA256SUMS-windows7.txt \
+            artifacts/SHA256SUMS-windows7.txt.sig
