@@ -2,9 +2,9 @@
 
 [![Codacy Badge](https://app.codacy.com/project/badge/Grade/7080586146744b0095656b8eb9c51fff?branch=main)](https://app.codacy.com/gh/dimmmmmmmer/freetunnel/dashboard?utm_source=gh&utm_medium=referral&utm_content=&utm_campaign=Badge_grade)
 [![Codacy coverage](https://app.codacy.com/project/badge/Coverage/7080586146744b0095656b8eb9c51fff?branch=main)](https://app.codacy.com/gh/dimmmmmmmer/freetunnel/dashboard?utm_source=gh&utm_medium=referral&utm_content=&utm_campaign=Badge_coverage)
-[![latest version](https://img.shields.io/github/v/release/dimmmmmmmer/freetunnel)](https://github.com/dimmmmmmmer/freetunnel/releases)
-[![Tests](https://github.com/dimmmmmmmer/freetunnel/actions/workflows/tests.yml/badge.svg)](https://github.com/dimmmmmmmer/freetunnel/actions/workflows/tests.yml)
-[![Security](https://github.com/dimmmmmmmer/freetunnel/actions/workflows/security.yml/badge.svg)](https://github.com/dimmmmmmmer/freetunnel/actions/workflows/security.yml)
+[![latest version](https://img.shields.io/github/v/release/alexsys87/freetunnel)](https://github.com/alexsys87/freetunnel/releases)
+[![Tests](https://github.com/alexsys87/freetunnel/actions/workflows/tests.yml/badge.svg)](https://github.com/alexsys87/freetunnel/actions/workflows/tests.yml)
+[![Security](https://github.com/alexsys87/freetunnel/actions/workflows/security.yml/badge.svg)](https://github.com/alexsys87/freetunnel/actions/workflows/security.yml)
 [![Apache-2.0 License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://www.apache.org/licenses/LICENSE-2.0)
 
 <!-- markdownlint-disable-next-line MD033 -->
@@ -39,7 +39,7 @@ it, see [CONTRIBUTING.md](CONTRIBUTING.md).
 ## Download
 
 Get the build for your platform from
-[**Releases**](https://github.com/dimmmmmmmer/freetunnel/releases/latest):
+[**Releases**](https://github.com/alexsys87/freetunnel/releases/latest):
 
 | Platform | File |
 | --- | --- |

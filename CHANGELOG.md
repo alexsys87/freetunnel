@@ -9,6 +9,13 @@ compare link at the bottom of its release notes.
 
 ### Fixed
 
+- **FreeTunnel looks for updates in this project's releases.** It used to ask
+  another project's repository (dimmmmmmmer/freetunnel), so it never saw the
+  releases made here, and a newer release there, signed with another key, could
+  be offered to you and then refused. Because the versions built before this
+  one still ask the old place, **install this version by hand once**; later
+  ones are found here.
+
 - **The window is drawn on the CPU, so FreeTunnel no longer needs DirectX 11,
   Metal or OpenGL from the video driver.** On old hardware, Windows 7 in
   particular, it starts instead of crashing or showing a black window, and it

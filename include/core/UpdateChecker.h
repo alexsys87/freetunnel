@@ -16,7 +16,7 @@ class QNetworkReply;
  * Checks for application updates via GitHub Releases API.
  *
  * Usage:
- *   auto *checker = new UpdateChecker("dimmmmmmmer/freetunnel", "1.0.0", this);
+ *   auto *checker = new UpdateChecker("alexsys87/freetunnel", "1.0.0", this);
  *   connect(checker, &UpdateChecker::updateAvailable, ...);
  *   checker->checkNow();
  */
@@ -42,7 +42,7 @@ public:
     Q_ENUM(DownloadFailure)
 
     /**
-     * @param githubRepo  "owner/repo" string, e.g. "dimmmmmmmer/freetunnel"
+     * @param githubRepo  "owner/repo" string, e.g. "alexsys87/freetunnel"
      * @param currentVersion  current app version string, e.g. "0.6b"
      * @param parent  QObject parent
      */
