@@ -5,6 +5,15 @@ built from the section below it, so this file is the description of the release 
 write it before tagging. For the full commit history of a release, follow the
 compare link at the bottom of its release notes.
 
+## 1.3.2
+
+### Changed
+
+- **The VPN core is TrustTunnel 1.1.12** on Windows, macOS and Linux, up from
+  1.1.11, with NativeLibsCommon 8.2.0. Its TLS handshake now looks like
+  Chrome's, which makes the connection harder to tell apart from ordinary web
+  traffic. Android already had this core.
+
 ## 1.3.1
 
 ### Fixed
