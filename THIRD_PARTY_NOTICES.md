@@ -100,35 +100,35 @@ from source and link it statically into FreeTunnel. In the Android app it is
 part of the TrustTunnel Android client's native library
 (`libtrusttunnel_android.so`), built by the TrustTunnel project from its own
 release, which may be an older one than the desktop builds use: where the
-versions differ, both are given below. At present the desktop's is 1.1.11 and the Android app's 1.1.12. Unless noted, each library below is
+versions differ, both are given below. At present both are 1.1.12. Unless noted, each library below is
 compiled into the core in all downloads.
 
 ### TrustTunnel client core
 
-- Version: TrustTunnelClient 1.1.11, commit
-  c0990e174fc75b2e52acd15882c62e69a3022581. The desktop builds apply
+- Version: TrustTunnelClient 1.1.12, commit
+  067deb837ed994d6ae902e3bb40b69f6266af216. The desktop builds apply
   FreeTunnel's changes to it, which are in
   [vendor/trusttunnel/](vendor/trusttunnel/) in FreeTunnel's source; the
   Android app has it as TrustTunnel built it (see [the TrustTunnel Android
   client](#trusttunnel-android-client)).
 - License: Apache-2.0
 - Copyright: Copyright 2020 Adguard Software Ltd
-- Source: <https://github.com/TrustTunnel/TrustTunnelClient/tree/c0990e174fc75b2e52acd15882c62e69a3022581>
+- Source: <https://github.com/TrustTunnel/TrustTunnelClient/tree/067deb837ed994d6ae902e3bb40b69f6266af216>
 
 ### NativeLibsCommon
 
-- Version: 8.1.54, commit 00b38bb2a4b206b677ad1f2b901ccb8bb0d60372
+- Version: 8.2.0, commit c546b329360642576cea25f10bdcbf41d52163df
 - License: Apache-2.0
 - Copyright: Copyright 2022 Adguard Software Ltd
-- Source: <https://github.com/AdguardTeam/NativeLibsCommon/tree/00b38bb2a4b206b677ad1f2b901ccb8bb0d60372>
+- Source: <https://github.com/AdguardTeam/NativeLibsCommon/tree/c546b329360642576cea25f10bdcbf41d52163df>
 
 ### DnsLibs
 
-- Version: 2.10.2-6-gc68d7dde, commit
-  c68d7dde992a147587b8ac200ae3b7d978c3e378
+- Version: 2.11.0-alpha.1-3-g3d6359be, commit
+  3d6359be7b99e2eccbfe905e970dd08a7f1d9108
 - License: Apache-2.0
 - Copyright: Copyright 2022 Adguard Software Ltd
-- Source: <https://github.com/AdguardTeam/DnsLibs/tree/c68d7dde992a147587b8ac200ae3b7d978c3e378>
+- Source: <https://github.com/AdguardTeam/DnsLibs/tree/3d6359be7b99e2eccbfe905e970dd08a7f1d9108>
 
 ### BoringSSL
 
@@ -139,7 +139,7 @@ packages uses the system's OpenSSL, if one is installed.)
 
 - Version: commit d589045a772678d5ca131f4c8087d001b9258380 (tag 0.20260508.0),
   modified by the patches of AdGuard's conan recipe
-  (<https://github.com/AdguardTeam/NativeLibsCommon/tree/00b38bb2a4b206b677ad1f2b901ccb8bb0d60372/conan/recipes/boringssl>)
+  (<https://github.com/AdguardTeam/NativeLibsCommon/tree/c546b329360642576cea25f10bdcbf41d52163df/conan/recipes/boringssl>)
 - License: Apache-2.0
 - Copyright: Copyright The BoringSSL Authors; Copyright 1995-2016 The OpenSSL
   Project Authors; Copyright (c) 2002, Oracle and/or its affiliates; Copyright
@@ -149,7 +149,7 @@ packages uses the system's OpenSSL, if one is installed.)
 ### nghttp2
 
 - Version: 1.56.0, with the patches of AdGuard's conan recipe
-  (<https://github.com/AdguardTeam/NativeLibsCommon/tree/00b38bb2a4b206b677ad1f2b901ccb8bb0d60372/conan/recipes/nghttp2-1.56.0>)
+  (<https://github.com/AdguardTeam/NativeLibsCommon/tree/c546b329360642576cea25f10bdcbf41d52163df/conan/recipes/nghttp2-1.56.0>)
 - License: MIT, [licenses/common/nghttp2.txt](licenses/common/nghttp2.txt)
 - Copyright: Copyright (c) 2012, 2014, 2015, 2016 Tatsuhiro Tsujikawa;
   Copyright (c) 2012, 2014, 2015, 2016 nghttp2 contributors
@@ -158,7 +158,7 @@ packages uses the system's OpenSSL, if one is installed.)
 ### nghttp3
 
 - Version: 1.0.0, with the patches of AdGuard's conan recipe
-  (<https://github.com/AdguardTeam/NativeLibsCommon/tree/00b38bb2a4b206b677ad1f2b901ccb8bb0d60372/conan/recipes/nghttp3-1.0.0>)
+  (<https://github.com/AdguardTeam/NativeLibsCommon/tree/c546b329360642576cea25f10bdcbf41d52163df/conan/recipes/nghttp3-1.0.0>)
 - License: MIT, [licenses/common/nghttp3.txt](licenses/common/nghttp3.txt)
 - Copyright: Copyright (c) 2019 nghttp3 contributors
 - Source: <https://github.com/ngtcp2/nghttp3/tree/v1.0.0>
@@ -166,7 +166,7 @@ packages uses the system's OpenSSL, if one is installed.)
 ### ngtcp2
 
 - Version: 1.22.1, with the patches of AdGuard's conan recipe
-  (<https://github.com/AdguardTeam/NativeLibsCommon/tree/00b38bb2a4b206b677ad1f2b901ccb8bb0d60372/conan/recipes/ngtcp2-1.22.1>)
+  (<https://github.com/AdguardTeam/NativeLibsCommon/tree/c546b329360642576cea25f10bdcbf41d52163df/conan/recipes/ngtcp2-1.22.1>)
 - License: MIT, [licenses/common/ngtcp2.txt](licenses/common/ngtcp2.txt)
 - Copyright: Copyright (c) 2016 ngtcp2 contributors
 - Source: <https://github.com/ngtcp2/ngtcp2/tree/v1.22.1>
@@ -174,7 +174,7 @@ packages uses the system's OpenSSL, if one is installed.)
 ### libevent
 
 - Version: 2.1.11-stable, with the patches of AdGuard's conan recipe
-  (<https://github.com/AdguardTeam/NativeLibsCommon/tree/00b38bb2a4b206b677ad1f2b901ccb8bb0d60372/conan/recipes/libevent>)
+  (<https://github.com/AdguardTeam/NativeLibsCommon/tree/c546b329360642576cea25f10bdcbf41d52163df/conan/recipes/libevent>)
 - License: BSD-3-Clause AND ISC AND MIT,
   [licenses/common/libevent.txt](licenses/common/libevent.txt)
 - Copyright: Copyright (c) 2000-2007 Niels Provos; Copyright (c) 2007-2012
@@ -224,7 +224,7 @@ packages uses the system's OpenSSL, if one is installed.)
 ### llhttp
 
 - Version: 9.3.0, with the patches of AdGuard's conan recipe
-  (<https://github.com/AdguardTeam/NativeLibsCommon/tree/00b38bb2a4b206b677ad1f2b901ccb8bb0d60372/conan/recipes/llhttp-9.3.0>)
+  (<https://github.com/AdguardTeam/NativeLibsCommon/tree/c546b329360642576cea25f10bdcbf41d52163df/conan/recipes/llhttp-9.3.0>)
 - License: MIT, [licenses/common/llhttp.txt](licenses/common/llhttp.txt)
 - Copyright: Copyright Fedor Indutny, 2018
 - Source: <https://github.com/nodejs/llhttp/tree/release/v9.3.0>
@@ -246,7 +246,7 @@ packages uses the system's OpenSSL, if one is installed.)
 ### libuv
 
 - Version: 1.41.0, with the patches of AdGuard's conan recipe
-  (<https://github.com/AdguardTeam/NativeLibsCommon/tree/00b38bb2a4b206b677ad1f2b901ccb8bb0d60372/conan/recipes/libuv>)
+  (<https://github.com/AdguardTeam/NativeLibsCommon/tree/c546b329360642576cea25f10bdcbf41d52163df/conan/recipes/libuv>)
 - License: MIT AND BSD-2-Clause AND BSD-3-Clause AND ISC,
   [licenses/common/libuv.txt](licenses/common/libuv.txt)
 - Copyright: Copyright (c) 2015-present libuv project contributors; Copyright
@@ -259,13 +259,13 @@ packages uses the system's OpenSSL, if one is installed.)
 AdGuard's library for looking up public suffixes. It compiles Chromium's lookup
 code and a table built from the Public Suffix List.
 
-- Version: 2022-12-26, in NativeLibsCommon 8.1.54
+- Version: 2022-12-26, in NativeLibsCommon 8.2.0
 - License: BSD-3-Clause (Chromium's code,
   [licenses/common/chromium-tldregistry.txt](licenses/common/chromium-tldregistry.txt))
   AND MPL-2.0 (the Public Suffix List, [licenses/common/MPL-2.0.txt](licenses/common/MPL-2.0.txt))
 - Copyright: Copyright 2015 The Chromium Authors; the Public Suffix List is
   maintained by its contributors at publicsuffix.org
-- Source: <https://github.com/AdguardTeam/NativeLibsCommon/tree/00b38bb2a4b206b677ad1f2b901ccb8bb0d60372/conan/recipes/tldregistry>;
+- Source: <https://github.com/AdguardTeam/NativeLibsCommon/tree/c546b329360642576cea25f10bdcbf41d52163df/conan/recipes/tldregistry>;
   the list's Source Code Form: <https://publicsuffix.org/list/>,
   <https://github.com/publicsuffix/list>
 
@@ -317,18 +317,18 @@ code and a table built from the Public Suffix List.
 - License: BSD-3-Clause, [licenses/common/lwip.txt](licenses/common/lwip.txt)
 - Copyright: Copyright (c) 2001, 2002 Swedish Institute of Computer Science;
   and the other holders listed in [licenses/common/lwip.txt](licenses/common/lwip.txt)
-- Source: <https://github.com/TrustTunnel/TrustTunnelClient/tree/c0990e174fc75b2e52acd15882c62e69a3022581/third-party/lwip/lwip>
+- Source: <https://github.com/TrustTunnel/TrustTunnelClient/tree/067deb837ed994d6ae902e3bb40b69f6266af216/third-party/lwip/lwip>
 
 ### pcap_savefile.h
 
 A header from libpcap that the core uses to write packet captures.
 
-- Version: as vendored in TrustTunnelClient at c0990e17
+- Version: as vendored in TrustTunnelClient at 067deb83
 - License: BSD-4-Clause-UC, [licenses/common/pcap_savefile.txt](licenses/common/pcap_savefile.txt).
   This product includes software developed by the Computer Systems Engineering
   Group at Lawrence Berkeley Laboratory.
 - Copyright: Copyright (c) 1994, 1995, 1996 The Regents of the University of California
-- Source: <https://github.com/TrustTunnel/TrustTunnelClient/blob/c0990e174fc75b2e52acd15882c62e69a3022581/third-party/pcap_savefile/include/pcap_savefile.h>
+- Source: <https://github.com/TrustTunnel/TrustTunnelClient/blob/067deb837ed994d6ae902e3bb40b69f6266af216/third-party/pcap_savefile/include/pcap_savefile.h>
 
 ### Microsoft Detours
 
