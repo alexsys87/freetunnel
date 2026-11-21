@@ -72,7 +72,7 @@
     <string name="text_the_link_contains_an_invalid_certificate">"The link contains an invalid certificate"</string>
     <string name="text_the_link_contains_an_invalid_subscription_address">"The link contains an invalid subscription address"</string>
     <string name="text_subscription_links_are_not_supported_yet">"Subscription links aren't supported yet. Ask your provider for a regular link, or update FreeTunnel when subscriptions arrive."</string>
-    <string name="text_this_server_needs_a_newer_trusttunnel_core">"This server needs a newer TrustTunnel core than this version of FreeTunnel uses."</string>
+    <string name="text_the_configuration_contains_an_invalid_auth_key">"The configuration contains an invalid client random auth key"</string>
     <string name="text_the_configuration_contains_an_invalid_certificate">"The configuration contains an invalid certificate"</string>
     <string name="text_the_configuration_is_missing_required_server_settings">"The configuration is missing required server settings"</string>
     <string name="text_applications_and_addresses_are_selected_full_vpn_pro">"Applications and addresses are selected. Full VPN protects all selected traffic. Keep one rule type for selective routing."</string>
@@ -129,6 +129,11 @@
     <string name="receive_page_wrong_code">Wrong code. Check the address the TV shows, and try again.</string>
     <string name="receive_page_locked_out">Wrong code again, so the TV stopped receiving. Open Receive from phone on the TV again for a new address.</string>
     <string name="add_from_file">"From file…"</string>
+    <string name="add_scan_qr">"Scan QR code…"</string>
+    <string name="qr_scan_hint">"Point the camera at a TrustTunnel QR code"</string>
+    <string name="qr_scan_not_a_link">"This QR code holds no TrustTunnel link"</string>
+    <string name="qr_scan_no_permission">"No access to the camera: allow it in the app\'s settings to scan a QR code"</string>
+    <string name="qr_scan_no_camera">"Could not open the camera"</string>
     <string name="add_create_new">"Create new…"</string>
     <string name="import_question_link">"Add a VPN server from this link?"</string>
     <string name="import_question_file">"Add a VPN server from this file?"</string>

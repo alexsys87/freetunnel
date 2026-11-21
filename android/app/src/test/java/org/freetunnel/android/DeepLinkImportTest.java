@@ -367,10 +367,23 @@ public final class DeepLinkImportTest {
         assertEquals(imported.toml, DeepLinkImport.parse(link(twice.toByteArray())).toml);
     }
 
-    @Test public void refusesARealAuthKey() {
-        refused(V2_AUTH_KEY, R.string.text_this_server_needs_a_newer_trusttunnel_core);
-        refused(link(withStatic(2, 15, "AABBCCDD")), R.string.text_this_server_needs_a_newer_trusttunnel_core);
-        refused(link(withStatic(1, 15, "aabbccdd")), R.string.text_this_server_needs_a_newer_trusttunnel_core);
+    @Test public void keepsARealAuthKey() throws Exception {
+        // Core 1.3 derives the TLS client random from it, so it goes into the endpoint as written, after the
+        // keys a link without one gives, and nothing else changes.
+        String plain = DeepLinkImport.parse(V2_PLAIN).toml;
+        for (String key : new String[]{"aabbccdd", "AABBCCDD"}) {
+            for (int version : new int[]{2, 1}) {
+                DeepLinkImport.Imported imported = DeepLinkImport.parse(link(withStatic(version, 15, key)));
+                assertFalse(imported.subscriptionNotKept);
+                assertEquals(plain.replace("anti_dpi = false\n", "anti_dpi = false\nclient_random_auth_key = \"" + key + "\"\n"),
+                        imported.toml);
+                RoutingConfig.validate(imported.toml);
+            }
+        }
+        assertTrue(DeepLinkImport.parse(V2_AUTH_KEY).toml.contains("\nclient_random_auth_key = \"aabbccdd\"\n"));
+    }
+
+    @Test public void refusesADamagedAuthKey() {
         // Not hex, as in upstream's own test, or an odd length: the link is damaged.
         for (String bad : new String[]{"nothexx", "nothex", "aabbccgg", "abc", "\u0430\u0430", "aa bb", "0x00"})
             refused(link(withStatic(2, 15, bad)), R.string.text_the_link_is_damaged);
@@ -379,12 +392,12 @@ public final class DeepLinkImportTest {
         broken.write(plain, 0, plain.length);
         field(broken, 15, new byte[]{'a', (byte) 0xff});
         refused(link(broken.toByteArray()), R.string.text_the_link_contains_invalid_text);
-        // A subscription link with a key would not work after a fetch either.
+        // A subscription link with a key and no server of its own is refused for the subscription.
         ByteArrayOutputStream both = new ByteArrayOutputStream();
         field(both, 0, new byte[]{2});
         text(both, 14, SUBSCRIPTION);
         text(both, 15, "aabbccdd");
-        refused(link(both.toByteArray()), R.string.text_this_server_needs_a_newer_trusttunnel_core);
+        refused(link(both.toByteArray()), R.string.text_subscription_links_are_not_supported_yet);
         // Every copy is checked, as TrustTunnel's own decoder does: an empty copy
         // before or after a broken one does not excuse it.
         for (boolean brokenFirst : new boolean[]{true, false}) {
@@ -425,11 +438,12 @@ public final class DeepLinkImportTest {
         refused(link(cut.toByteArray()), R.string.text_the_link_is_damaged);
     }
 
-    @Test public void unknownTagsAboveFifteenAreStillIgnored() throws Exception {
+    // 0x10 is the TLS profile now (readsATlsProfile); what comes after it is still ignored.
+    @Test public void unknownTagsAboveSixteenAreStillIgnored() throws Exception {
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         byte[] plain = withStatic(2, 0, null);
         out.write(plain, 0, plain.length);
-        field(out, 16, new byte[]{1, 2, 3});
+        field(out, 17, new byte[]{1, 2, 3});
         varint(out, 300); varint(out, 2); out.write(0xff); out.write(0xfe);
         field(out, 63, "https://ignored.example".getBytes(StandardCharsets.UTF_8));
         DeepLinkImport.Imported imported = DeepLinkImport.parse(link(out.toByteArray()));
@@ -507,7 +521,7 @@ public final class DeepLinkImportTest {
             refused(link(twice.toByteArray()), R.string.text_the_link_contains_an_invalid_certificate);
         }
         // Whole elements with no certificate among them come after the other checks,
-        // in the desktop's order: the auth key, then the server's own settings. Bytes
+        // in the desktop's order: after the server's own settings. Bytes
         // that are not whole elements are refused before any of those, as the
         // desktop refuses them while it reads the link.
         ByteArrayOutputStream noUsername = new ByteArrayOutputStream();
@@ -519,7 +533,6 @@ public final class DeepLinkImportTest {
         field(onlySubscription, 0, new byte[]{2});
         text(onlySubscription, 14, SUBSCRIPTION);
         Object[][] rows = {
-            {withStatic(2, 15, "aabbccdd"), R.string.text_this_server_needs_a_newer_trusttunnel_core},
             {noUsername.toByteArray(), R.string.text_the_link_is_missing_required_server_settings},
             {onlySubscription.toByteArray(), R.string.text_subscription_links_are_not_supported_yet},
         };
@@ -695,21 +708,21 @@ public final class DeepLinkImportTest {
                 CertificateVectors.pemBlock("CERTIFICATE", PKCS8_DER), "certificate line\n"})
             exportRefused(endpointExport("\"\"\"\n" + pem + "\"\"\""),
                     R.string.text_the_configuration_contains_an_invalid_certificate);
-        // A real auth key, of any type: only an empty one is none.
-        for (String value : new String[]{"\"aabbccdd\"", "\" \"", "5", "[\"aa\"]"})
+        // An auth key the core could not use: not a string, or not whole bytes of hex.
+        for (String value : new String[]{"\" \"", "5", "[\"aa\"]", "\"abc\"", "\"zz\""})
             exportRefused(NO_CERTIFICATE.replace("client_random_auth_key = \"\"", "client_random_auth_key = " + value),
-                    R.string.text_this_server_needs_a_newer_trusttunnel_core);
+                    R.string.text_the_configuration_contains_an_invalid_auth_key);
         // A subscription without the server's own settings.
         for (String missing : new String[]{"hostname = \"vpn.example.com\"", "username = \"alice\"",
                 "password = \"s3cret\"", "addresses = [\"1.2.3.4:443\", \"[2001:db8::1]:443\"]"})
             exportRefused(NO_CERTIFICATE.replace(missing, ""), R.string.text_subscription_links_are_not_supported_yet);
         exportRefused(NO_CERTIFICATE.replace("hostname = \"vpn.example.com\"", "hostname = \" \""),
                 R.string.text_subscription_links_are_not_supported_yet);
-        // In the desktop's order, as for a link: the auth key, then the server's own
-        // settings, then the certificate.
+        // In the desktop's order, as for a link: the server's own settings, then the
+        // certificate. A damaged auth key is said first, as a damaged link is.
         String nothingToPin = endpointExport("\"\"\"\n" + CertificateVectors.keyPem() + "\"\"\"");
-        exportRefused(nothingToPin.replace("client_random_auth_key = \"\"", "client_random_auth_key = \"aa\""),
-                R.string.text_this_server_needs_a_newer_trusttunnel_core);
+        exportRefused(nothingToPin.replace("client_random_auth_key = \"\"", "client_random_auth_key = \"a\""),
+                R.string.text_the_configuration_contains_an_invalid_auth_key);
         exportRefused(nothingToPin.replace("username = \"alice\"", ""), R.string.text_subscription_links_are_not_supported_yet);
         exportRefused(nothingToPin.replace("subscription_url = \"" + SUBSCRIPTION + "\"\n", "").replace("username = \"alice\"", ""),
                 R.string.text_the_configuration_is_missing_required_server_settings);
@@ -849,6 +862,70 @@ public final class DeepLinkImportTest {
 
     private static byte[] payload(String link) {
         return Base64.getUrlDecoder().decode(link.substring("tt://?".length()));
+    }
+
+    @Test public void anEndpointExportKeepsItsAuthKey() throws Exception {
+        String toml = exported(NO_CERTIFICATE.replace("client_random_auth_key = \"\"", "client_random_auth_key = \"aabbccdd\"")).toml;
+        assertEquals(exported(NO_CERTIFICATE).toml.replace("\ncertificate = ", "\nclient_random_auth_key = \"aabbccdd\"\ncertificate = "), toml);
+    }
+
+    @Test public void readsATlsProfile() throws Exception {
+        String plain = DeepLinkImport.parse(V2_PLAIN).toml;
+        // chrome, 0, is the default, and is not written, as a link without the tag gives.
+        for (int i = 0; i < DeepLinkImport.TLS_PROFILES.length; i++) {
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            byte[] head = withStatic(2, 0, null);
+            out.write(head, 0, head.length);
+            field(out, 16, new byte[]{(byte) i});
+            String toml = DeepLinkImport.parse(link(out.toByteArray())).toml;
+            assertEquals(i == 0 ? plain : plain.replace("anti_dpi = false\n",
+                    "anti_dpi = false\ntls_profile = \"" + DeepLinkImport.TLS_PROFILES[i] + "\"\n"), toml);
+            RoutingConfig.validate(toml);
+        }
+        // A profile the format does not define, or not one byte, is damage, as TrustTunnel's own decoder takes it.
+        for (byte[] bad : new byte[][]{{7}, {(byte) 0xff}, {}, {1, 0}, "chrome".getBytes(StandardCharsets.UTF_8)}) {
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            byte[] head = withStatic(2, 0, null);
+            out.write(head, 0, head.length);
+            field(out, 16, bad);
+            refused(link(out.toByteArray()), R.string.text_the_link_is_damaged);
+        }
+    }
+
+    @Test public void aKeyOrAProfileMakesAVersion2Link() throws Exception {
+        DeepLinkImport.Link in = fullLink();
+        in.authKey = "aabbccdd";
+        in.tlsProfile = 3;
+        String written = DeepLinkImport.encode(in);
+        byte[] bytes = payload(written);
+        assertArrayEquals(new byte[]{0, 1, 2}, Arrays.copyOf(bytes, 3));
+        // The desktop's link, the version apart, then the two tags at the end.
+        byte[] golden = payload(GOLDEN_FULL);
+        assertArrayEquals(Arrays.copyOfRange(golden, 3, golden.length), Arrays.copyOfRange(bytes, 3, golden.length));
+        assertArrayEquals(new byte[]{0x0F, 8, 'a', 'a', 'b', 'b', 'c', 'c', 'd', 'd', 0x10, 1, 3},
+                Arrays.copyOfRange(bytes, golden.length, bytes.length));
+        String toml = DeepLinkImport.parse(written).toml;
+        assertTrue(toml, toml.contains("\nclient_random_auth_key = \"aabbccdd\"\ntls_profile = \"firefox\"\n"));
+        // Read back out of the config the link becomes, it is the same link.
+        assertEquals(written, DeepLinkImport.encode(DeepLinkImport.linkOf("My Server", org.tomlj.Toml.parse(toml))));
+        // A key alone, and a profile alone, each make it version 2.
+        in.tlsProfile = 0;
+        assertArrayEquals(new byte[]{0, 1, 2}, Arrays.copyOf(payload(DeepLinkImport.encode(in)), 3));
+        in.authKey = "";
+        in.tlsProfile = 6;
+        assertArrayEquals(new byte[]{0, 1, 2}, Arrays.copyOf(payload(DeepLinkImport.encode(in)), 3));
+    }
+
+    @Test public void aConfigsKeyAndProfileAreReadForItsLink() {
+        String base = "[endpoint]\nhostname = \"h\"\naddresses = [\"1.2.3.4:443\"]\nusername = \"u\"\npassword = \"p\"\n";
+        DeepLinkImport.Link link = DeepLinkImport.linkOf("n", org.tomlj.Toml.parse(base + "client_random_auth_key = \"aabb\"\ntls_profile = \"default\"\n"));
+        assertEquals("aabb", link.authKey);
+        // The core's deprecated alias of boringssl.
+        assertEquals(6, link.tlsProfile);
+        // What the core could not use is not carried: a link nobody could import.
+        link = DeepLinkImport.linkOf("n", org.tomlj.Toml.parse(base + "client_random_auth_key = \"abc\"\ntls_profile = \"netscape\"\n"));
+        assertEquals("", link.authKey);
+        assertEquals(0, link.tlsProfile);
     }
 
     @Test public void itIsVersion1AndNeverCarriesASubscriptionOrAnAuthKey() {

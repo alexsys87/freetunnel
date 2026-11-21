@@ -71,6 +71,10 @@ object RoutingConfig {
             port != null && port in 1..65535 && address.substringBeforeLast(':').isNotBlank()
         }) { "Укажите addresses в формате адрес:порт" }
         require(endpoint.getString("upstream_protocol")?.let { it in listOf("http2", "http3") } != false) { "Укажите upstream_protocol: http2 или http3" }
+        require(isAuthKey(endpoint.get(listOf("client_random_auth_key")))) { "client_random_auth_key must be whole bytes of hex" }
+        require(endpoint.get(listOf("tls_profile")).let { it == null || (it is String && DeepLinkImport.tlsProfileIndex(it) >= 0) }) {
+            "Unknown tls_profile: use chrome, chrome_canary, safari, firefox, okhttp, openssl or boringssl"
+        }
         require(parsed.getString("vpn_mode")?.let { it in listOf("general", "selective") } != false) { "Неизвестный vpn_mode" }
         val rules = parsed.getArray("exclusions")?.let { a -> (0 until a.size()).map { a.getString(it) } }.orEmpty()
         require(rules.none { SplitRules.subnet(it)?.substringAfterLast('/')?.toInt() == 0 }) { "Default routes cannot be destination rules" }
@@ -99,6 +103,9 @@ object RoutingConfig {
      */
     data class Import @JvmOverloads constructor(val toml: String, val subscriptionNotKept: Boolean,
                                                 val certificateIgnored: Boolean = false, val name: String? = null)
+
+    // No key (absent or empty) or one the core can use: a string of whole bytes of hex.
+    private fun isAuthKey(value: Any?): Boolean = value == null || (value is String && DeepLinkImport.isHex(value))
 
     /** A file refused for a reason the user can act on; the message is shown as it is. */
     class ImportRefused(@JvmField val messageResource: Int) : IllegalArgumentException("Import refused")
@@ -186,13 +193,10 @@ object RoutingConfig {
         val parsed = Toml.parse(source)
         if (parsed.hasErrors()) return Import(source, false)
         val endpoint = parsed.get(listOf("endpoint")) as? TomlTable ?: return endpointExport(parsed) ?: Import(source, false)
-        // A real auth key needs TrustTunnel 1.3: core 1.1.11 ignores it, and the server
-        // then refuses every connection without saying why. The endpoint writes an
-        // empty one into every export, so only a key with something in it is refused.
-        // Anything else that is there, blank or not a string, is refused too: no core
-        // would read it as no key.
-        val authKey = endpoint.get(listOf("client_random_auth_key"))
-        if (authKey != null && authKey != "") throw ImportRefused(R.string.text_this_server_needs_a_newer_trusttunnel_core)
+        // A client random auth key is kept: core 1.3 derives the TLS client random from it. One
+        // the core could not use, not a string or not whole bytes of hex, is refused: the core
+        // would take it as written, and the server would refuse every connection without saying why.
+        if (!isAuthKey(endpoint.get(listOf("client_random_auth_key")))) throw ImportRefused(R.string.text_the_configuration_contains_an_invalid_auth_key)
         val subscription = subscriptionKeys.any { lookup(parsed, it) != null }
         // With a subscription the server's own settings are optional, as in a link,
         // and a file without them could only work once the subscription is fetched.

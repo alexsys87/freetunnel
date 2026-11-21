@@ -1,5 +1,21 @@
 # Android changes
 
+## 1.1.0
+
+- **Scan QR code.** On a phone or tablet with a camera, the + menu on Configs
+  starts with *Scan QR code…*: point the camera at the QR code a TrustTunnel
+  server or app shows for a server, and it is added as a pasted link is, after
+  the same question. The camera is asked for the first time; the app still
+  installs on devices without one, and TVs keep *Receive from phone*.
+- **TrustTunnel 1.3.0.** The app is built on TrustTunnel's Android library
+  1.3.0, up from 1.1.12, with its newer TLS fingerprints (Chrome and Firefox
+  as they are in November 2026) and its fixes.
+- **Servers with an auth key work.** A link or a file with a client random
+  auth key, which 1.0.x refused as needing a newer core, is imported, and the
+  key is used. A link's TLS profile (Chrome Canary, Safari, Firefox, OkHttp,
+  OpenSSL or BoringSSL) is kept too. *Copy deep-link* carries both.
+- Updates install over 1.0.2 and keep your servers.
+
 ## 1.0.2
 
 - Updates come from this project's releases. Until now the app looked for them in

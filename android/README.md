@@ -1,6 +1,6 @@
 # FreeTunnel for Android
 
-Android VPN client using the official, checksum-pinned **TrustTunnel 1.1.12**
+Android VPN client using the official, checksum-pinned **TrustTunnel 1.3.0**
 adapter, for phones, tablets and Android TV (Android 8.0 or later). Official
 releases are the `android-X.Y.Z` releases of
 [alexsys87/freetunnel](https://github.com/alexsys87/freetunnel), signed with
@@ -19,13 +19,21 @@ its own signing key, so the two projects' releases do not update each other.
   Subscriptions are not followed yet: a link or file with only a subscription
   is refused, and from other links and files only the server's own settings
   are imported. The subscription address is not kept; the rest of a file is
-  kept as written. Servers that need an auth key are refused until the app
-  moves to TrustTunnel core 1.3. The rules for each version 2 field are the
-  desktop's, in [DEEP_LINK.md](../DEEP_LINK.md); for TOML, only an empty
-  `client_random_auth_key` counts as no key. That is stricter than the
-  desktop, which also reads a blank key, or one that is not a string, as no
-  key. The endpoint writes only an empty key or a hex one, so the two differ
-  only on a file edited by hand. Of a server's certificate, only
+  kept as written. The rules for each version 2 field are the desktop's, in
+  [DEEP_LINK.md](../DEEP_LINK.md), but for two that core 1.3 reads and the
+  desktop's core does not yet. A **client random auth key** (tag `0x0F`, or
+  `client_random_auth_key` in TOML) is kept, and the core derives the TLS
+  client random from it: servers with an auth-key rule work. An empty key is
+  no key; one that is not a string of whole bytes of hex refuses the import
+  ("The configuration contains an invalid client random auth key", or "The
+  link is damaged" for a link), as the core would take it as written. A **TLS
+  profile** (tag `0x10`, one byte) becomes `tls_profile` in the endpoint
+  (`chrome_canary`, `safari`, `firefox`, `okhttp`, `openssl` or `boringssl`;
+  `chrome`, the default, is not written); an unknown one is damage. Neither
+  is written into a config without one, so such a config is the text the
+  desktop writes. Copy deep-link carries both, at the end of the link, and
+  then writes version 2, in which TrustTunnel defines them; without them the
+  link is the desktop's, version 1, byte for byte. Of a server's certificate, only
   the certificates are kept: other PEM data is left out and the import says
   so. A whole chain in one block, as the desktop's
   FreeTunnel 1.1.9 and earlier wrote one, is kept as it is. A certificate
@@ -35,6 +43,16 @@ its own signing key, so the two projects' releases do not update each other.
   would be when it lacks the server's host name, addresses, user name or
   password. It is named after its `name`, or, when it has none, as other
   TOML files are: after the file, or "From clipboard" when pasted.
+- **Scan QR code…**, first in the add menu on a phone or tablet with a camera
+  (never on a TV, which has Receive from phone there instead): the camera's
+  picture, with a frame to hold the code in. The first QR code that holds a
+  `tt://` link or a TrustTunnel QR-page address is imported as a pasted link
+  would be, with the same question before anything is added; any other code
+  says "This QR code holds no TrustTunnel link" and the scan goes on. The
+  camera permission is asked for the first time; without it the scan ends
+  with a notice. Camera2 and ZXing's core read the code, on the device; the
+  link, which carries the password, is neither logged nor shown. The camera
+  is not required: the APK installs on devices without one.
 - TOML, Android adapter and native configuration checks before saving.
   The editor shows the password as dots and prevents screen capture.
 - AES-GCM encrypted profiles with Android Keystore. Read failures preserve
@@ -152,7 +170,7 @@ Android-only list.
   the only control, so the texts that tell what to do next say "this line", and there is no *Install update* button
   on the screen (that is what a screen reader adds to the line, and the red button of the question). Outside the
   official build the section says it doesn't come from the official channel.
-- The footer, **FreeTunnel 1.0.0 · TrustTunnel core 1.1.12**, each name a link to its page (a toast where there is no
+- The footer, **FreeTunnel 1.1.0 · TrustTunnel core 1.3.0**, each name a link to its page (a toast where there is no
   browser, as on most TVs; the core's version is read from the AAR's name by the build). There is no screen for
   the third-party notices, as the desktop has none: they are files in the APK (see License below).
 
@@ -506,17 +524,17 @@ scripts/prepare-trusttunnel-android.sh
 
 The public AAR download needs no GitHub PAT. Its SHA-256 is checked during
 preparation and every build:
-`ef66909c00813fd50255900f89b320a998e2a1c74bbd4aa83369fc7f7e310aca`.
+`c95f55817633663cdd3b79d5b8eb1f7926201ab1c5bcef9800ebabefc856e600`.
 
 The script fetches the AAR from this repository's own mirror first, a release
-named `core-android-1.1.12` with `trusttunnel-client-android-1.1.12.aar` attached,
+named `core-android-1.3.0` with `trusttunnel-client-android-1.3.0.aar` attached,
 and only if that is missing from the public package page, whose HTML GitHub
 changes without notice (the build then stops with "Official package asset
 missing"). Whichever source answers, the file must have the SHA-256 above.
 To create the mirror once, download the AAR of the version from the
 [package page](https://github.com/TrustTunnel/TrustTunnelClient/packages/2733074)
 in a browser, check `shasum -a 256` against the digest above, and attach it to a
-new release with the tag `core-android-1.1.12` (not `android-*`, which publishes
+new release with the tag `core-android-1.3.0` (not `android-*`, which publishes
 an app release). Pin a new core version by changing its name, digest and mirror
 together.
 Gradle 8.11.1 wrapper and distribution checksums are pinned too.
@@ -753,7 +771,7 @@ remote-server, DNS or HTTP/3 coverage.
 ## License
 
 FreeTunnel and TrustTunnel are Apache-2.0. See [LICENSE](../LICENSE) and
-[TrustTunnelClient v1.1.12](https://github.com/TrustTunnel/TrustTunnelClient/tree/v1.1.12).
+[TrustTunnelClient v1.3.0](https://github.com/TrustTunnel/TrustTunnelClient/tree/v1.3.0).
 
 The APK also contains the libraries in the Android section of
 [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md), under their own

@@ -72,7 +72,7 @@
     <string name="text_the_link_contains_an_invalid_certificate">"Некорректный сертификат в ссылке"</string>
     <string name="text_the_link_contains_an_invalid_subscription_address">"Некорректный адрес подписки в ссылке"</string>
     <string name="text_subscription_links_are_not_supported_yet">"Ссылки-подписки пока не поддерживаются. Попросите у провайдера обычную ссылку или обновите FreeTunnel, когда появятся подписки."</string>
-    <string name="text_this_server_needs_a_newer_trusttunnel_core">"Этому серверу нужно ядро TrustTunnel новее, чем в этой версии FreeTunnel."</string>
+    <string name="text_the_configuration_contains_an_invalid_auth_key">"Некорректный ключ client random в конфигурации"</string>
     <string name="text_the_configuration_contains_an_invalid_certificate">"Некорректный сертификат в конфигурации"</string>
     <string name="text_the_configuration_is_missing_required_server_settings">"В конфигурации не хватает данных сервера"</string>
     <string name="text_applications_and_addresses_are_selected_full_vpn_pro">"Выбраны и приложения, и адреса. Для защиты всего выбранного включён полный VPN. Для выборочного режима оставьте один тип правил."</string>
@@ -129,6 +129,11 @@
     <string name="receive_page_wrong_code">Неверный код. Проверьте адрес на экране телевизора и попробуйте ещё раз.</string>
     <string name="receive_page_locked_out">Снова неверный код, поэтому телевизор прекратил приём. Откройте на нём «Получить с телефона» ещё раз, чтобы получить новый адрес.</string>
     <string name="add_from_file">"Из файла…"</string>
+    <string name="add_scan_qr">"Сканировать QR-код…"</string>
+    <string name="qr_scan_hint">"Наведите камеру на QR-код TrustTunnel"</string>
+    <string name="qr_scan_not_a_link">"В этом QR-коде нет ссылки TrustTunnel"</string>
+    <string name="qr_scan_no_permission">"Нет доступа к камере: разрешите его в настройках приложения, чтобы сканировать QR-код"</string>
+    <string name="qr_scan_no_camera">"Не удалось открыть камеру"</string>
     <string name="add_create_new">"Создать новый…"</string>
     <string name="import_question_link">"Добавить VPN-сервер по этой ссылке?"</string>
     <string name="import_question_file">"Добавить VPN-сервер из этого файла?"</string>

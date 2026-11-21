@@ -17,20 +17,26 @@ import java.util.regex.Pattern;
 /**
  * Decodes TrustTunnel's version 0-2 QUIC-varint TLV share links, and reads the TOML
  * file a TrustTunnel endpoint exports by the same rules. It also writes a share link for
- * a config, as the desktop does (encodeDeepLink in src/core/DeepLink.cpp): version 1, no
- * subscription address and no auth key, so that older readers take it.
+ * a config, as the desktop does (encodeDeepLink in src/core/DeepLink.cpp): version 1 and
+ * no subscription address, so that older readers take it. A config with a client random
+ * auth key or a TLS profile other than chrome, which core 1.3 reads and the desktop's
+ * core does not yet, gets a version 2 link with tags 0x0F and 0x10 at its end.
  */
 final class DeepLinkImport {
     private static final int MAX_LINK_CHARS = 131072;
     private static final int MAX_PAYLOAD_BYTES = 65536;
     // TrustTunnel endpoint 1.3.0 writes version 2 into every link, even one without
-    // a version 2 field, so stopping at 1 refused all of them. This app never writes
-    // links; the desktop's share links stay at version 1, which older readers accept.
+    // a version 2 field, so stopping at 1 refused all of them. This app writes version
+    // 1 as the desktop does, and 2 only for a link that carries tag 0x0F or 0x10.
     static final long MAX_READ_VERSION = 2;
     // A subscription address is a short https URL. This and the rest of the rule
     // for one are the desktop's (DEEP_LINK.md, tag 0x0E), so that both apps refuse
     // the same links.
     static final int MAX_SUBSCRIPTION_URL_BYTES = 2048;
+    // The names [endpoint].tls_profile takes, by the number tag 0x10 carries for each
+    // (TrustTunnel's DEEP_LINK.md and VpnTlsProfile). chrome, 0, is the default, and a
+    // link or a config without a profile has it.
+    static final String[] TLS_PROFILES = {"chrome", "chrome_canary", "safari", "firefox", "okhttp", "openssl", "boringssl"};
 
     static final class Imported {
         // A link's name, or its hostname when it has none. An export's name, or
@@ -79,6 +85,8 @@ final class DeepLinkImport {
         // The key from tag 0x0F, empty when the link has none. Not a secret
         // baked in: Semgrep takes any "key" given a literal for one.
         String authKey = ""; // nosemgrep: codacy.java.security.hard-coded-password
+        // The number from tag 0x10, an index into TLS_PROFILES; 0 (chrome) when the link has none.
+        int tlsProfile;
     }
 
     private DeepLinkImport() { }
@@ -114,15 +122,15 @@ final class DeepLinkImport {
      * a link's unknown tags are, and a value of the wrong type counts as missing.
      */
     static Imported fromEndpointExport(TomlTable root) throws ParseException {
-        // As in any TOML file: the endpoint writes an empty key into every export,
-        // and only that is no key. Anything else is refused, blank or not a string,
-        // since no core would read it as none. The desktop is more lenient here: it
-        // trims the key and reads one that is not a string as none. The endpoint
-        // writes only an empty key or a hex one, so the two differ only on a file
-        // edited by hand, and Android keeps one rule for every TOML file it imports.
+        // The endpoint writes an empty key into every export of a server without one,
+        // and a hex one for a server with one. Anything else, not a string or not whole
+        // bytes of hex, is refused: core 1.3 would take it as written, and the server
+        // would then refuse every connection without saying why.
         Object auth = root.get("client_random_auth_key");
-        if (auth != null && !"".equals(auth)) throw new ParseException(R.string.text_this_server_needs_a_newer_trusttunnel_core);
+        if (auth != null && !(auth instanceof String && isHex((String) auth)))
+            throw new ParseException(R.string.text_the_configuration_contains_an_invalid_auth_key);
         Fields fields = new Fields();
+        fields.authKey = auth == null ? "" : (String) auth;
         fields.hostname = string(root, "hostname");
         fields.addresses.addAll(strings(root, "addresses"));
         fields.customSni = string(root, "custom_sni");
@@ -148,13 +156,10 @@ final class DeepLinkImport {
     }
 
     // What a link or an export goes through once read, in the desktop's order: the
-    // auth key, then the server's own settings, then whether the certificate holds
-    // any certificate. Damage to a link's certificate was refused while decoding.
+    // server's own settings, then whether the certificate holds any certificate.
+    // Damage to a link's certificate, auth key or TLS profile was refused while
+    // decoding. The auth key and the profile are kept: core 1.3 uses them.
     private static Imported finish(Fields fields, boolean subscription, boolean link) throws ParseException {
-        // An empty key is how a server without one is exported. A real key needs
-        // TrustTunnel 1.3: core 1.1.11 would ignore it, and the server would then
-        // refuse every connection without saying why.
-        if (!fields.authKey.isEmpty()) throw new ParseException(R.string.text_this_server_needs_a_newer_trusttunnel_core);
         String hostname = fields.hostname == null ? "" : clean(fields.hostname).trim();
         if (hostname.isEmpty() || fields.addresses.isEmpty()
                 || fields.username == null || fields.username.isEmpty()
@@ -252,8 +257,26 @@ final class DeepLinkImport {
         return key;
     }
 
+    // One byte, a profile TrustTunnel's format defines: an unknown one is refused, as its
+    // own decoder refuses it, since the server may turn away any other ClientHello.
+    private static int tlsProfile(byte[] bytes, int start, int end) throws ParseException {
+        if (end - start != 1) throw new ParseException(R.string.text_the_link_is_damaged);
+        int value = bytes[start] & 0xff;
+        if (value >= TLS_PROFILES.length) throw new ParseException(R.string.text_the_link_is_damaged);
+        return value;
+    }
+
+    /** The number tag 0x10 has for a tls_profile a config names, 0 (chrome) for none or an empty one, and -1 for one the core does not take. */
+    static int tlsProfileIndex(String name) {
+        if (name == null || name.isEmpty()) return 0;
+        // The core's deprecated alias of boringssl (TLS_PROFILE_MAP in TrustTunnelClient's config.cpp).
+        if ("default".equals(name)) return 6;
+        for (int i = 0; i < TLS_PROFILES.length; i++) if (TLS_PROFILES[i].equals(name)) return i;
+        return -1;
+    }
+
     // Character.digit() would also accept other scripts' digits.
-    private static boolean isHex(String text) {
+    static boolean isHex(String text) {
         if (text.length() % 2 != 0) return false;
         for (int i = 0; i < text.length(); i++) {
             char c = text.charAt(i);
@@ -324,7 +347,7 @@ final class DeepLinkImport {
         while (pos[0] < bytes.length) {
             long tag = readVarint(bytes, pos, bytes.length);
             int end = recordEnd(bytes, pos);
-            if (tag > 15) { pos[0] = end; continue; }
+            if (tag > 16) { pos[0] = end; continue; }
             switch ((int) tag) {
                 case 0: break; // Read and checked by declaredVersion().
                 case 1: fields.hostname = utf8(bytes, pos[0], end); break;
@@ -343,6 +366,7 @@ final class DeepLinkImport {
                 // Read in any version, as TrustTunnel's own decoder does.
                 case 14: fields.subscriptionUrl = subscriptionUrl(utf8(bytes, pos[0], end)); break;
                 case 15: fields.authKey = authKey(utf8(bytes, pos[0], end)); break;
+                case 16: fields.tlsProfile = tlsProfile(bytes, pos[0], end); break;
                 default: break; // Ignore future fields, as the official decoder does.
             }
             pos[0] = end;
@@ -500,6 +524,9 @@ final class DeepLinkImport {
         out.append("skip_verification = ").append(f.skipVerification).append('\n');
         out.append("upstream_protocol = ").append(quoted(f.protocol == 2 ? "http3" : "http2")).append('\n');
         out.append("anti_dpi = ").append(f.antiDpi).append('\n');
+        // Only when there is one, so that a config without them is the text the desktop writes.
+        if (!f.authKey.isEmpty()) out.append("client_random_auth_key = ").append(quoted(f.authKey)).append('\n');
+        if (f.tlsProfile > 0) out.append("tls_profile = ").append(quoted(TLS_PROFILES[f.tlsProfile])).append('\n');
         if (pem.isEmpty()) out.append("certificate = \"\"\n");
         else out.append("certificate = \"\"\"\n").append(pem).append("\"\"\"\n");
         return out.toString();
@@ -527,10 +554,16 @@ final class DeepLinkImport {
         String clientRandom = "";
         String name = "";
         final List<String> dnsUpstreams = new ArrayList<>();
+        /** Whole bytes of hex, or empty for none, as tag 0x0F holds it. */
+        String authKey = ""; // nosemgrep: codacy.java.security.hard-coded-password
+        /** An index into TLS_PROFILES, as tag 0x10 holds it; 0, chrome, is not written. */
+        int tlsProfile;
     }
 
     /** The version this app writes: not the newest it reads, which is MAX_READ_VERSION. See the desktop's kDeepLinkWriteVersion. */
     static final int WRITE_VERSION = 1;
+    /** The version of a link with tag 0x0F or 0x10, which TrustTunnel's format defines in version 2. */
+    static final int WRITE_VERSION_WITH_KEY = 2;
 
     private static final Pattern CLIENT_RANDOM = Pattern.compile("(?:[0-9a-fA-F]{2}){1,32}(?:/(?:[0-9a-fA-F]{2}){1,32})?");
 
@@ -617,11 +650,14 @@ final class DeepLinkImport {
      * The link for a server, as the desktop's encodeDeepLink writes it, in this order: the version
      * (always 1), the host name, each address, the user name and the password; then what differs from the
      * defaults: IPv6 off, certificate checking skipped, anti-DPI, a custom SNI, the certificates, HTTP/3,
-     * the client random, the name and the DNS servers. Without padding, in the URL-safe alphabet.
+     * the client random, the name and the DNS servers. Without padding, in the URL-safe alphabet. A
+     * client random auth key and a TLS profile other than chrome, which the desktop's links never have,
+     * come last and make the version 2.
      */
     static String encode(Link link) {
         ByteArrayOutputStream p = new ByteArrayOutputStream();
-        writeTlv(p, 0x00, varintBytes(WRITE_VERSION));
+        boolean v2 = !link.authKey.isEmpty() || link.tlsProfile > 0;
+        writeTlv(p, 0x00, varintBytes(v2 ? WRITE_VERSION_WITH_KEY : WRITE_VERSION));
         writeText(p, 0x01, link.hostname);
         for (String address : link.addresses) writeText(p, 0x02, address);
         writeText(p, 0x05, link.username);
@@ -636,6 +672,8 @@ final class DeepLinkImport {
         if (!clientRandom.isEmpty()) writeText(p, 0x0B, clientRandom);
         if (!link.name.isEmpty()) writeText(p, 0x0C, link.name);
         if (!link.dnsUpstreams.isEmpty()) writeTlv(p, 0x0D, stringList(link.dnsUpstreams));
+        if (!link.authKey.isEmpty()) writeText(p, 0x0F, link.authKey);
+        if (link.tlsProfile > 0) writeTlv(p, 0x10, new byte[]{(byte) link.tlsProfile});
         return "tt://?" + Base64.getUrlEncoder().withoutPadding().encodeToString(p.toByteArray());
     }
 
@@ -666,6 +704,11 @@ final class DeepLinkImport {
         List<String> dns = strings(endpoint, "dns_upstreams");
         link.dnsUpstreams.addAll(dns.isEmpty() ? strings(root, "dns_upstreams") : dns);
         link.name = name == null ? "" : name.trim();
+        // What a config may hold that a link has a tag for since version 2. A key that is not whole bytes of hex, or a profile the
+        // core does not take, would make a link nobody can import, and the config cannot connect with it either: neither is written.
+        String key = string(endpoint, "client_random_auth_key");
+        if (isHex(key)) link.authKey = key;
+        link.tlsProfile = Math.max(0, tlsProfileIndex(string(endpoint, "tls_profile")));
         return link;
     }
 }
