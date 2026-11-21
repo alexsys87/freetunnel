@@ -320,7 +320,7 @@ bash scripts/coverage-upstream-report.sh
 | `.github/workflows/tests.yml` | Fast unit tests (Linux + macOS + Windows) through `scripts/run-ctest.sh`; Linux coverage + ASan+UBSan ([details](#coverage-and-sanitizers)) | Pushes to `main`, pull requests, `v*` tags, and weekly (Mon) |
 | `.github/workflows/security.yml` | The checks below | Pushes to `main`, pull requests, `v*` tags, and weekly (Mon) |
 | `.github/workflows/core-update.yml` | Opens a pull request when TrustTunnelClient has a stable release newer than the pinned core ([details](#bumping-the-upstream-core)) | Daily, and by hand |
-| `.github/workflows/win7.yml` | Experimental Windows 7 build: Qt 6.8.5 with a Windows 7 backport and OpenSSL, BoringSSL with a randomness fallback, and an import check of every binary in the package. Not a release and not a required check ([details](win7/README.md)) | By hand, and on pull requests that change its files |
+| `.github/workflows/win7.yml` | The Windows 7 build: Qt 6.8.5 with a Windows 7 backport and OpenSSL, BoringSSL with a randomness fallback, and an import check of every binary in the package. Published by hand from `main` as `win7-X.Y.Z` beside each `v*` release; not a required check ([details](win7/README.md)) | By hand, and on pull requests that change its files or the core pin |
 
 - **On a `v*` tag** the release waits for Tests and Security to pass on the
   tagged commit, and is refused outright, within a minute of the push, when the
@@ -458,6 +458,10 @@ a hunk cannot apply cleanly in the wrong place either.
 The upstream ref is pinned in
 [`scripts/upstream_ref.txt`](scripts/upstream_ref.txt). The workflows read that
 file rather than carrying a SHA of their own.
+
+The Windows 7 build (`win7.yml`) reads the same pin, so a core bump changes it
+too: its pull request runs that workflow, whose import check fails on anything
+the new core needs that Windows 7 does not have.
 
 The **Core update** workflow (`.github/workflows/core-update.yml`) looks for a
 newer stable release once a day (`scripts/latest-core-release.sh`, which you

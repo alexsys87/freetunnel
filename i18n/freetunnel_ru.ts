@@ -504,6 +504,10 @@
         <translation>подключён</translation>
     </message>
     <message>
+        <source>Show QR code</source>
+        <translation>Показать QR-код</translation>
+    </message>
+    <message>
         <source>Delete config “%1”?</source>
         <translation>Удалить конфиг «%1»?</translation>
     </message>
@@ -554,6 +558,14 @@
     <message>
         <source>Deep-link copied — it contains the password, share it carefully</source>
         <translation>Deep-link скопирован — он содержит пароль, делитесь осторожно</translation>
+    </message>
+    <message>
+        <source>The deep-link is too long for a QR code — export .toml instead</source>
+        <translation>Deep-link слишком длинный для QR-кода — экспортируйте .toml</translation>
+    </message>
+    <message>
+        <source>“%1”</source>
+        <translation>«%1»</translation>
     </message>
     <message>
         <source>Config exported — the file contains the password</source>
@@ -870,6 +882,17 @@
     <message>
         <source>The connection is using an unusual number of system resources. The tunnel is being kept up because the kill switch is on — reconnect manually when convenient.</source>
         <translation>Соединение расходует необычно много системных ресурсов. Туннель оставлен поднятым, потому что включён kill switch, — переподключитесь вручную, когда будет удобно.</translation>
+    </message>
+</context>
+<context>
+    <name>QrCodeDialog</name>
+    <message>
+        <source>Scan it with FreeTunnel for Android: + → Scan QR code. It contains the password: show it only to the phone you are adding this server to.</source>
+        <translation>Отсканируйте его в FreeTunnel для Android: + → Сканировать QR-код. В нём пароль: показывайте его только телефону, на который добавляете этот сервер.</translation>
+    </message>
+    <message>
+        <source>Close</source>
+        <translation>Закрыть</translation>
     </message>
 </context>
 <context>

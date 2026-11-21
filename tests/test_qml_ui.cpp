@@ -94,6 +94,8 @@ private slots:
     void theEmptyConfigsPageOffersToAdd();
     void configActionsFollowTheConfigNotTheRow();
     void theExportDialogOffersTheWholeName();
+    void showQrCodeHandsTheConfigsCodeToTheWindow();
+    void theQrCardDrawsWholeModulesAndForgetsTheLink();
     void aLongHostnameWrapsInsideTheConfirm();
     void aClickInsideTheConfirmCardDoesNotCancelIt();
     void threeButtonsStayInsideTheConfirmCard();
@@ -1845,6 +1847,82 @@ void TestQmlUi::configActionsFollowTheConfigNotTheRow()
     QMetaObject::invokeMethod(root, "exportPicked", Q_ARG(QVariant, QStringLiteral("link")));
     QCOMPARE(m_backend.lastDeepLinkRow, -1);
     QCOMPARE(m_shell.lastToast(), QStringLiteral("That configuration is no longer there."));
+    delete root;
+}
+
+// Show QR code, the export menu's third row: the remembered config's code, made by
+// the backend, goes to the window's card, under the config's name. A link too
+// long for any QR code, or none at all, is said instead.
+void TestQmlUi::showQrCodeHandsTheConfigsCodeToTheWindow()
+{
+    const QStringList saved = m_backend.configs();
+    const QVariantMap savedCode = m_backend.qrCode;
+    const auto restore = qScopeGuard([this, saved, savedCode] {
+        m_backend.setConfigs(saved);
+        m_backend.qrCode = savedCode;
+    });
+    m_backend.setConfigs({QStringLiteral("Alpha"), QStringLiteral("Beta")});
+    QObject *root = loadPage("pages/ConfigsPage.qml");
+    QVERIFY(root);
+    root->setProperty("exportPath", m_backend.configPath(1));
+    root->setProperty("exportName", QStringLiteral("Beta"));
+
+    m_shell.lastQrSize = 0;
+    QMetaObject::invokeMethod(root, "exportPicked", Q_ARG(QVariant, QStringLiteral("qr")));
+    QCOMPARE(m_backend.lastQrRow, 1);
+    QCOMPARE(m_shell.lastQrSize, 21);
+    QCOMPARE(m_shell.lastQrModules, QString(21 * 21, QLatin1Char('1')));
+    QVERIFY2(m_shell.lastQrTitle.contains(QStringLiteral("Beta")), qPrintable(m_shell.lastQrTitle));
+
+    m_shell.lastQrSize = 0;
+    m_backend.qrCode = {{QStringLiteral("size"), 0}, {QStringLiteral("modules"), QString()}};
+    QMetaObject::invokeMethod(root, "exportPicked", Q_ARG(QVariant, QStringLiteral("qr")));
+    QCOMPARE(m_shell.lastQrSize, 0);
+    QCOMPARE(m_shell.lastToast(), QStringLiteral("The deep-link is too long for a QR code — export .toml instead"));
+
+    m_backend.qrCode = {};
+    QMetaObject::invokeMethod(root, "exportPicked", Q_ARG(QVariant, QStringLiteral("qr")));
+    QCOMPARE(m_shell.lastQrSize, 0);
+    QCOMPARE(m_shell.lastToast(), QStringLiteral("Couldn’t build deep-link"));
+    delete root;
+}
+
+// The card draws every module the same whole number of pixels, with the four-module
+// quiet zone around the code, closes on Escape, and keeps nothing of the link (it
+// holds the password) once it is closed.
+void TestQmlUi::theQrCardDrawsWholeModulesAndForgetsTheLink()
+{
+    QObject *root = loadPage("components/QrCodeDialog.qml");
+    QVERIFY(root);
+    auto *item = qobject_cast<QQuickItem *>(root);
+    QVERIFY(item);
+    QQuickWindow window;
+    window.resize(480, 640);
+    item->setParentItem(window.contentItem());
+    item->setWidth(480);
+    item->setHeight(640);
+    window.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&window));
+
+    root->setProperty("title", QStringLiteral("“Work”"));
+    root->setProperty("size", 25);
+    root->setProperty("modules", QString(25 * 25, QLatin1Char('0')));
+    QMetaObject::invokeMethod(root, "open");
+    QVERIFY(item->isVisible());
+    const int px = root->property("modulePx").toInt();
+    QVERIFY2(px >= 2 && px <= 8, qPrintable(QString::number(px)));
+    auto *code = root->findChild<QQuickItem *>(QStringLiteral("qrCode"));
+    QVERIFY(code);
+    QCOMPARE(qRound(code->width()), px * (25 + 8));
+    QCOMPARE(code->width(), code->height());
+    auto *card = root->findChild<QQuickItem *>(QStringLiteral("qrCard"));
+    QVERIFY(card);
+    QVERIFY(card->width() <= item->width() - 24 + 0.5);
+
+    QTest::keyClick(&window, Qt::Key_Escape);
+    QTRY_VERIFY(!item->isVisible());
+    QVERIFY(root->property("modules").toString().isEmpty());
+    QCOMPARE(root->property("size").toInt(), 0);
     delete root;
 }
 

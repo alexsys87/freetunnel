@@ -302,8 +302,16 @@ public:
         lastExportRow = index;
         return true;
     }
+    // The page's Show QR code: what Backend::configQrCode answers, set by a test.
+    Q_INVOKABLE QVariantMap configQrCode(int index) const
+    {
+        lastQrRow = index;
+        return qrCode;
+    }
+    QVariantMap qrCode{{QStringLiteral("size"), 21}, {QStringLiteral("modules"), QString(21 * 21, QLatin1Char('1'))}};
     mutable int lastDeepLinkRow = -1;
     mutable int lastExportRow = -1;
+    mutable int lastQrRow = -1;
     Q_INVOKABLE void clearLogs() { m_logModel.clear(); }
     void appendLog(const QString &msg) { m_logModel.append(QStringLiteral("12:00:01"), QStringLiteral("INFO"), msg); }
     Q_INVOKABLE void openLogFolder() {}

@@ -34,6 +34,7 @@ concurrency:
 env:
   UPSTREAM_REPO: TrustTunnel/TrustTunnelClient
   # Pinned ref in scripts/upstream_ref.txt (verified by scripts/verify_upstream_patch.sh).
+  # The Windows 7 build (win7.yml) builds the same one.
   # Exact pin: conan drives every native dependency fetch and build, so the
   # version must not float. This is the latest 2.x — i.e. what the previous
   # `conan~=2.12` range was actually resolving to; pinning to 2.12.x instead

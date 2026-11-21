@@ -209,7 +209,8 @@ credential store, and it is never logged.
 
 A UTF-8 string of whole bytes in hex. The client derives its TLS client random
 from this key, and a server with an auth-key rule turns away a client that does
-not. The TrustTunnel core FreeTunnel uses cannot do that yet.
+not. The desktop's core can since FreeTunnel 1.4.0 (TrustTunnel 1.3), but the
+desktop does not import a key yet.
 
 - An empty value means the server has no key, and the link imports as usual.
 - Any other value, if it is valid hex, is refused: "This server needs a newer

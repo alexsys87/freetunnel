@@ -1,7 +1,8 @@
-QR Code generator library (Java)
+QR Code generator library (Java, in the Android app; C++, in the desktop app)
 Version: 1.8.0
-Source: https://github.com/nayuki/QR-Code-generator/tree/v1.8.0/java
-License: MIT
+Source: https://github.com/nayuki/QR-Code-generator/tree/v1.8.0/java,
+        https://github.com/nayuki/QR-Code-generator/tree/v1.8.0/cpp
+License: MIT. The C++ files carry the same notice, as "QR Code generator library (C++)".
 
 [nayuki/QR-Code-generator@v1.8.0: java/src/main/java/io/nayuki/qrcodegen/QrCode.java, lines 1-22]
 /* 

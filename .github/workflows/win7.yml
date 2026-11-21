@@ -1,8 +1,8 @@
-name: Windows 7 (experimental)
+name: Windows 7
 
-# An unofficial, untested-by-hand FreeTunnel build for Windows 7 SP1. Not part
-# of a release, not a required check: win7/README.md says what it is, what a
-# Windows 7 machine needs, and how far it has been checked.
+# FreeTunnel for Windows 7 SP1, released as win7-X.Y.Z beside each v* release.
+# Not a required check: win7/README.md says what it is, what a Windows 7 machine
+# needs, and how it has been checked.
 #
 # What differs from the Windows leg of build.yml:
 #
@@ -20,12 +20,12 @@ name: Windows 7 (experimental)
 #   - scripts/check-win7-imports.py reads every .exe and .dll that ends up in
 #     the package and fails the run on an import Windows 7 is known not to have.
 #
-# Runs by hand (Actions -> Windows 7 (experimental) -> Run workflow) and on pull
+# Runs by hand (Actions -> Windows 7 -> Run workflow) and on pull
 # requests that touch the files it is made of. The artifacts are a Setup.exe
 # and a portable zip.
 #
 # A run by hand on main with "publish" ticked also publishes them, as the
-# pre-release win7-X.Y.Z (X.Y.Z is the project version): a release of its own,
+# release win7-X.Y.Z (X.Y.Z is the project version): a release of its own,
 # never the latest one, so the desktop's v* release stays what the in-app updater
 # reads, and its tag matches neither v* nor android-*, which start other
 # workflows. See the release job at the end.
@@ -33,7 +33,7 @@ on:
   workflow_dispatch:
     inputs:
       publish:
-        description: 'Publish a win7-X.Y.Z pre-release from this run (main only; needs the ED25519_SIGNING_KEY secret)'
+        description: 'Publish the win7-X.Y.Z release from this run (main only; needs the ED25519_SIGNING_KEY secret)'
         type: boolean
         default: false
   pull_request:
@@ -42,6 +42,8 @@ on:
       - 'win7/**'
       - 'scripts/check-win7-imports.py'
       - 'scripts/export-patched-boringssl.sh'
+      - 'scripts/upstream_ref.txt'
+      - 'vendor/trusttunnel/**'
 
 concurrency:
   group: win7-${{ github.ref }}
@@ -306,6 +308,7 @@ jobs:
         shell: bash
         run: |
           set -eu
+          # The core build.yml builds: the same pin, the same patches.
           ref="$(tr -d '[:space:]' < client/scripts/upstream_ref.txt)"
           if ! [[ "$ref" =~ ^[0-9a-f]{40}$ ]]; then
             echo "upstream_ref.txt is not a 40-hex commit SHA: '$ref'" >&2
@@ -612,13 +615,12 @@ jobs:
           echo "::error::The package imports something Windows 7 does not have; see out/win7-import-check.md in the artifact or the job summary."
           exit 1
 
-  # Not part of a v* release: this build is unofficial and has not been tried on a
-  # Windows 7 machine (win7/README.md). It gets a pre-release of its own, made
+  # Beside the v* release, not in it: Windows 7 gets a release of its own, made
   # only by hand from main, and only once the build above, with its import check,
-  # has passed. The release is never marked latest, so /releases/latest, which the
-  # in-app updater asks, keeps naming the desktop's v* release.
+  # has passed. It is never marked latest, so /releases/latest, which the in-app
+  # updater asks, keeps naming the desktop's v* release.
   release:
-    name: Publish the Windows 7 pre-release
+    name: Publish the Windows 7 release
     needs: build
     if: github.event_name == 'workflow_dispatch' && inputs.publish && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
@@ -702,11 +704,11 @@ jobs:
         run: |
           set -eu
           {
-            echo "**Unofficial, experimental build of FreeTunnel ${VERSION} for Windows 7 SP1 (64-bit).**"
-            echo "It has not been run on a real Windows 7 machine yet: what was checked, what the"
-            echo "machine needs (Windows updates, root certificates) and what to do if it does not"
-            echo "start are in [win7/README.md](https://github.com/${GITHUB_REPOSITORY}/blob/${GITHUB_SHA}/win7/README.md)."
-            echo "The official releases need Windows 10 or 11."
+            echo "**FreeTunnel ${VERSION} for Windows 7 SP1 (64-bit).**"
+            echo "What the machine needs (Windows updates, root certificates), how this build"
+            echo "differs from the Windows 10 and 11 one and what to do if it does not start are in"
+            echo "[win7/README.md](https://github.com/${GITHUB_REPOSITORY}/blob/${GITHUB_SHA}/win7/README.md)."
+            echo "On Windows 10 or 11, use the v${VERSION} release instead."
             echo
             echo "- **Setup.exe**: the installer, with the VPN helper service."
             echo "- **portable.zip**: the same files unpacked; connecting asks for administrator rights"
@@ -730,7 +732,7 @@ jobs:
           echo "--- release body ---"
           cat notes.md
 
-      - name: Publish the pre-release
+      - name: Publish the release
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.rel.outputs.tag }}
@@ -740,9 +742,8 @@ jobs:
           gh release create "$TAG" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
-            --title "FreeTunnel ${VERSION} for Windows 7 (experimental)" \
+            --title "FreeTunnel ${VERSION} for Windows 7" \
             --notes-file notes.md \
-            --prerelease \
             --latest=false \
             artifacts/freetunnel-windows7-x86_64-Setup.exe \
             artifacts/freetunnel-windows7-x86_64-portable.zip \

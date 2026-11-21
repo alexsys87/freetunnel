@@ -192,6 +192,11 @@ public:
     // Export: a shareable tt:// deep link, or a full .toml written to disk
     // (both carry the password — pulled from the OS keychain).
     Q_INVOKABLE QString configDeepLink(int index) const;
+    // That link as a QR code, for a phone to scan (the Android app's Scan QR code):
+    // {size, modules} as QrMatrix makes them, size 0 when the link is too long for
+    // one (a pinned certificate can make it so), and an empty map when there is no
+    // link to make (configDeepLink is empty).
+    Q_INVOKABLE QVariantMap configQrCode(int index) const;
     // A row's config file, and back. An action that outlives its row — a menu, a
     // save dialog, a confirmation — remembers the file: an import prepends to the
     // list and every row below moves.

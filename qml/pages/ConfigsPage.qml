@@ -31,6 +31,7 @@ Item {
     }
     function exportPicked(v) {
         if (v === "toml") { tomlSaveDlg.open(); return }
+        if (v === "qr") { showQrCode(); return }
         if (v !== "link") return
         const row = rowOf(cfgRoot.exportPath)
         if (row < 0) return
@@ -40,6 +41,21 @@ Item {
             shell.showToast(qsTr("Deep-link copied — it contains the password, share it carefully"))
         } else {
             shell.showToast(qsTr("Couldn’t build deep-link"))
+        }
+    }
+    // The same link as Copy deep-link, as a QR code a phone scans in: the Android
+    // app's Scan QR code. A link with a long certificate chain can be too long for
+    // any QR code; the file then carries it.
+    function showQrCode() {
+        const row = rowOf(cfgRoot.exportPath)
+        if (row < 0) return
+        const code = backend.configQrCode(row)
+        if (code.size === undefined) {
+            shell.showToast(qsTr("Couldn’t build deep-link"))
+        } else if (code.size <= 0) {
+            shell.showToast(qsTr("The deep-link is too long for a QR code — export .toml instead"))
+        } else {
+            shell.showQrCode(qsTr("“%1”").arg(shell.elideMiddle(cfgRoot.exportName, 36)), code.size, code.modules)
         }
     }
     function exportToml(fileUrl) {
@@ -232,7 +248,8 @@ Item {
                             onClicked: {
                                 cfgRoot.exportPath = backend.configPath(index); cfgRoot.exportName = modelData
                                 shell.showSelect(parent,
-                                    [{v: "toml", t: qsTr("Export .toml…")}, {v: "link", t: qsTr("Copy deep-link")}], "",
+                                    [{v: "toml", t: qsTr("Export .toml…")}, {v: "link", t: qsTr("Copy deep-link")},
+                                     {v: "qr", t: qsTr("Show QR code")}], "",
                                     cfgRoot.exportPicked)
                             } } }
                     // A pencil: it opens the editor. It was ⋯, which promises a menu,

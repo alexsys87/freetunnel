@@ -5,6 +5,29 @@ built from the section below it, so this file is the description of the release 
 write it before tagging. For the full commit history of a release, follow the
 compare link at the bottom of its release notes.
 
+## 1.4.0
+
+### Added
+
+- **Show QR code.** A config's export menu on the Configs page (the arrow beside
+  its name) has *Show QR code* under *Export .toml…* and *Copy deep-link*: the
+  same deep link as a QR code, which FreeTunnel for Android 1.1 reads with *+ →
+  Scan QR code*. It carries the password, as the link does, so the card says to
+  show it only to the phone the server is being added to. A link with a long
+  certificate chain can be too long for a QR code; the page then says to export
+  the .toml instead.
+
+### Changed
+
+- **The VPN core is TrustTunnel 1.3.0** on Windows, macOS and Linux, up from
+  1.1.12, with NativeLibsCommon 8.2.1 and DnsLibs 2.11.0-alpha.2: the Chrome and
+  Firefox TLS handshakes it imitates are November 2026's, and it has the fixes
+  of its 1.3 releases. FreeTunnel for Android 1.1 has the same core, and so
+  does the Windows 7 build.
+- **Windows 7 is no longer experimental.** FreeTunnel for Windows 7 SP1 (64-bit)
+  has been used for weeks and is released as `win7-1.4.0` beside this one, no
+  longer as a pre-release. What the machine needs is in `win7/README.md`.
+
 ## 1.3.2
 
 ### Changed

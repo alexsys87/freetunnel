@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(FreeTunnel VERSION 1.3.2 LANGUAGES CXX)
+project(FreeTunnel VERSION 1.4.0 LANGUAGES CXX)
 
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
@@ -135,6 +135,10 @@ add_executable(FreeTunnel WIN32 MACOSX_BUNDLE
     include/core/ConfigStore.h
     src/core/DeepLink.cpp
     include/core/DeepLink.h
+    src/core/QrMatrix.cpp
+    include/core/QrMatrix.h
+    vendor/qrcodegen/qrcodegen.cpp
+    vendor/qrcodegen/qrcodegen.hpp
     src/core/ConfigImport.cpp
     include/core/ConfigImport.h
     src/core/Subscription.cpp

@@ -32,6 +32,7 @@
 #include "core/ConfigPaths.h"
 #include "core/ConfigStore.h"
 #include "core/ConfigToml.h"
+#include "core/QrMatrix.h"
 #include "core/CredentialStore.h"
 #include "core/DeepLink.h"
 
@@ -624,6 +625,14 @@ void TestBackendConfig::readAccessorsRejectOutOfRangeIndexes()
     QVERIFY(backend.createConfig(form(QStringLiteral("Alpha"), QStringLiteral("a"))));
     QVERIFY(backend.configFields(1).isEmpty()); // one past the end
     QVERIFY(backend.configDeepLink(1).isEmpty());
+    // No link, no code: an empty map, not a code of nothing.
+    QVERIFY(backend.configQrCode(-1).isEmpty());
+    QVERIFY(backend.configQrCode(1).isEmpty());
+    // The code of a config is the code of its link.
+    const QVariantMap code = backend.configQrCode(0);
+    QCOMPARE(code.value(QStringLiteral("size")).toInt(), QrMatrix::encode(backend.configDeepLink(0)).size);
+    QVERIFY(code.value(QStringLiteral("size")).toInt() >= 21);
+    QCOMPARE(code.value(QStringLiteral("modules")).toString(), QrMatrix::encode(backend.configDeepLink(0)).modules);
     // An empty destination is not a path — exporting there must fail, not write
     // the password to some default location.
     QVERIFY(!backend.exportConfigToml(0, QString()));

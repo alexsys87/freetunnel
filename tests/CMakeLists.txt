@@ -162,6 +162,15 @@ target_include_directories(test_deeplink PRIVATE ../include ../include/core)
 target_link_libraries(test_deeplink PRIVATE Qt6::Core Qt6::Test)
 add_test(NAME deeplink COMMAND test_deeplink -o ${CMAKE_CURRENT_BINARY_DIR}/report-deeplink.txt,txt)
 
+add_executable(test_qrmatrix
+    test_qrmatrix.cpp
+    ../src/core/QrMatrix.cpp
+    ../vendor/qrcodegen/qrcodegen.cpp
+)
+target_include_directories(test_qrmatrix PRIVATE ../include ../include/core)
+target_link_libraries(test_qrmatrix PRIVATE Qt6::Core Qt6::Test)
+add_test(NAME qrmatrix COMMAND test_qrmatrix -o ${CMAKE_CURRENT_BINARY_DIR}/report-qrmatrix.txt,txt)
+
 add_executable(test_safe_fileread
     test_safe_fileread.cpp
     ../src/core/AppUiUtils.cpp
@@ -202,6 +211,8 @@ set(APP_STARTUP_TEST_SOURCES
     ../src/core/AppImagePath.cpp
     ../src/app/BackendLogs.cpp
     ../src/app/BackendConfig.cpp
+    ../src/core/QrMatrix.cpp
+    ../vendor/qrcodegen/qrcodegen.cpp
     ../src/app/BackendConfigCreate.cpp
     ../src/app/BackendConfigImport.cpp
     ../src/app/BackendConfigShared.cpp
@@ -278,6 +289,8 @@ set(BACKEND_IMPORT_TEST_SOURCES
     ../src/core/AppImagePath.cpp
     ../src/app/BackendLogs.cpp
     ../src/app/BackendConfig.cpp
+    ../src/core/QrMatrix.cpp
+    ../vendor/qrcodegen/qrcodegen.cpp
     ../src/app/BackendConfigCreate.cpp
     ../src/app/BackendConfigImport.cpp
     ../src/app/BackendConfigShared.cpp
@@ -794,6 +807,8 @@ set(BACKEND_TEST_SOURCES
     ../src/core/AppImagePath.cpp
     ../src/app/BackendLogs.cpp
     ../src/app/BackendConfig.cpp
+    ../src/core/QrMatrix.cpp
+    ../vendor/qrcodegen/qrcodegen.cpp
     ../src/app/BackendConfigCreate.cpp
     ../src/app/BackendConfigImport.cpp
     ../src/app/BackendConfigShared.cpp
