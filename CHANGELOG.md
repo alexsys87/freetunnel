@@ -22,8 +22,11 @@ compare link at the bottom of its release notes.
 - **The VPN core is TrustTunnel 1.3.0** on Windows, macOS and Linux, up from
   1.1.12, with NativeLibsCommon 8.2.1 and DnsLibs 2.11.0-alpha.2: the Chrome and
   Firefox TLS handshakes it imitates are November 2026's, and it has the fixes
-  of its 1.3 releases. FreeTunnel for Android 1.1 has the same core. The
-  experimental Windows 7 build stays on 1.1.12 for now.
+  of its 1.3 releases. FreeTunnel for Android 1.1 has the same core, and so
+  does the Windows 7 build.
+- **Windows 7 is no longer experimental.** FreeTunnel for Windows 7 SP1 (64-bit)
+  has been used for weeks and is released as `win7-1.4.0` beside this one, no
+  longer as a pre-release. What the machine needs is in `win7/README.md`.
 
 ## 1.3.2
 

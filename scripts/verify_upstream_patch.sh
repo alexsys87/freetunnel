@@ -3,8 +3,8 @@
 # in filename order — they build on each other, see setup-upstream-tree.sh.
 #
 # usage: verify_upstream_patch.sh [<pin file>]
-#   The pin file is scripts/upstream_ref.txt (Windows, macOS and Linux) by
-#   default; scripts/upstream_ref_win7.txt is the Windows 7 build's.
+#   The pin file is scripts/upstream_ref.txt by default; another one can be
+#   given to try a core before it is pinned.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -119,18 +119,17 @@ CHECKED_CONFIG_KEYS="
   endpoint.password endpoint.skip_verification endpoint.anti_dpi
   endpoint.has_ipv6 endpoint.certificate endpoint.upstream_protocol
   endpoint.client_random endpoint.dns_upstreams
+  endpoint.tls_profile endpoint.client_random_auth_key
   listener.socks listener.tun
   listener.socks.address listener.socks.username listener.socks.password
   listener.tun.bound_if listener.tun.use_existing listener.tun.device_name
   listener.tun.mtu_size listener.tun.tcp_recv_buf_size
   listener.tun.tcp_send_buf_size listener.tun.change_system_dns
   listener.tun.netns listener.tun.included_routes listener.tun.excluded_routes"
-# Keys only a newer core reads, so the scan does not miss them on a pin that
-# predates them (Windows 7's may): TrustTunnel 1.3 reads the TLS profile
-# a ClientHello mimics and the key its client random is derived from. Neither
-# names a file, an interface or a port, so the helper passes them on as the GUI
-# sent them.
-CHECKED_NEWER_CONFIG_KEYS="endpoint.tls_profile endpoint.client_random_auth_key"
+# endpoint.tls_profile and endpoint.client_random_auth_key (TrustTunnel 1.3) are the
+# TLS profile a ClientHello mimics and the key its client random is derived from.
+# Neither names a file, an interface or a port, so the helper passes them on as
+# the GUI sent them.
 
 # Read every file of the core that handles a TOML table, not only config.cpp, so
 # that a parser moved into a file of its own is still read. The CLI and the
@@ -155,10 +154,9 @@ fi
 # table it is. A listed key the scan no longer finds is reported too, because it
 # may only have moved where the scan cannot see, and the next key added there
 # would pass unseen. If upstream really dropped it, take it off the list.
-problems="$(LC_ALL=C awk -v checked="${CHECKED_CONFIG_KEYS//$'\n'/ }" -v newer="$CHECKED_NEWER_CONFIG_KEYS" '
+problems="$(LC_ALL=C awk -v checked="${CHECKED_CONFIG_KEYS//$'\n'/ }" '
   BEGIN {
     n = split(checked, keys); for (i = 1; i <= n; i++) listed[keys[i]] = 1
-    m = split(newer, later); for (i = 1; i <= m; i++) listed[later[i]] = 1
     # A table (a variable, (*variable), or the "]" or ")" ending an expression),
     # then ["key"] or a lookup member called with "key"; or at_path(table, "key").
     name = "[A-Za-z_][A-Za-z0-9_]*"

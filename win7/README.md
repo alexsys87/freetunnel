@@ -1,14 +1,15 @@
-# FreeTunnel on Windows 7 (experimental)
+# FreeTunnel on Windows 7
 
-FreeTunnel's releases need Windows 10 or 11. This folder and
-[`.github/workflows/win7.yml`](../.github/workflows/win7.yml) produce a separate,
-**unofficial** build for Windows 7 SP1 (x64). It is not part of the
-desktop's releases, is not a required check, and nobody has yet run it on a real
-Windows 7 machine — see [What has been checked](#what-has-been-checked).
+FreeTunnel's Windows release needs Windows 10 or 11. This folder and
+[`.github/workflows/win7.yml`](../.github/workflows/win7.yml) produce the build
+for Windows 7 SP1 (x64), released as `win7-X.Y.Z` beside each `vX.Y.Z`. It has
+been used on Windows 7 machines for weeks and is no longer experimental (since
+1.4.0); see [What has been checked](#what-has-been-checked). Its workflow is not
+a required check of a pull request.
 
 ## Getting the build
 
-Actions → **Windows 7 (experimental)** → **Run workflow**. The run also starts
+Actions → **Windows 7** → **Run workflow**. The run also starts
 on any pull request that changes the files it is built from. Its artifact,
 `freetunnel-windows7-x86_64`, holds:
 
@@ -21,7 +22,7 @@ on any pull request that changes the files it is built from. Its artifact,
 To publish the result as a release, run it on `main` with **publish** ticked
 (Actions → Run workflow → Use workflow from `main`). Once the build and its
 import check have passed, the `release` job signs the checksums with the
-project's release key and makes the pre-release `win7-X.Y.Z` (X.Y.Z is the
+project's release key and makes the release `win7-X.Y.Z` (X.Y.Z is the
 project version) with the two files, `win7-import-check.md`,
 `SHA256SUMS-windows7.txt` and its `.sig`. It is never the latest release, so the
 in-app update check keeps following the desktop's `v*` releases. A published
@@ -98,11 +99,13 @@ In CI, on every run:
   not every Windows 7 export table, so a clean report means "nothing known to
   be missing", not "works".
 
-Not checked: starting it on Windows 7. The VPN core itself targets Windows 7
-(`_WIN32_WINNT=0x0601`) and Wintun 0.14.1 supports it, but whether the window
-draws, the tray icon and hotkeys work, the helper service installs and a
-connection comes up has to be tried on a real machine. If you do, please open
-an issue with what happened.
+By hand: the releases up to 1.3.2 were used on Windows 7 machines for weeks
+(the window, the tray icon and hotkeys, the helper service, connections), which
+is what made 1.4.0 the first one not marked experimental. The VPN core targets
+Windows 7 (`_WIN32_WINNT=0x0601`) and Wintun 0.14.1 supports it. From 1.4.0 it
+builds the same core as the other desktop releases (TrustTunnel 1.3.0); the
+import check above is what a new core goes through here. If something does not
+work, please open an issue with what happened.
 
 ## If it does not start
 

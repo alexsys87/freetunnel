@@ -103,7 +103,7 @@ this to run the app; the unit tests do not.
 
 | Tool | Version | Notes |
 | --- | --- | --- |
-| **TrustTunnelClient** upstream checkout | The commit in `scripts/upstream_ref.txt` (Windows 7: `scripts/upstream_ref_win7.txt`) | [TrustTunnel/TrustTunnelClient](https://github.com/TrustTunnel/TrustTunnelClient) |
+| **TrustTunnelClient** upstream checkout | The commit in `scripts/upstream_ref.txt` | [TrustTunnel/TrustTunnelClient](https://github.com/TrustTunnel/TrustTunnelClient) |
 | CMake | 3.24+ | The upstream tree requires it; the unit tests alone configure with 3.16+ |
 | C++ compiler | C++20 | clang recommended for Linux |
 | Qt | 6.8+ (Gui, Qml, Quick, Network, Svg) | CI and the releases use 6.11.3, and the translation check needs exactly that (see [Translations (i18n)](#translations-i18n)) |
@@ -138,7 +138,6 @@ git clone https://github.com/dimmmmmmmer/freetunnel.git FreeTunnel   # or symlin
 
 # The pinned upstream commit lives in exactly one place. Read it, never retype it —
 # CI verifies the vendored patches against this same file.
-# For the Windows 7 build, its own pin: FreeTunnel/scripts/upstream_ref_win7.txt.
 git checkout "$(tr -d '[:space:]' < FreeTunnel/scripts/upstream_ref.txt)"
 
 # Ensure upstream CMakeLists.txt adds the subdirectory when BUILD_TRUSTTUNNEL_QT=ON
@@ -321,7 +320,7 @@ bash scripts/coverage-upstream-report.sh
 | `.github/workflows/tests.yml` | Fast unit tests (Linux + macOS + Windows) through `scripts/run-ctest.sh`; Linux coverage + ASan+UBSan ([details](#coverage-and-sanitizers)) | Pushes to `main`, pull requests, `v*` tags, and weekly (Mon) |
 | `.github/workflows/security.yml` | The checks below | Pushes to `main`, pull requests, `v*` tags, and weekly (Mon) |
 | `.github/workflows/core-update.yml` | Opens a pull request when TrustTunnelClient has a stable release newer than the pinned core ([details](#bumping-the-upstream-core)) | Daily, and by hand |
-| `.github/workflows/win7.yml` | Experimental Windows 7 build: Qt 6.8.5 with a Windows 7 backport and OpenSSL, BoringSSL with a randomness fallback, and an import check of every binary in the package. Not a release and not a required check ([details](win7/README.md)) | By hand, and on pull requests that change its files |
+| `.github/workflows/win7.yml` | The Windows 7 build: Qt 6.8.5 with a Windows 7 backport and OpenSSL, BoringSSL with a randomness fallback, and an import check of every binary in the package. Published by hand from `main` as `win7-X.Y.Z` beside each `v*` release; not a required check ([details](win7/README.md)) | By hand, and on pull requests that change its files or the core pin |
 
 - **On a `v*` tag** the release waits for Tests and Security to pass on the
   tagged commit, and is refused outright, within a minute of the push, when the
@@ -335,7 +334,7 @@ Security's checks:
 | `cppcheck` | cppcheck on `src/` and `include/` |
 | `clang-tidy` | `scripts/run-clang-tidy.sh` |
 | `dependency review` | Dependency review, on pull requests |
-| `upstream patch verify` | `scripts/verify_upstream_patch.sh` against `scripts/upstream_ref.txt`, then against `scripts/upstream_ref_win7.txt` |
+| `upstream patch verify` | `scripts/verify_upstream_patch.sh` against `scripts/upstream_ref.txt` |
 | `i18n catalog freshness` | `scripts/i18n-verify.sh` |
 | `pinned dependency refs` | `scripts/check-pinned-deps.sh` |
 
@@ -460,19 +459,9 @@ The upstream ref is pinned in
 [`scripts/upstream_ref.txt`](scripts/upstream_ref.txt). The workflows read that
 file rather than carrying a SHA of their own.
 
-The Windows 7 build (`win7.yml`) has a pin of its own,
-[`scripts/upstream_ref_win7.txt`](scripts/upstream_ref_win7.txt), so that it
-takes a new core only once that core has been tried there. It is TrustTunnel
-1.1.12 while Windows, macOS and Linux are on 1.3.0. Both take the same patches
-in `vendor/trusttunnel/`: Security verifies them against both pins, and step 2
-below applies to it as well
-(`bash scripts/verify_upstream_patch.sh scripts/upstream_ref_win7.txt`).
-FreeTunnel's code builds against either core: where their API differs
-(`connect()` takes `ConnectOptions` from 1.3 on),
-`src/vpn/qt_trusttunnel_connect.cpp` calls the one the core has. The Core
-update workflow moves `upstream_ref.txt` alone, and a `v*` tag checks that pin
-alone; `win7-*` pre-releases are experimental. Once both pins name the same
-commit again, the Windows 7 file can go.
+The Windows 7 build (`win7.yml`) reads the same pin, so a core bump changes it
+too: its pull request runs that workflow, whose import check fails on anything
+the new core needs that Windows 7 does not have.
 
 The **Core update** workflow (`.github/workflows/core-update.yml`) looks for a
 newer stable release once a day (`scripts/latest-core-release.sh`, which you

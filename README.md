@@ -44,6 +44,7 @@ Get the build for your platform from
 | Platform | File |
 | --- | --- |
 | **Windows 10/11** | `freetunnel-windows-x86_64-Setup.exe` |
+| **Windows 7 SP1** (64-bit) | `freetunnel-windows7-x86_64-Setup.exe`, in the [`win7-X.Y.Z` release](https://github.com/alexsys87/freetunnel/releases) of the same version ([what it needs](win7/README.md)) |
 | **macOS 13 or newer** (Apple Silicon + Intel) | `freetunnel-macos-universal.dmg` |
 | **Linux** (Debian/Ubuntu/Pop!_OS) | `freetunnel-linux-x86_64.deb` |
 | **Linux** (portable, most distros with glibc 2.35 or newer: Ubuntu 22.04+, Debian 12+, Fedora, Arch…) | `freetunnel-x86_64.AppImage` |

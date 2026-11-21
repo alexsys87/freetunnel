@@ -1,10 +1,10 @@
-FreeTunnel for Windows 7 (experimental build)
-=============================================
+FreeTunnel for Windows 7
+========================
 
-This is an unofficial build of FreeTunnel for Windows 7 SP1, made by the
-"Windows 7 (experimental)" workflow (.github/workflows/win7.yml). It is not a
-FreeTunnel release. THIRD_PARTY_NOTICES.md next to this file describes the
-regular Windows build; this build differs from it as follows.
+This is FreeTunnel for Windows 7 SP1, made by the "Windows 7" workflow
+(.github/workflows/win7.yml) and released as win7-X.Y.Z. THIRD_PARTY_NOTICES.md
+next to this file describes the regular Windows build; this build differs from
+it as follows.
 
 Qt
 --

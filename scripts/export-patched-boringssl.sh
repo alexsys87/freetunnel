@@ -31,8 +31,7 @@ set -euo pipefail
 NLC_COMMIT="9d05accbe1f22764350fd5dcd6726244be0b2b96"
 # Digest of conan/recipes/boringssl at that commit (see recipe_digest below). The
 # same as at v8.2.0 and v8.1.54, the previous pins: the recipe did not change
-# between them. So the Windows 7 build, whose core (scripts/upstream_ref_win7.txt)
-# asks for 8.2.0, gets the very recipe 8.2.0 has.
+# between them.
 NLC_RECIPE_SHA256="985e54fe4cc407953fbd4840cc108ee84606bd7fe6fe0e88a1b0fc1b8d11bbe5"
 NLC_URL="https://github.com/AdguardTeam/NativeLibsCommon.git"
 
