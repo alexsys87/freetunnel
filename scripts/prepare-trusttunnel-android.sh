@@ -4,7 +4,7 @@ repo_dir="$(cd -- "$(dirname -- "$0")/.." && pwd)"
 # The core the app is built on: its version, and the SHA-256 of the official AAR of it. Its name must match
 # coreAar in android/app/build.gradle, and its digest verifyPinnedRuntime's there.
 version="1.3.0"
-expected="0000000000000000000000000000000000000000000000000000000000000000"
+expected="c95f55817633663cdd3b79d5b8eb1f7926201ab1c5bcef9800ebabefc856e600"
 artifact="trusttunnel-client-android-$version.aar"
 destination="$repo_dir/android/app/libs/$artifact"
 if [[ -f "$destination" ]] && printf '%s  %s\n' "$expected" "$destination" | shasum -a 256 -c - >/dev/null 2>&1; then

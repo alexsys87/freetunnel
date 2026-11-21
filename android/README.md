@@ -524,7 +524,7 @@ scripts/prepare-trusttunnel-android.sh
 
 The public AAR download needs no GitHub PAT. Its SHA-256 is checked during
 preparation and every build:
-`ef66909c00813fd50255900f89b320a998e2a1c74bbd4aa83369fc7f7e310aca`.
+`c95f55817633663cdd3b79d5b8eb1f7926201ab1c5bcef9800ebabefc856e600`.
 
 The script fetches the AAR from this repository's own mirror first, a release
 named `core-android-1.3.0` with `trusttunnel-client-android-1.3.0.aar` attached,
