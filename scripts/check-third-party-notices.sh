@@ -52,6 +52,8 @@ need "the Qt version (QT_VER in .github/workflows/build.yml)" \
   "Qt $(sed -nE "s/^[[:space:]]*QT_VER:[[:space:]]*'([^']+)'.*/\1/p" .github/workflows/build.yml | head -n 1)"
 need "the TrustTunnelClient commit (scripts/upstream_ref.txt)" \
   "$(tr -d '[:space:]' < scripts/upstream_ref.txt)"
+need "the Windows build's TrustTunnelClient commit (scripts/upstream_ref_windows.txt)" \
+  "$(tr -d '[:space:]' < scripts/upstream_ref_windows.txt)"
 need "the NativeLibsCommon commit (scripts/export-patched-boringssl.sh)" \
   "$(sed -nE 's/^NLC_COMMIT="([0-9a-f]{40})"$/\1/p' scripts/export-patched-boringssl.sh)"
 need "the QHotkey commit (CMakeLists.txt)" \

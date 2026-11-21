@@ -1,10 +1,15 @@
 #!/usr/bin/env bash
 # Verify every patch in vendor/trusttunnel/ applies to the pinned upstream ref,
 # in filename order — they build on each other, see setup-upstream-tree.sh.
+#
+# usage: verify_upstream_patch.sh [<pin file>]
+#   The pin file is scripts/upstream_ref.txt (Linux, macOS and Windows 7) by
+#   default; scripts/upstream_ref_windows.txt is the Windows build's.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-REF="$(tr -d '[:space:]' < "$ROOT/scripts/upstream_ref.txt")"
+REF_FILE="${1:-$ROOT/scripts/upstream_ref.txt}"
+REF="$(tr -d '[:space:]' < "$REF_FILE")"
 PATCHES=("$ROOT"/vendor/trusttunnel/*.patch)
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
@@ -120,14 +125,21 @@ CHECKED_CONFIG_KEYS="
   listener.tun.mtu_size listener.tun.tcp_recv_buf_size
   listener.tun.tcp_send_buf_size listener.tun.change_system_dns
   listener.tun.netns listener.tun.included_routes listener.tun.excluded_routes"
+# Keys only a newer core reads, so the scan does not miss them on a pin that
+# predates them: TrustTunnel 1.3 (the Windows build's pin) reads the TLS profile
+# a ClientHello mimics and the key its client random is derived from. Neither
+# names a file, an interface or a port, so the helper passes them on as the GUI
+# sent them.
+CHECKED_NEWER_CONFIG_KEYS="endpoint.tls_profile endpoint.client_random_auth_key"
 
 # Read every file of the core that handles a TOML table, not only config.cpp, so
 # that a parser moved into a file of its own is still read. The CLI and the
 # per-platform front-ends parse configs of their own, and FreeTunnel uses neither.
+# Nor its tests (trusttunnel/test since 1.3), which read the tables they build.
 mapfile -t TOML_SOURCES < <(grep -rlE \
   --include='*.cpp' --include='*.cc' --include='*.h' --include='*.hpp' \
   --include='*.mm' --exclude-dir=.git --exclude-dir=third-party \
-  --exclude-dir=platform 'toml::' "$TMP/upstream" \
+  --exclude-dir=platform --exclude-dir=test 'toml::' "$TMP/upstream" \
   | grep -v '/trusttunnel/src/trusttunnel_client\.cpp$' | LC_ALL=C sort)
 if (( ${#TOML_SOURCES[@]} == 0 )); then
   echo "error: no upstream source handles a TOML table; where is the config read now?" >&2
@@ -143,9 +155,10 @@ fi
 # table it is. A listed key the scan no longer finds is reported too, because it
 # may only have moved where the scan cannot see, and the next key added there
 # would pass unseen. If upstream really dropped it, take it off the list.
-problems="$(LC_ALL=C awk -v checked="${CHECKED_CONFIG_KEYS//$'\n'/ }" '
+problems="$(LC_ALL=C awk -v checked="${CHECKED_CONFIG_KEYS//$'\n'/ }" -v newer="$CHECKED_NEWER_CONFIG_KEYS" '
   BEGIN {
     n = split(checked, keys); for (i = 1; i <= n; i++) listed[keys[i]] = 1
+    m = split(newer, later); for (i = 1; i <= m; i++) listed[later[i]] = 1
     # A table (a variable, (*variable), or the "]" or ")" ending an expression),
     # then ["key"] or a lookup member called with "key"; or at_path(table, "key").
     name = "[A-Za-z_][A-Za-z0-9_]*"
@@ -183,6 +196,10 @@ problems="$(LC_ALL=C awk -v checked="${CHECKED_CONFIG_KEYS//$'\n'/ }" '
     if (obj == "config" && fn == "build_config") return key
     if (obj == "config" && fn == "build_endpoint") return "endpoint." key
     if (obj == "config" && fn ~ /_listener_config$/) return "listener." key
+    # 1.3: the [endpoint] table a deep link is made from, read out of a config.
+    # FreeTunnel never calls it, but a key it reads is still one the core knows.
+    if (obj == "config" && fn == "build_deeplink_export_table") return key
+    if (obj == "endpoint" && fn == "build_deeplink_export_table") return "endpoint." key
     if (obj !~ /^[A-Za-z_]/) obj = "an expression"
     return "\"" key "\" on " obj " in " fn "(), which this scan cannot place in a table"
   }

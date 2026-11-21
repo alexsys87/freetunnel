@@ -20,6 +20,25 @@
 #include <unistd.h>
 #endif
 
+// The core's connect(), on either core this builds against. TrustTunnel 1.3 (the
+// Windows build's pin, scripts/upstream_ref_windows.txt) takes ConnectOptions as
+// well; 1.1.12 (Linux, macOS, Windows 7) and the mock core in tests do not. The
+// options are the defaults, fall_into_recovery off: what a first connect does
+// that fails is already decided by vendor/trusttunnel/03, which puts it into the
+// core's recovery loop when the kill switch is on, after the options are read,
+// so on both cores the session behaves the same.
+template <typename Client>
+static auto connectAutoSetup(Client &client, int)
+    -> decltype(client.connect(typename Client::AutoSetup{}, typename Client::ConnectOptions{}))
+{
+    return client.connect(typename Client::AutoSetup{}, typename Client::ConnectOptions{});
+}
+template <typename Client>
+static auto connectAutoSetup(Client &client, long) -> decltype(client.connect(typename Client::AutoSetup{}))
+{
+    return client.connect(typename Client::AutoSetup{});
+}
+
 #if defined(Q_OS_WIN)
 // The adapter the core must keep its own traffic on, chosen before the tunnel
 // exists so that the tunnel can never be chosen.
@@ -345,7 +364,7 @@ bool QtTrustTunnelClient::applySystemDns(const AttemptPtr &ctx)
 void QtTrustTunnelClient::establishTunnel(const AttemptPtr &ctx)
 {
     ctx->startedAt = std::chrono::steady_clock::now();
-    const auto err = ctx->client->connect(ag::TrustTunnelClient::AutoSetup{});
+    const auto err = connectAutoSetup(*ctx->client, 0);
     if (!err) {
         ctx->outcome = ConnectAttempt::Outcome::Connected;
         return;

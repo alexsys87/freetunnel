@@ -135,6 +135,10 @@ add_executable(FreeTunnel WIN32 MACOSX_BUNDLE
     include/core/ConfigStore.h
     src/core/DeepLink.cpp
     include/core/DeepLink.h
+    src/core/QrMatrix.cpp
+    include/core/QrMatrix.h
+    vendor/qrcodegen/qrcodegen.cpp
+    vendor/qrcodegen/qrcodegen.hpp
     src/core/ConfigImport.cpp
     include/core/ConfigImport.h
     src/core/Subscription.cpp

@@ -18,6 +18,9 @@ check() {
 }
 
 check "upstream ref" '^[0-9a-f]{40}$' scripts/upstream_ref.txt
+# The Windows build's core, which may be newer than the others' (see build.yml).
+check "Windows upstream ref" '^[0-9a-f]{40}$' scripts/upstream_ref_windows.txt
+check "Windows upstream ref in build workflow" 'upstream_ref_windows\.txt' .github/workflows/build.yml
 check "upstream ref in build workflow" 'UPSTREAM_REF|upstream_ref' .github/workflows/build.yml
 # A tag proves nothing — it can be repointed. Require the full commit SHA.
 check "QHotkey commit pin" 'GIT_TAG [0-9a-f]{40}' CMakeLists.txt

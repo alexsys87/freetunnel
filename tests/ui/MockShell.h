@@ -49,6 +49,16 @@ public:
     }
     QString lastConfirm;
     Q_INVOKABLE void showSelect(QObject *, const QVariant &, const QString &, const QVariant &) {}
+    // Main.qml's showQrCode: the card is window level, so the page only hands it on.
+    Q_INVOKABLE void showQrCode(const QString &title, int size, const QString &modules)
+    {
+        lastQrTitle = title;
+        lastQrSize = size;
+        lastQrModules = modules;
+    }
+    QString lastQrTitle;
+    int lastQrSize = 0;
+    QString lastQrModules;
     Q_INVOKABLE QString elide(const QString &s, int n) const;
     Q_INVOKABLE QString elideMiddle(const QString &s, int n) const;
     Q_INVOKABLE QString keyGlyphs(const QString &seq) const { return seq; }

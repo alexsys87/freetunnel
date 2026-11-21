@@ -6,8 +6,8 @@ licensed under their own terms. This file names each of those components, says
 which downloads contain it, and points to the license texts, which are in
 [licenses/](licenses/):
 
-- `licenses/common/`: components in every download (the VPN core's libraries and
-  the Inter typeface).
+- `licenses/common/`: components in every download (the VPN core's libraries,
+  the Inter typeface and the QR Code generator).
 - `licenses/desktop/`: components in the Windows, macOS and Linux downloads.
 - `licenses/android/`: components in the Android app.
 
@@ -42,9 +42,10 @@ Every download carries this file, `LICENSE` and the `licenses/` folder it needs:
 - FreeTunnel (`FreeTunnel.exe`). Compiled into it: [the VPN core and its
   libraries](#the-vpn-core-and-its-libraries) (with
   [wintun.h](#wintun) and [Microsoft Detours](#microsoft-detours), which only
-  the Windows build uses), [QHotkey](#qhotkey), [QWindowKit](#qwindowkit), [the
-  Feather and Lucide icons](#feather-and-lucide-icons) and the [Inter](#inter)
-  typeface.
+  the Windows build uses; TrustTunnel 1.3.0, a newer core than the macOS and
+  Linux builds have), [QHotkey](#qhotkey), [QWindowKit](#qwindowkit), [the QR
+  Code generator](#qr-code-generator-in-the-desktop-app), [the Feather and Lucide
+  icons](#feather-and-lucide-icons) and the [Inter](#inter) typeface.
 - Next to it: [Qt 6.11.3](#qt) with [the third-party code inside
   Qt](#third-party-code-inside-qt), [Wintun](#wintun) (`wintun.dll`),
   [Mesa llvmpipe](#mesa-llvmpipe) (`opengl32sw.dll`) and [Microsoft's
@@ -58,9 +59,9 @@ Every download carries this file, `LICENSE` and the `licenses/` folder it needs:
 `freetunnel-macos-universal.dmg` holds `FreeTunnel.app`:
 
 - FreeTunnel. Compiled into it: [the VPN core and its
-  libraries](#the-vpn-core-and-its-libraries), [QHotkey](#qhotkey), [the
-  Feather and Lucide icons](#feather-and-lucide-icons) and the [Inter](#inter)
-  typeface.
+  libraries](#the-vpn-core-and-its-libraries), [QHotkey](#qhotkey), [the QR Code
+  generator](#qr-code-generator-in-the-desktop-app), [the Feather and Lucide
+  icons](#feather-and-lucide-icons) and the [Inter](#inter) typeface.
 - In `Contents/Frameworks` and `Contents/PlugIns`: [Qt 6.11.3](#qt) with [the
   third-party code inside Qt](#third-party-code-inside-qt).
 
@@ -70,9 +71,9 @@ Every download carries this file, `LICENSE` and the `licenses/` folder it needs:
 `freetunnel-x86_64.AppImage` hold the same files:
 
 - FreeTunnel. Compiled into it: [the VPN core and its
-  libraries](#the-vpn-core-and-its-libraries), [QHotkey](#qhotkey), [the
-  Feather and Lucide icons](#feather-and-lucide-icons) and the [Inter](#inter)
-  typeface.
+  libraries](#the-vpn-core-and-its-libraries), [QHotkey](#qhotkey), [the QR Code
+  generator](#qr-code-generator-in-the-desktop-app), [the Feather and Lucide
+  icons](#feather-and-lucide-icons) and the [Inter](#inter) typeface.
 - In `lib/` and `plugins/`: [Qt 6.11.3](#qt) with [the third-party code inside
   Qt](#third-party-code-inside-qt), [ICU 73](#icu), [Ubuntu 22.04 system
   libraries](#ubuntu-2204-system-libraries) and [the GCC runtime
@@ -99,16 +100,20 @@ Every download contains the TrustTunnel VPN core. The desktop builds compile it
 from source and link it statically into FreeTunnel. In the Android app it is
 part of the TrustTunnel Android client's native library
 (`libtrusttunnel_android.so`), built by the TrustTunnel project from its own
-release, which may be an older one than the desktop builds use: where the
-versions differ, both are given below. At present the desktop builds use 1.1.12 and the Android app 1.3.0. Unless noted, each library below is
-compiled into the core in all downloads.
+release. The Windows build may also have a newer core than the macOS, Linux
+and Windows 7 builds (FreeTunnel's `scripts/upstream_ref_windows.txt` and
+`scripts/upstream_ref.txt`). Where the versions differ, each is given below. At
+present the Windows build and the Android app use 1.3.0, and the macOS, Linux
+and Windows 7 builds 1.1.12. Unless noted, each library below is compiled into
+the core in all downloads.
 
 ### TrustTunnel client core
 
 - Version: TrustTunnelClient 1.1.12, commit
-  067deb837ed994d6ae902e3bb40b69f6266af216, in the desktop builds;
-  TrustTunnelClient 1.3.0, commit 232f151ea9864849a422666f1ce73ddc1bb4de3a, in
-  the Android app. The desktop builds apply
+  067deb837ed994d6ae902e3bb40b69f6266af216, in the macOS, Linux and Windows 7
+  builds; TrustTunnelClient 1.3.0, commit
+  232f151ea9864849a422666f1ce73ddc1bb4de3a, in the Windows build and the Android
+  app. The desktop builds apply
   FreeTunnel's changes to it, which are in
   [vendor/trusttunnel/](vendor/trusttunnel/) in FreeTunnel's source; the
   Android app has it as TrustTunnel built it (see [the TrustTunnel Android
@@ -116,28 +121,29 @@ compiled into the core in all downloads.
 - License: Apache-2.0
 - Copyright: Copyright 2020 Adguard Software Ltd
 - Source: <https://github.com/TrustTunnel/TrustTunnelClient/tree/067deb837ed994d6ae902e3bb40b69f6266af216>,
-  <https://github.com/TrustTunnel/TrustTunnelClient/tree/232f151ea9864849a422666f1ce73ddc1bb4de3a> (Android)
+  <https://github.com/TrustTunnel/TrustTunnelClient/tree/232f151ea9864849a422666f1ce73ddc1bb4de3a> (Windows, Android)
 
 ### NativeLibsCommon
 
 - Version: 8.2.0, commit c546b329360642576cea25f10bdcbf41d52163df, in the
-  desktop builds; 8.2.1, commit 9d05accbe1f22764350fd5dcd6726244be0b2b96, in the
-  Android app. The conan recipes of the libraries below are the same in both.
+  macOS, Linux and Windows 7 builds; 8.2.1, commit
+  9d05accbe1f22764350fd5dcd6726244be0b2b96, in the Windows build and the Android
+  app. The conan recipes of the libraries below are the same in both.
 - License: Apache-2.0
 - Copyright: Copyright 2022 Adguard Software Ltd
 - Source: <https://github.com/AdguardTeam/NativeLibsCommon/tree/c546b329360642576cea25f10bdcbf41d52163df>,
-  <https://github.com/AdguardTeam/NativeLibsCommon/tree/9d05accbe1f22764350fd5dcd6726244be0b2b96> (Android)
+  <https://github.com/AdguardTeam/NativeLibsCommon/tree/9d05accbe1f22764350fd5dcd6726244be0b2b96> (Windows, Android)
 
 ### DnsLibs
 
 - Version: 2.11.0-alpha.1-3-g3d6359be, commit
-  3d6359be7b99e2eccbfe905e970dd08a7f1d9108, in the desktop builds;
-  2.11.0-alpha.2, commit 58b8c047a651679906cf58c384450e0c5787a628, in the
-  Android app
+  3d6359be7b99e2eccbfe905e970dd08a7f1d9108, in the macOS, Linux and Windows 7
+  builds; 2.11.0-alpha.2, commit 58b8c047a651679906cf58c384450e0c5787a628, in the
+  Windows build and the Android app
 - License: Apache-2.0
 - Copyright: Copyright 2022 Adguard Software Ltd
 - Source: <https://github.com/AdguardTeam/DnsLibs/tree/3d6359be7b99e2eccbfe905e970dd08a7f1d9108>,
-  <https://github.com/AdguardTeam/DnsLibs/tree/58b8c047a651679906cf58c384450e0c5787a628> (Android)
+  <https://github.com/AdguardTeam/DnsLibs/tree/58b8c047a651679906cf58c384450e0c5787a628> (Windows, Android)
 
 ### BoringSSL
 
@@ -448,6 +454,19 @@ Windows only: the frameless window's shadow, corners and snap layouts.
 - Copyright: Copyright (C) 2023-2025 Stdware Collections; Copyright (C)
   2021-2023 wangwenx190 (Yuhang Zhao)
 - Source: <https://github.com/stdware/qwindowkit/tree/35e88f3655720ed0537c7dd1dde243bf4a70c94c>
+
+### QR Code generator in the desktop app
+
+What the Configs page's Show QR code draws a config's deep link with, so that a
+phone can scan it in. The same project's Java library makes the Android app's
+QR codes ([QR Code generator](#qr-code-generator)).
+
+- Version: 1.8.0, commit 720f62bddb7226106071d4728c292cb1df519ceb (its C++
+  library, `qrcodegen.cpp` and `qrcodegen.hpp`, in FreeTunnel's source under
+  `vendor/qrcodegen/`, unchanged)
+- License: MIT, [licenses/common/qrcodegen.txt](licenses/common/qrcodegen.txt)
+- Copyright: Copyright (c) Project Nayuki
+- Source: <https://github.com/nayuki/QR-Code-generator/tree/v1.8.0/cpp>
 
 ### Feather and Lucide icons
 
@@ -765,7 +784,7 @@ A dependency of Tomlj.
 #### QR Code generator
 
 - Version: 1.8.0 (`io.nayuki:qrcodegen:1.8.0`)
-- License: MIT, [licenses/android/qrcodegen.txt](licenses/android/qrcodegen.txt)
+- License: MIT, [licenses/common/qrcodegen.txt](licenses/common/qrcodegen.txt)
 - Copyright: Copyright (c) Project Nayuki
 - Source: <https://github.com/nayuki/QR-Code-generator/tree/v1.8.0/java>
 
@@ -860,7 +879,7 @@ provided.
 Under [licenses/common/](licenses/common/): brotli, chromium-tldregistry,
 cxxopts, Feather-Lucide-icons, fmt, http-parser, Inter-OFL-1.1, klib, ldns,
 libevent, libsodium, libuv, llhttp, lwip, magic_enum, MPL-2.0, nghttp2, nghttp3,
-ngtcp2, nlohmann-json, pcap_savefile, pcre2-10.37, tomlplusplus, zlib.
+ngtcp2, nlohmann-json, pcap_savefile, pcre2-10.37, qrcodegen, tomlplusplus, zlib.
 
 Under [licenses/desktop/](licenses/desktop/): AFL-2.1, AppImage-runtime,
 Detours, GCC-exception-3.1, GPL-3.0, ICU-73, LGPL-2.1, LGPL-3.0,
@@ -868,5 +887,5 @@ Mesa-llvmpipe, Microsoft-redistributables, NSIS, QHotkey,
 Qt-6.11.3-third-party, Wintun.
 
 Under [licenses/android/](licenses/android/): ANTLR-4, BouncyCastle,
-checker-qual, EPL-1.0, ktoml, NOTICE-files, qrcodegen, slf4j,
+checker-qual, EPL-1.0, ktoml, NOTICE-files, slf4j,
 ThreeTen-Backport, winnow.
