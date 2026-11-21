@@ -1798,7 +1798,7 @@ class TvDeviceTest {
     }
 
     // The add menu under the + has the desktop's rows, in its order and its words, with Receive from phone first on a TV
-    // and only there; each row runs its action.
+    // and only there, and Scan QR code first on a phone or tablet with a camera and only there; each row runs its action.
     @Test fun receiveFromPhoneIsOfferedFirstOnATvAndNowhereElse() {
         val a = open()
         render(a, 1)
@@ -1811,7 +1811,8 @@ class TvDeviceTest {
         val others = listOf("add:paste" to context.getString(R.string.text_paste_from_clipboard),
             "add:file" to context.getString(R.string.add_from_file), "add:create" to context.getString(R.string.add_create_new))
         if (!isTv) {
-            assertEquals(others, rows)
+            val camera = context.packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_CAMERA_ANY)
+            assertEquals((if (camera) listOf("add:scan" to context.getString(R.string.add_scan_qr)) else emptyList()) + others, rows)
             instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
             eventually("Back closes the menu") { overlayTag(a, "addmenu") == null }
             // Create new… opens the editor, as the desktop's does.
@@ -2971,8 +2972,8 @@ class TvDeviceTest {
         onMain { method("refuseImport", Int::class.javaPrimitiveType).invoke(a, R.string.text_subscription_links_are_not_supported_yet) }
         assertEquals(listOf(context.getString(R.string.text_subscription_links_are_not_supported_yet)), toastTexts(a))
         assertNull("and no overlay is up", overlayTag(a, "confirm"))
-        onMain { method("refuseImport", Int::class.javaPrimitiveType).invoke(a, R.string.text_this_server_needs_a_newer_trusttunnel_core) }
-        assertEquals("a new one replaces the old", listOf(context.getString(R.string.text_this_server_needs_a_newer_trusttunnel_core)), toastTexts(a))
+        onMain { method("refuseImport", Int::class.javaPrimitiveType).invoke(a, R.string.text_the_configuration_contains_an_invalid_auth_key) }
+        assertEquals("a new one replaces the old", listOf(context.getString(R.string.text_the_configuration_contains_an_invalid_auth_key)), toastTexts(a))
     }
 
     // ---- Split: profiles, each config's profile, Recommended for Russia (qml/pages/SplitPage.qml) ----

@@ -184,26 +184,39 @@ class RoutingConfigTest {
         val topLevel = "client_random_auth_key = \"aabbccdd\"\n$source"
         assertEquals(topLevel, RoutingConfig.cleanImport(topLevel).toml)
     }
-    @Test fun aRealAuthKeyIsRefusedWithItsOwnMessage() {
-        // Only the empty string is no key. TrustTunnel's client reads the key as a
-        // string, untrimmed, so a blank one or one of another type is not read as none.
-        for (value in listOf("\"aabbccdd\"", "\" \"", "'00'", "5", "[\"aa\"]")) {
-            val refused = assertThrows(RoutingConfig.ImportRefused::class.java) {
-                RoutingConfig.cleanImport(withEndpointKey("client_random_auth_key = $value"))
-            }
-            assertEquals(R.string.text_this_server_needs_a_newer_trusttunnel_core, refused.messageResource)
-            assertFalse(refused.message!!.contains("aabbccdd"))
+    @Test fun aRealAuthKeyIsImportedAsWritten() {
+        // Core 1.3 derives the TLS client random from it.
+        for (value in listOf("\"aabbccdd\"", "'00'", "\"AABB\"")) {
+            val text = withEndpointKey("client_random_auth_key = $value")
+            assertEquals(text, RoutingConfig.cleanImport(text).toml)
+            RoutingConfig.validate(text)
+        }
+    }
+    @Test fun anAuthKeyTheCoreCannotUseIsRefusedWithItsOwnMessage() {
+        // TrustTunnel's client reads the key as a string, untrimmed, and does not check it:
+        // a blank one, one of another type or one that is not whole bytes of hex is refused.
+        for (value in listOf("\" \"", "5", "[\"aa\"]", "\"abc\"", "\"zz\"", "\"0xaa\"")) {
+            val text = withEndpointKey("client_random_auth_key = $value")
+            val refused = assertThrows(RoutingConfig.ImportRefused::class.java) { RoutingConfig.cleanImport(text) }
+            assertEquals(R.string.text_the_configuration_contains_an_invalid_auth_key, refused.messageResource)
+            assertThrows(IllegalArgumentException::class.java) { RoutingConfig.validate(text) }
         }
         // Refused before anything is dropped: the subscription changes nothing.
         assertThrows(RoutingConfig.ImportRefused::class.java) {
             RoutingConfig.cleanImport("subscription_url = \"https://a:b@vpn.example.com/s\"\n" +
-                withEndpointKey("client_random_auth_key = \"aabbccdd\""))
+                withEndpointKey("client_random_auth_key = \"zz\""))
         }
         // A dotted key at the top sets the same [endpoint] key.
         val dotted = assertThrows(RoutingConfig.ImportRefused::class.java) {
-            RoutingConfig.cleanImport("endpoint.hostname = \"vpn.example.com\"\nendpoint.client_random_auth_key = \"aabbccdd\"\n")
+            RoutingConfig.cleanImport("endpoint.hostname = \"vpn.example.com\"\nendpoint.client_random_auth_key = \"z\"\n")
         }
-        assertEquals(R.string.text_this_server_needs_a_newer_trusttunnel_core, dotted.messageResource)
+        assertEquals(R.string.text_the_configuration_contains_an_invalid_auth_key, dotted.messageResource)
+    }
+    @Test fun aTlsProfileTheCoreTakesIsValid() {
+        for (name in DeepLinkImport.TLS_PROFILES.toList() + "default") RoutingConfig.validate(withEndpointKey("tls_profile = \"$name\""))
+        for (value in listOf("\"netscape\"", "\"Chrome\"", "1")) {
+            assertThrows(IllegalArgumentException::class.java) { RoutingConfig.validate(withEndpointKey("tls_profile = $value")) }
+        }
     }
     @Test fun subscriptionAddressesAreDroppedBeforeSaving() {
         val url = "https://alice:s3cret@vpn.example.com/subscription"
@@ -343,11 +356,11 @@ class RoutingConfigTest {
             assertFalse(imported.certificateIgnored)
             assertFalse(imported.subscriptionNotKept)
         }
-        // A real auth key, then a missing server, are what is said first, as for a link.
+        // A damaged auth key, then a missing server, are what is said first, as for a link.
         val keyed = assertThrows(RoutingConfig.ImportRefused::class.java) {
-            RoutingConfig.cleanImport(withCertificate(key).replace("has_ipv6 = false", "has_ipv6 = false\nclient_random_auth_key = \"aa\""))
+            RoutingConfig.cleanImport(withCertificate(key).replace("has_ipv6 = false", "has_ipv6 = false\nclient_random_auth_key = \"a\""))
         }
-        assertEquals(R.string.text_this_server_needs_a_newer_trusttunnel_core, keyed.messageResource)
+        assertEquals(R.string.text_the_configuration_contains_an_invalid_auth_key, keyed.messageResource)
         val onlySubscription = assertThrows(RoutingConfig.ImportRefused::class.java) {
             RoutingConfig.cleanImport(withCertificate(key, "\nsubscription_url = \"https://a:b@vpn.example.com/s\"")
                 .replace("hostname = \"vpn.example.com\"", "hostname = \"\""))
@@ -391,12 +404,17 @@ class RoutingConfigTest {
         // Without a subscription such a file is only incomplete, and validation says so.
         val incomplete = source.replace("hostname = \"vpn.example.com\"", "hostname = \"\"")
         assertEquals(incomplete, RoutingConfig.cleanImport(incomplete).toml)
-        // A real auth key is what is said first, as for a link.
+        // A damaged auth key is what is said first, as for a link; a good one changes nothing.
         val both = assertThrows(RoutingConfig.ImportRefused::class.java) {
+            RoutingConfig.cleanImport(source.replace("[listener.tun]", table)
+                .replace("hostname = \"vpn.example.com\"", "hostname = \"\"\nclient_random_auth_key = \"a\""))
+        }
+        assertEquals(R.string.text_the_configuration_contains_an_invalid_auth_key, both.messageResource)
+        val keyed = assertThrows(RoutingConfig.ImportRefused::class.java) {
             RoutingConfig.cleanImport(source.replace("[listener.tun]", table)
                 .replace("hostname = \"vpn.example.com\"", "hostname = \"\"\nclient_random_auth_key = \"aa\""))
         }
-        assertEquals(R.string.text_this_server_needs_a_newer_trusttunnel_core, both.messageResource)
+        assertEquals(R.string.text_subscription_links_are_not_supported_yet, keyed.messageResource)
     }
     @Test fun aSubscriptionSavedByAnEarlierVersionNeverReachesTheCore() {
         val url = "https://alice:s3cret@vpn.example.com/subscription"
@@ -496,8 +514,8 @@ class RoutingConfigTest {
     }
     @Test fun anEndpointExportIsRefusedForWhatItsLinkWouldBe() {
         for ((text, message) in listOf(
-            endpointExport().replace("client_random_auth_key = \"\"", "client_random_auth_key = \"aabbccdd\"") to
-                R.string.text_this_server_needs_a_newer_trusttunnel_core,
+            endpointExport().replace("client_random_auth_key = \"\"", "client_random_auth_key = \"aabbccd\"") to
+                R.string.text_the_configuration_contains_an_invalid_auth_key,
             endpointExport().replace("hostname = \"vpn.example.com\"", "hostname = \"\"") to
                 R.string.text_subscription_links_are_not_supported_yet,
             endpointExport("\"\"\"\n$key\"\"\"") to R.string.text_the_configuration_contains_an_invalid_certificate,

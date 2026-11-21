@@ -57,7 +57,6 @@ cat > "$TMP/table.jsonl" <<'TABLE'
 ["text_copy", "LogsPage", "Copy"]
 ["text_log_copied", "LogsPage", "Log copied"]
 ["text_subscription_links_are_not_supported_yet", "ConfigImport", "Subscription links aren't supported yet. Ask your provider for a regular link, or update FreeTunnel when subscriptions arrive."]
-["text_this_server_needs_a_newer_trusttunnel_core", "ConfigImport", "This server needs a newer TrustTunnel core than this version of FreeTunnel uses."]
 ["update_check", "SettingsPage", "Check for updates"]
 ["update_checking", "Backend", "Checking…"]
 ["update_available", "Backend", "Version %1 is available"]
@@ -242,6 +241,14 @@ update_error_installer
 update_unofficial
 update_disconnect_warning
 update_allow_installs
+
+## TrustTunnel core 1.3, which the app has and the desktop's core not yet: a client random auth key it can use, and the camera's QR codes
+text_the_configuration_contains_an_invalid_auth_key
+add_scan_qr
+qr_scan_hint
+qr_scan_not_a_link
+qr_scan_no_permission
+qr_scan_no_camera
 
 ## Receive from phone, which only a TV has, and the page it serves to the phone
 text_receive_from_phone

@@ -102,6 +102,7 @@ public final class MainActivity extends Activity {
     private static final int PREPARE_VPN = 22;
     private static final int EXPORT_CONFIG = 24;
     private static final int PICK_CERTIFICATE = 25;
+    private static final int SCAN_QR = 26;
     private static final String PREFS = "freetunnel";
     private String[] tabNames;
     // The Home tab is the logo, in its own greys: the app never tints it.
@@ -1898,12 +1899,14 @@ public final class MainActivity extends Activity {
         toast(getString(R.string.deep_link_copied));
     }
     // The Configs page's menu under its +: no title. A TV has no camera for a link's QR code and a remote
-    // is no way to type one, so there a phone's way in comes first; then the desktop's items, in its
-    // order and its words, and a separator before the last.
+    // is no way to type one, so there a phone's way in comes first; a phone or tablet with a camera has
+    // Scan QR code first instead. Then the desktop's items, in its order and its words, and a separator
+    // before the last.
     private void addMenu() {
         if (storageFailed) { toast(getString(R.string.text_storage_is_unavailable_saved_data_has_been_preserved)); return; }
         List<MenuEntry> items = new ArrayList<>();
         if (isTv()) items.add(new MenuEntry(getString(R.string.text_receive_from_phone), "add:receive", this::receiveFromPhone));
+        else if (hasCamera()) items.add(new MenuEntry(getString(R.string.add_scan_qr), "add:scan", this::scanQr));
         items.add(new MenuEntry(getString(R.string.text_paste_from_clipboard), "add:paste", this::pasteFromClipboard));
         items.add(new MenuEntry(getString(R.string.add_from_file), "add:file", this::pickFile));
         items.add(MenuEntry.SEPARATOR);
@@ -1914,6 +1917,12 @@ public final class MainActivity extends Activity {
     // The empty page's "Add a config" is hidden while its menu is open.
     private void refreshConfigsHint() {
         if (configsHint != null) configsHint.setVisibility(overlay("addmenu") != null ? View.INVISIBLE : View.VISIBLE);
+    }
+    private boolean hasCamera() { return getPackageManager().hasSystemFeature(PackageManager.FEATURE_CAMERA_ANY); }
+    // The camera's picture (QrScanActivity), which asks for the camera's permission itself; the link it finds is
+    // imported as a pasted one, with the same question before anything is added.
+    private void scanQr() {
+        if (!startForResult(new Intent(this, QrScanActivity.class), SCAN_QR)) toast(getString(R.string.qr_scan_no_camera));
     }
     private void pasteFromClipboard() {
         ClipboardManager cm = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
@@ -2563,6 +2572,13 @@ public final class MainActivity extends Activity {
             certificateTarget = null;
             Uri picked = resultCode == RESULT_OK && data != null ? data.getData() : null;
             if (target != null && picked != null) readCertificate(picked, target);
+            return;
+        }
+        if (requestCode == SCAN_QR) {
+            String text = resultCode == RESULT_OK && data != null ? data.getStringExtra(QrScanActivity.EXTRA_TEXT) : null;
+            if (text != null) importDeepLink(text, null);
+            else if (resultCode == QrScanActivity.RESULT_NO_PERMISSION) toast(getString(R.string.qr_scan_no_permission));
+            else if (resultCode == QrScanActivity.RESULT_NO_CAMERA) toast(getString(R.string.qr_scan_no_camera));
             return;
         }
         if (requestCode == EXPORT_CONFIG) {

@@ -773,7 +773,7 @@ class UiTourDeviceTest {
             goTo(1)
             activate("configs:add")
             awaitOverlay("addmenu")
-            shot("configs-add-menu", "The add menu under +: ${if (isTv) "Receive from phone first on a TV, " else ""}Paste from clipboard, From file…, Create new…")
+            shot("configs-add-menu", "The add menu under +: ${if (isTv) "Receive from phone first on a TV, " else "Scan QR code first where there is a camera, "}Paste from clipboard, From file…, Create new…")
         }
         screen("configs-export-menu") {
             goTo(1)

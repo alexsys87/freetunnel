@@ -8,6 +8,12 @@
     <!-- Android TV. Neither is required, so phones and TVs install the same APK. -->
     <uses-feature android:name="android.software.leanback" android:required="false" />
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
+    <!-- Scan QR code, where the device has a camera. The permission alone would make one required, which would hide the app from
+         TVs and from phones without a back camera. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-feature android:name="android.hardware.camera.any" android:required="false" />
+    <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
     <queries>
         <intent>
             <action android:name="android.intent.action.MAIN" />
@@ -23,6 +29,8 @@
         <!-- Translucent: it only forwards the installer's result and closes, so nothing flashes. -->
         <activity android:name=".InstallResultActivity" android:exported="false" android:excludeFromRecents="true" android:theme="@android:style/Theme.Translucent.NoTitleBar" />
         <activity android:name=".VpnPermissionActivity" android:exported="false" android:excludeFromRecents="true" />
+        <!-- Scan QR code: the camera's picture, which gives MainActivity the link it finds. -->
+        <activity android:name=".QrScanActivity" android:exported="false" android:excludeFromRecents="true" />
         <!-- A turn of the screen, a resize and a keyboard coming or going do not recreate it: an open card, and what is
              typed in the editor, would be lost. Theme and language changes still do. adjustResize makes room for the
              keyboard before Android 15; from there the window is edge to edge and MainActivity does it from the insets. -->

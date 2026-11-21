@@ -95,7 +95,8 @@ another. Each record:
 | `0x0C` | Display name | UTF-8 string | no | empty | See [naming](#display-name-tag-0x0c) |
 | `0x0D` | DNS upstreams | string list | no | empty | See [encoding](#dns-upstream-list-tag-0x0d) |
 | `0x0E` | Subscription address | UTF-8 string, `https://` | no | — | Version 2. Not kept, see [rules](#subscription-address-tag-0x0e) |
-| `0x0F` | Client random auth key | UTF-8 hex | no | empty | Version 2. A link with one is refused, see [rules](#client-random-auth-key-tag-0x0f) |
+| `0x0F` | Client random auth key | UTF-8 hex | no | empty | Version 2. A link with one is refused by the desktop and kept by Android, see [rules](#client-random-auth-key-tag-0x0f) |
+| `0x10` | TLS profile | 1 byte | no | `0` (`chrome`) | Ignored by the desktop, kept by Android, see [rules](#tls-profile-tag-0x10) |
 
 \* Unless the link has a subscription address (tag `0x0E`), as the format
 allows from version 2 on.
@@ -215,6 +216,28 @@ not. The TrustTunnel core FreeTunnel uses cannot do that yet.
   TrustTunnel core than this version of FreeTunnel uses."
 - A value that is not whole bytes of hex fails the import as damaged.
 
+FreeTunnel for Android 1.1.0 and later run on TrustTunnel core 1.3, which
+can: there a non-empty key is kept, as `client_random_auth_key` in the
+endpoint, and the link imports as usual. A value that is not whole bytes of
+hex is damage there too. Android's share links carry the key, as tag `0x0F`
+at their end, and are then version 2.
+
+### TLS profile (tag `0x10`)
+
+One byte: the TLS ClientHello the client mimics, as TrustTunnel numbers them
+(`0` `chrome`, `1` `chrome_canary`, `2` `safari`, `3` `firefox`, `4` `okhttp`,
+`5` `openssl`, `6` `boringssl`). TrustTunnel added it to version 2 without a
+new version. The desktop's core does not read the setting yet, and the
+desktop ignores the tag, as it does any tag it does not know: the server is
+imported with the default profile.
+
+FreeTunnel for Android 1.1.0 and later write it as `tls_profile` in the
+endpoint, but for `chrome`, the default, which is not written. A value that is
+not one of the seven, or is not one byte, fails the import as damaged, as
+TrustTunnel's own decoder refuses it. Android's share links carry the profile
+of a config that names one other than `chrome`, as tag `0x10` at their end,
+and are then version 2.
+
 ### Versions
 
 | Version | What it added | FreeTunnel |
@@ -226,7 +249,8 @@ not. The TrustTunnel core FreeTunnel uses cannot do that yet.
 
 - TrustTunnel's endpoint writes version 2 on every link from 1.3.0 on, even a
   link without either new tag.
-- FreeTunnel's own share links stay version 1. They never carry the new tags,
+- FreeTunnel's own share links stay version 1. They never carry the new tags
+  (but Android's, for a config with an auth key or a TLS profile: see above),
   and FreeTunnel 1.2.3 and earlier, like TrustTunnel's clients up to 1.1.11,
   refuse a version 2 link.
 - The version is read before any field, so a link of a newer version is
@@ -304,12 +328,15 @@ except `dns_upstreams`, which is at the top level.
 | `0x0C` | Display name | Not a key: the config's name and file name |
 | `0x0D` | DNS upstreams | `dns_upstreams` |
 | `0x0E` | Subscription address | Not written, anywhere |
-| `0x0F` | Client random auth key | Not written: a link with one is not imported |
+| `0x0F` | Client random auth key | Not written: a link with one is not imported. Android: `client_random_auth_key` |
+| `0x10` | TLS profile | Not written. Android: `tls_profile`, but for `chrome` |
 
 A TrustTunnel 1.3 config imported from a file is handled the same way:
 
 - An empty `client_random_auth_key`, which the endpoint's export always writes,
-  is kept as it is. A non-empty one refuses the import with the message above.
+  is kept as it is. A non-empty one refuses the import with the message above
+  (on Android 1.1.0 and later it is kept, and one that is not a string of
+  whole bytes of hex refuses the import as invalid).
 - A subscription address, as `subscription_url` or as an
   `[endpoint.subscription]` table, is left out of the copy FreeTunnel stores, and
   the notice after the import says so. The file you picked is not changed.

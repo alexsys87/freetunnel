@@ -85,7 +85,7 @@ Every download carries this file, `LICENSE` and the `licenses/` folder it needs:
 `freetunnel-android-<version>.apk` contains:
 
 - FreeTunnel for Android.
-- [The TrustTunnel Android client](#trusttunnel-android-client) 1.1.12, whose
+- [The TrustTunnel Android client](#trusttunnel-android-client) 1.3.0, whose
   native library contains [the VPN core and its
   libraries](#the-vpn-core-and-its-libraries) and [Rust
   crates](#rust-crates-in-the-trusttunnel-native-library).
@@ -100,35 +100,44 @@ from source and link it statically into FreeTunnel. In the Android app it is
 part of the TrustTunnel Android client's native library
 (`libtrusttunnel_android.so`), built by the TrustTunnel project from its own
 release, which may be an older one than the desktop builds use: where the
-versions differ, both are given below. At present both are 1.1.12. Unless noted, each library below is
+versions differ, both are given below. At present the desktop builds use 1.1.12 and the Android app 1.3.0. Unless noted, each library below is
 compiled into the core in all downloads.
 
 ### TrustTunnel client core
 
 - Version: TrustTunnelClient 1.1.12, commit
-  067deb837ed994d6ae902e3bb40b69f6266af216. The desktop builds apply
+  067deb837ed994d6ae902e3bb40b69f6266af216, in the desktop builds;
+  TrustTunnelClient 1.3.0, commit 232f151ea9864849a422666f1ce73ddc1bb4de3a, in
+  the Android app. The desktop builds apply
   FreeTunnel's changes to it, which are in
   [vendor/trusttunnel/](vendor/trusttunnel/) in FreeTunnel's source; the
   Android app has it as TrustTunnel built it (see [the TrustTunnel Android
   client](#trusttunnel-android-client)).
 - License: Apache-2.0
 - Copyright: Copyright 2020 Adguard Software Ltd
-- Source: <https://github.com/TrustTunnel/TrustTunnelClient/tree/067deb837ed994d6ae902e3bb40b69f6266af216>
+- Source: <https://github.com/TrustTunnel/TrustTunnelClient/tree/067deb837ed994d6ae902e3bb40b69f6266af216>,
+  <https://github.com/TrustTunnel/TrustTunnelClient/tree/232f151ea9864849a422666f1ce73ddc1bb4de3a> (Android)
 
 ### NativeLibsCommon
 
-- Version: 8.2.0, commit c546b329360642576cea25f10bdcbf41d52163df
+- Version: 8.2.0, commit c546b329360642576cea25f10bdcbf41d52163df, in the
+  desktop builds; 8.2.1, commit 9d05accbe1f22764350fd5dcd6726244be0b2b96, in the
+  Android app. The conan recipes of the libraries below are the same in both.
 - License: Apache-2.0
 - Copyright: Copyright 2022 Adguard Software Ltd
-- Source: <https://github.com/AdguardTeam/NativeLibsCommon/tree/c546b329360642576cea25f10bdcbf41d52163df>
+- Source: <https://github.com/AdguardTeam/NativeLibsCommon/tree/c546b329360642576cea25f10bdcbf41d52163df>,
+  <https://github.com/AdguardTeam/NativeLibsCommon/tree/9d05accbe1f22764350fd5dcd6726244be0b2b96> (Android)
 
 ### DnsLibs
 
 - Version: 2.11.0-alpha.1-3-g3d6359be, commit
-  3d6359be7b99e2eccbfe905e970dd08a7f1d9108
+  3d6359be7b99e2eccbfe905e970dd08a7f1d9108, in the desktop builds;
+  2.11.0-alpha.2, commit 58b8c047a651679906cf58c384450e0c5787a628, in the
+  Android app
 - License: Apache-2.0
 - Copyright: Copyright 2022 Adguard Software Ltd
-- Source: <https://github.com/AdguardTeam/DnsLibs/tree/3d6359be7b99e2eccbfe905e970dd08a7f1d9108>
+- Source: <https://github.com/AdguardTeam/DnsLibs/tree/3d6359be7b99e2eccbfe905e970dd08a7f1d9108>,
+  <https://github.com/AdguardTeam/DnsLibs/tree/58b8c047a651679906cf58c384450e0c5787a628> (Android)
 
 ### BoringSSL
 
@@ -614,28 +623,28 @@ and links libfuse, squashfuse, zstd, zlib, musl and mimalloc statically.
 
 ### TrustTunnel Android client
 
-The VPN client library the app is built on (`trusttunnel-client-android-1.1.12.aar`):
+The VPN client library the app is built on (`trusttunnel-client-android-1.3.0.aar`):
 its Java and Kotlin classes, its `assets/logback.xml`, and its native library,
 which contains the VPN core and its libraries listed above (all but Detours and
 wintun.h), the JNI adapter, and the Rust code below. The native library is
 built with the Android NDK's LLVM libc++ (Apache-2.0 WITH LLVM-exception),
 which asks for no notice in compiled form.
 
-- Version: 1.1.12 (TrustTunnelClient commit 067deb837ed994d6ae902e3bb40b69f6266af216)
+- Version: 1.3.0 (TrustTunnelClient commit 232f151ea9864849a422666f1ce73ddc1bb4de3a)
 - License: Apache-2.0
 - Copyright: Copyright 2020 Adguard Software Ltd
-- Source: <https://github.com/TrustTunnel/TrustTunnelClient/tree/v1.1.12/platform/android>
+- Source: <https://github.com/TrustTunnel/TrustTunnelClient/tree/v1.3.0/platform/android>
 
 ### Rust crates in the TrustTunnel native library
 
 Compiled into `libtrusttunnel_android.so` with the Rust standard library, as
-TrustTunnelClient's `trusttunnel/Cargo.lock` at 067deb83 resolves them.
+TrustTunnelClient's `trusttunnel/Cargo.lock` at 232f151e resolves them.
 
 - trusttunnel-deeplink-ffi 0.1.0 and trusttunnel-settings 0.1.0 (in
   TrustTunnelClient), Apache-2.0, Copyright 2020 Adguard Software Ltd
-- trusttunnel-deeplink 0.1.0 (TrustTunnel commit
-  c33f2a6a3a9490058ca76a4274f4c96da9ec51e6), Apache-2.0, Copyright 2020
-  Adguard Software Ltd, <https://github.com/TrustTunnel/TrustTunnel/tree/c33f2a6a3a9490058ca76a4274f4c96da9ec51e6/deeplink>
+- trusttunnel-deeplink 0.1.0 (TrustTunnel 1.3.1-rc.1, commit
+  a46f5d35646b18e00f131d16e2bc44f253be9273), Apache-2.0, Copyright 2020
+  Adguard Software Ltd, <https://github.com/TrustTunnel/TrustTunnel/tree/a46f5d35646b18e00f131d16e2bc44f253be9273/deeplink>
 - MIT OR Apache-2.0 (rustls-pemfile: Apache-2.0 OR ISC OR MIT), each used
   under Apache-2.0, sources on <https://crates.io>:
   - base64 0.21.7: Copyright (c) 2015 Alice Maz
@@ -759,6 +768,15 @@ A dependency of Tomlj.
 - License: MIT, [licenses/android/qrcodegen.txt](licenses/android/qrcodegen.txt)
 - Copyright: Copyright (c) Project Nayuki
 - Source: <https://github.com/nayuki/QR-Code-generator/tree/v1.8.0/java>
+
+#### ZXing core
+
+What Scan QR code reads a camera frame's QR code with.
+
+- Version: 3.5.4 (`com.google.zxing:core:3.5.4`)
+- License: Apache-2.0
+- Copyright: Copyright ZXing authors (2007 and the later years its files name)
+- Source: <https://github.com/zxing/zxing/tree/zxing-3.5.4/core>
 
 #### AndroidX
 
