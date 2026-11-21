@@ -42,8 +42,7 @@ Every download carries this file, `LICENSE` and the `licenses/` folder it needs:
 - FreeTunnel (`FreeTunnel.exe`). Compiled into it: [the VPN core and its
   libraries](#the-vpn-core-and-its-libraries) (with
   [wintun.h](#wintun) and [Microsoft Detours](#microsoft-detours), which only
-  the Windows build uses; TrustTunnel 1.3.0, a newer core than the macOS and
-  Linux builds have), [QHotkey](#qhotkey), [QWindowKit](#qwindowkit), [the QR
+  the Windows build uses), [QHotkey](#qhotkey), [QWindowKit](#qwindowkit), [the QR
   Code generator](#qr-code-generator-in-the-desktop-app), [the Feather and Lucide
   icons](#feather-and-lucide-icons) and the [Inter](#inter) typeface.
 - Next to it: [Qt 6.11.3](#qt) with [the third-party code inside
@@ -100,50 +99,50 @@ Every download contains the TrustTunnel VPN core. The desktop builds compile it
 from source and link it statically into FreeTunnel. In the Android app it is
 part of the TrustTunnel Android client's native library
 (`libtrusttunnel_android.so`), built by the TrustTunnel project from its own
-release. The Windows build may also have a newer core than the macOS, Linux
-and Windows 7 builds (FreeTunnel's `scripts/upstream_ref_windows.txt` and
+release. The experimental Windows 7 build may have an older core than the other
+desktop builds (FreeTunnel's `scripts/upstream_ref_win7.txt` and
 `scripts/upstream_ref.txt`). Where the versions differ, each is given below. At
-present the Windows build and the Android app use 1.3.0, and the macOS, Linux
-and Windows 7 builds 1.1.12. Unless noted, each library below is compiled into
+present the Windows, macOS and Linux builds and the Android app use 1.3.0, and
+the Windows 7 build 1.1.12. Unless noted, each library below is compiled into
 the core in all downloads.
 
 ### TrustTunnel client core
 
-- Version: TrustTunnelClient 1.1.12, commit
-  067deb837ed994d6ae902e3bb40b69f6266af216, in the macOS, Linux and Windows 7
-  builds; TrustTunnelClient 1.3.0, commit
-  232f151ea9864849a422666f1ce73ddc1bb4de3a, in the Windows build and the Android
-  app. The desktop builds apply
+- Version: TrustTunnelClient 1.3.0, commit
+  232f151ea9864849a422666f1ce73ddc1bb4de3a, in the Windows, macOS and Linux
+  builds and the Android app; TrustTunnelClient 1.1.12, commit
+  067deb837ed994d6ae902e3bb40b69f6266af216, in the Windows 7 build. The desktop
+  builds apply
   FreeTunnel's changes to it, which are in
   [vendor/trusttunnel/](vendor/trusttunnel/) in FreeTunnel's source; the
   Android app has it as TrustTunnel built it (see [the TrustTunnel Android
   client](#trusttunnel-android-client)).
 - License: Apache-2.0
 - Copyright: Copyright 2020 Adguard Software Ltd
-- Source: <https://github.com/TrustTunnel/TrustTunnelClient/tree/067deb837ed994d6ae902e3bb40b69f6266af216>,
-  <https://github.com/TrustTunnel/TrustTunnelClient/tree/232f151ea9864849a422666f1ce73ddc1bb4de3a> (Windows, Android)
+- Source: <https://github.com/TrustTunnel/TrustTunnelClient/tree/232f151ea9864849a422666f1ce73ddc1bb4de3a>,
+  <https://github.com/TrustTunnel/TrustTunnelClient/tree/067deb837ed994d6ae902e3bb40b69f6266af216> (Windows 7)
 
 ### NativeLibsCommon
 
-- Version: 8.2.0, commit c546b329360642576cea25f10bdcbf41d52163df, in the
-  macOS, Linux and Windows 7 builds; 8.2.1, commit
-  9d05accbe1f22764350fd5dcd6726244be0b2b96, in the Windows build and the Android
-  app. The conan recipes of the libraries below are the same in both.
+- Version: 8.2.1, commit 9d05accbe1f22764350fd5dcd6726244be0b2b96, in the
+  Windows, macOS and Linux builds and the Android app; 8.2.0, commit
+  c546b329360642576cea25f10bdcbf41d52163df, in the Windows 7 build. The conan
+  recipes of the libraries below are the same in both.
 - License: Apache-2.0
 - Copyright: Copyright 2022 Adguard Software Ltd
-- Source: <https://github.com/AdguardTeam/NativeLibsCommon/tree/c546b329360642576cea25f10bdcbf41d52163df>,
-  <https://github.com/AdguardTeam/NativeLibsCommon/tree/9d05accbe1f22764350fd5dcd6726244be0b2b96> (Windows, Android)
+- Source: <https://github.com/AdguardTeam/NativeLibsCommon/tree/9d05accbe1f22764350fd5dcd6726244be0b2b96>,
+  <https://github.com/AdguardTeam/NativeLibsCommon/tree/c546b329360642576cea25f10bdcbf41d52163df> (Windows 7)
 
 ### DnsLibs
 
-- Version: 2.11.0-alpha.1-3-g3d6359be, commit
-  3d6359be7b99e2eccbfe905e970dd08a7f1d9108, in the macOS, Linux and Windows 7
-  builds; 2.11.0-alpha.2, commit 58b8c047a651679906cf58c384450e0c5787a628, in the
-  Windows build and the Android app
+- Version: 2.11.0-alpha.2, commit 58b8c047a651679906cf58c384450e0c5787a628, in
+  the Windows, macOS and Linux builds and the Android app;
+  2.11.0-alpha.1-3-g3d6359be, commit 3d6359be7b99e2eccbfe905e970dd08a7f1d9108,
+  in the Windows 7 build
 - License: Apache-2.0
 - Copyright: Copyright 2022 Adguard Software Ltd
-- Source: <https://github.com/AdguardTeam/DnsLibs/tree/3d6359be7b99e2eccbfe905e970dd08a7f1d9108>,
-  <https://github.com/AdguardTeam/DnsLibs/tree/58b8c047a651679906cf58c384450e0c5787a628> (Windows, Android)
+- Source: <https://github.com/AdguardTeam/DnsLibs/tree/58b8c047a651679906cf58c384450e0c5787a628>,
+  <https://github.com/AdguardTeam/DnsLibs/tree/3d6359be7b99e2eccbfe905e970dd08a7f1d9108> (Windows 7)
 
 ### BoringSSL
 

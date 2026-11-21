@@ -5,7 +5,7 @@ built from the section below it, so this file is the description of the release 
 write it before tagging. For the full commit history of a release, follow the
 compare link at the bottom of its release notes.
 
-## Unreleased
+## 1.4.0
 
 ### Added
 
@@ -19,10 +19,11 @@ compare link at the bottom of its release notes.
 
 ### Changed
 
-- **The VPN core is TrustTunnel 1.3.0 on Windows**, up from 1.1.12, with
-  NativeLibsCommon 8.2.1 and DnsLibs 2.11.0-alpha.2: the Chrome and Firefox TLS
-  handshakes it imitates are November 2026's, and it has the fixes of its 1.3
-  releases. macOS, Linux and Windows 7 stay on 1.1.12 for now.
+- **The VPN core is TrustTunnel 1.3.0** on Windows, macOS and Linux, up from
+  1.1.12, with NativeLibsCommon 8.2.1 and DnsLibs 2.11.0-alpha.2: the Chrome and
+  Firefox TLS handshakes it imitates are November 2026's, and it has the fixes
+  of its 1.3 releases. FreeTunnel for Android 1.1 has the same core. The
+  experimental Windows 7 build stays on 1.1.12 for now.
 
 ## 1.3.2
 

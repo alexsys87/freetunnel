@@ -3,8 +3,8 @@
 # in filename order — they build on each other, see setup-upstream-tree.sh.
 #
 # usage: verify_upstream_patch.sh [<pin file>]
-#   The pin file is scripts/upstream_ref.txt (Linux, macOS and Windows 7) by
-#   default; scripts/upstream_ref_windows.txt is the Windows build's.
+#   The pin file is scripts/upstream_ref.txt (Windows, macOS and Linux) by
+#   default; scripts/upstream_ref_win7.txt is the Windows 7 build's.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -126,7 +126,7 @@ CHECKED_CONFIG_KEYS="
   listener.tun.tcp_send_buf_size listener.tun.change_system_dns
   listener.tun.netns listener.tun.included_routes listener.tun.excluded_routes"
 # Keys only a newer core reads, so the scan does not miss them on a pin that
-# predates them: TrustTunnel 1.3 (the Windows build's pin) reads the TLS profile
+# predates them (Windows 7's may): TrustTunnel 1.3 reads the TLS profile
 # a ClientHello mimics and the key its client random is derived from. Neither
 # names a file, an interface or a port, so the helper passes them on as the GUI
 # sent them.

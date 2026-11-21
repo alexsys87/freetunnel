@@ -34,9 +34,8 @@ concurrency:
 env:
   UPSTREAM_REPO: TrustTunnel/TrustTunnelClient
   # Pinned ref in scripts/upstream_ref.txt (verified by scripts/verify_upstream_patch.sh).
-  # The Windows leg builds the ref in scripts/upstream_ref_windows.txt instead, so
-  # that Windows can move to a newer core before Linux and macOS do (Windows 7, in
-  # win7.yml, stays on upstream_ref.txt). The same vendored patches apply to both.
+  # Windows 7 (win7.yml) has a pin of its own, scripts/upstream_ref_win7.txt, which
+  # may be an older core; the same vendored patches apply to both.
   # Exact pin: conan drives every native dependency fetch and build, so the
   # version must not float. This is the latest 2.x — i.e. what the previous
   # `conan~=2.12` range was actually resolving to; pinning to 2.12.x instead
@@ -127,18 +126,12 @@ jobs:
           sparse-checkout: |
             /scripts/check-core-pin-release.sh
             /scripts/upstream_ref.txt
-            /scripts/upstream_ref_windows.txt
           sparse-checkout-cone-mode: false
 
       - name: Pin is a commit TrustTunnelClient tagged vX.Y.Z
         env:
           GH_TOKEN: ${{ github.token }}
         run: bash scripts/check-core-pin-release.sh
-
-      - name: The Windows build's pin is one too
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: bash scripts/check-core-pin-release.sh scripts/upstream_ref_windows.txt
 
   # Rasterize the bundle icons (.icns/.ico/.png) from the neutral logo.svg on
   # Linux (where rsvg/icnsutils/ImageMagick are reliable) and share them with
@@ -288,11 +281,7 @@ jobs:
         shell: bash
         run: |
           set -eu
-          # Windows has a pin of its own, which may be a newer core (see the top).
-          pin=client/scripts/upstream_ref.txt
-          if [[ "${{ matrix.platform }}" == windows ]]; then pin=client/scripts/upstream_ref_windows.txt; fi
-          ref="$(tr -d '[:space:]' < "$pin")"
-          echo "Core pin: $pin = $ref"
+          ref="$(tr -d '[:space:]' < client/scripts/upstream_ref.txt)"
           # Only the security workflow asserted this shape, so a corrupted file
           # (or a branch name) would build a MUTABLE ref with the build staying
           # green. Check it where it is actually used.

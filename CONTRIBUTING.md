@@ -103,7 +103,7 @@ this to run the app; the unit tests do not.
 
 | Tool | Version | Notes |
 | --- | --- | --- |
-| **TrustTunnelClient** upstream checkout | The commit in `scripts/upstream_ref.txt` (Windows: `scripts/upstream_ref_windows.txt`) | [TrustTunnel/TrustTunnelClient](https://github.com/TrustTunnel/TrustTunnelClient) |
+| **TrustTunnelClient** upstream checkout | The commit in `scripts/upstream_ref.txt` (Windows 7: `scripts/upstream_ref_win7.txt`) | [TrustTunnel/TrustTunnelClient](https://github.com/TrustTunnel/TrustTunnelClient) |
 | CMake | 3.24+ | The upstream tree requires it; the unit tests alone configure with 3.16+ |
 | C++ compiler | C++20 | clang recommended for Linux |
 | Qt | 6.8+ (Gui, Qml, Quick, Network, Svg) | CI and the releases use 6.11.3, and the translation check needs exactly that (see [Translations (i18n)](#translations-i18n)) |
@@ -138,7 +138,7 @@ git clone https://github.com/dimmmmmmmer/freetunnel.git FreeTunnel   # or symlin
 
 # The pinned upstream commit lives in exactly one place. Read it, never retype it —
 # CI verifies the vendored patches against this same file.
-# On Windows, the Windows build's pin: FreeTunnel/scripts/upstream_ref_windows.txt.
+# For the Windows 7 build, its own pin: FreeTunnel/scripts/upstream_ref_win7.txt.
 git checkout "$(tr -d '[:space:]' < FreeTunnel/scripts/upstream_ref.txt)"
 
 # Ensure upstream CMakeLists.txt adds the subdirectory when BUILD_TRUSTTUNNEL_QT=ON
@@ -335,7 +335,7 @@ Security's checks:
 | `cppcheck` | cppcheck on `src/` and `include/` |
 | `clang-tidy` | `scripts/run-clang-tidy.sh` |
 | `dependency review` | Dependency review, on pull requests |
-| `upstream patch verify` | `scripts/verify_upstream_patch.sh` against `scripts/upstream_ref.txt`, then against `scripts/upstream_ref_windows.txt` |
+| `upstream patch verify` | `scripts/verify_upstream_patch.sh` against `scripts/upstream_ref.txt`, then against `scripts/upstream_ref_win7.txt` |
 | `i18n catalog freshness` | `scripts/i18n-verify.sh` |
 | `pinned dependency refs` | `scripts/check-pinned-deps.sh` |
 
@@ -460,18 +460,19 @@ The upstream ref is pinned in
 [`scripts/upstream_ref.txt`](scripts/upstream_ref.txt). The workflows read that
 file rather than carrying a SHA of their own.
 
-The Windows build has a pin of its own,
-[`scripts/upstream_ref_windows.txt`](scripts/upstream_ref_windows.txt), so that
-Windows can take a new core before macOS and Linux do (Windows 7, in
-`win7.yml`, stays on `upstream_ref.txt`). It is TrustTunnel 1.3.0 while the
-others are 1.1.12. Both take the same patches in `vendor/trusttunnel/`, and
-each step below applies to it as well: verify it with
-`bash scripts/verify_upstream_patch.sh scripts/upstream_ref_windows.txt`, and
-a `v*` tag is refused unless both pins are stable releases. FreeTunnel's code
-builds against either core: where their API differs (`connect()` takes
-`ConnectOptions` from 1.3 on), `src/vpn/qt_trusttunnel_connect.cpp` calls the
-one the core has. The Core update workflow moves `upstream_ref.txt` alone. Once
-both pins name the same commit again, the Windows file can go.
+The Windows 7 build (`win7.yml`) has a pin of its own,
+[`scripts/upstream_ref_win7.txt`](scripts/upstream_ref_win7.txt), so that it
+takes a new core only once that core has been tried there. It is TrustTunnel
+1.1.12 while Windows, macOS and Linux are on 1.3.0. Both take the same patches
+in `vendor/trusttunnel/`: Security verifies them against both pins, and step 2
+below applies to it as well
+(`bash scripts/verify_upstream_patch.sh scripts/upstream_ref_win7.txt`).
+FreeTunnel's code builds against either core: where their API differs
+(`connect()` takes `ConnectOptions` from 1.3 on),
+`src/vpn/qt_trusttunnel_connect.cpp` calls the one the core has. The Core
+update workflow moves `upstream_ref.txt` alone, and a `v*` tag checks that pin
+alone; `win7-*` pre-releases are experimental. Once both pins name the same
+commit again, the Windows 7 file can go.
 
 The **Core update** workflow (`.github/workflows/core-update.yml`) looks for a
 newer stable release once a day (`scripts/latest-core-release.sh`, which you
@@ -579,9 +580,8 @@ the desktop's `v*` release.
    Build workflow's `Publish release` job then:
    - does not start unless the `Core pin is a stable release` job passed. That
      job refuses the tag, within a minute of the push, unless
-     `scripts/upstream_ref.txt` and `scripts/upstream_ref_windows.txt` are
-     commits that TrustTunnelClient tagged `vX.Y.Z`
-     (`scripts/check-core-pin-release.sh`);
+     `scripts/upstream_ref.txt` is a commit that TrustTunnelClient tagged
+     `vX.Y.Z` (`scripts/check-core-pin-release.sh`);
    - waits until Tests and Security have passed on this very commit
      (`scripts/check-release-ci.sh`; runs from pull requests do not count);
    - writes `SHA256SUMS.txt` and signs it with `ED25519_SIGNING_KEY` (see

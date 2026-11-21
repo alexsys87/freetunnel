@@ -196,9 +196,9 @@ jobs:
       - name: Verify the vendored patches apply to pinned upstream
         run: bash scripts/verify_upstream_patch.sh
 
-      # The Windows build has a pin of its own (see build.yml), and the same patches.
-      - name: Verify the vendored patches apply to the Windows build's pinned upstream
-        run: bash scripts/verify_upstream_patch.sh scripts/upstream_ref_windows.txt
+      # Windows 7 has a pin of its own (win7.yml), and the same patches.
+      - name: Verify the vendored patches apply to the Windows 7 build's pinned upstream
+        run: bash scripts/verify_upstream_patch.sh scripts/upstream_ref_win7.txt
 
   i18n:
     name: i18n catalog freshness
