@@ -327,7 +327,10 @@ class FreeTunnelVpnService : VpnService() {
             descriptor = ParcelFileDescriptor.dup(tun.fileDescriptor)
             if (!blocked) publishState(1)
             collector?.startNotifying(candidate)
-            check(candidate.start(descriptor)) { "VPN core rejected the configuration" }
+            // fallIntoRecovery = false: a first connection that fails is given up after the core's few attempts, as
+            // before core 1.3, and reported as state 0. The service then reconnects with its own backoff and keeps
+            // the kill switch's block meanwhile (fail, scheduleRetry), which the core's endless recovery would hide.
+            check(candidate.start(descriptor, false)) { "VPN core rejected the configuration" }
             candidate = null
         } finally {
             runCatching { descriptor?.close() }
