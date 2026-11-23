@@ -33,6 +33,18 @@ public:
         QString signatureUrl; ///< SHA256SUMS.txt.sig (Ed25519) URL (when published)
     };
 
+    /// Which releases a build takes its updates from. The desktop's are tagged vX.Y.Z,
+    /// and the Windows 7 build's, beside them, win7-X.Y.Z (.github/workflows/win7.yml):
+    /// each build is offered only its own, since the Windows 10 installer does not run
+    /// on Windows 7, and a win7 release is never what /releases/latest names.
+    enum class Channel {
+        Desktop,  ///< vX.Y.Z: the installer for this platform, SHA256SUMS.txt
+        Windows7, ///< win7-X.Y.Z: its Setup.exe, SHA256SUMS-windows7.txt, versioned X.Y.Z+win7
+    };
+    Q_ENUM(Channel)
+    /// The channel of this build: Windows7 where it was built with FREETUNNEL_WINDOWS7.
+    static Channel buildChannel();
+
     /// Why a download failed, which decides what the Settings row offers next.
     enum class DownloadFailure {
         Transient,   ///< network or disk: the same download may work next time
@@ -48,7 +60,10 @@ public:
      */
     explicit UpdateChecker(const QString &githubRepo,
                            const QString &currentVersion,
-                           QObject *parent = nullptr);
+                           QObject *parent = nullptr,
+                           Channel channel = buildChannel());
+
+    Channel channel() const { return m_channel; }
 
     /// Trigger an update check immediately. While one is already running this
     /// does nothing: the running check's answer is the one to wait for.
@@ -82,6 +97,7 @@ private slots:
 
 private:
     void fetchReleaseList(const QString &latestTag);
+    void requestReleaseList();
     void onReleaseListFinished(QNetworkReply *reply);
     void offerRelease(const QJsonObject &release, const QString &tagName);
     void fetchChecksumsThenInstaller();
@@ -93,6 +109,7 @@ private:
 
     QString m_githubRepo;
     QString m_currentVersion;
+    Channel m_channel = Channel::Desktop;
     QNetworkAccessManager *m_nam = nullptr;
     ReleaseInfo m_latest;
     QByteArray m_checksumsData;

@@ -95,7 +95,7 @@ another. Each record:
 | `0x0C` | Display name | UTF-8 string | no | empty | See [naming](#display-name-tag-0x0c) |
 | `0x0D` | DNS upstreams | string list | no | empty | See [encoding](#dns-upstream-list-tag-0x0d) |
 | `0x0E` | Subscription address | UTF-8 string, `https://` | no | — | Version 2. Not kept, see [rules](#subscription-address-tag-0x0e) |
-| `0x0F` | Client random auth key | UTF-8 hex | no | empty | Version 2. A link with one is refused by the desktop and kept by Android, see [rules](#client-random-auth-key-tag-0x0f) |
+| `0x0F` | Client random auth key | UTF-8 hex | no | empty | Version 2. Kept (since desktop 1.4.1 and Android 1.1.0), see [rules](#client-random-auth-key-tag-0x0f) |
 | `0x10` | TLS profile | 1 byte | no | `0` (`chrome`) | Ignored by the desktop, kept by Android, see [rules](#tls-profile-tag-0x10) |
 
 \* Unless the link has a subscription address (tag `0x0E`), as the format
@@ -209,19 +209,21 @@ credential store, and it is never logged.
 
 A UTF-8 string of whole bytes in hex. The client derives its TLS client random
 from this key, and a server with an auth-key rule turns away a client that does
-not. The desktop's core can since FreeTunnel 1.4.0 (TrustTunnel 1.3), but the
-desktop does not import a key yet.
+not. TrustTunnel 1.3, the core of every desktop build since FreeTunnel 1.4.0 and
+of the Android app since 1.1.0, can.
 
 - An empty value means the server has no key, and the link imports as usual.
-- Any other value, if it is valid hex, is refused: "This server needs a newer
-  TrustTunnel core than this version of FreeTunnel uses."
+- Any other value, if it is valid hex, is kept, as `client_random_auth_key` in
+  the endpoint, and the link imports as usual (the desktop from 1.4.1 on; it was
+  refused before, as needing a newer core).
 - A value that is not whole bytes of hex fails the import as damaged.
+- On the desktop, a key beside a subscription address (tag `0x0E`) is refused:
+  "This server's subscription can't carry its client random auth key yet. Ask
+  your provider for a regular link." A subscription's document has no field for
+  the key, so the server it hands out would be without it.
 
-FreeTunnel for Android 1.1.0 and later run on TrustTunnel core 1.3, which
-can: there a non-empty key is kept, as `client_random_auth_key` in the
-endpoint, and the link imports as usual. A value that is not whole bytes of
-hex is damage there too. Android's share links carry the key, as tag `0x0F`
-at their end, and are then version 2.
+FreeTunnel's share links carry the key, as tag `0x0F` at their end, and are then
+version 2; without one they are the version 1 link they always were.
 
 ### TLS profile (tag `0x10`)
 
@@ -251,7 +253,7 @@ and are then version 2.
 - TrustTunnel's endpoint writes version 2 on every link from 1.3.0 on, even a
   link without either new tag.
 - FreeTunnel's own share links stay version 1. They never carry the new tags
-  (but Android's, for a config with an auth key or a TLS profile: see above),
+  but for a config with an auth key (and, on Android, a TLS profile: see above),
   and FreeTunnel 1.2.3 and earlier, like TrustTunnel's clients up to 1.1.11,
   refuse a version 2 link.
 - The version is read before any field, so a link of a newer version is
@@ -288,11 +290,11 @@ These links are well formed, and refused with a reason of their own:
 
 - a subscription address without a whole server
   ([tag `0x0E`](#subscription-address-tag-0x0e));
-- a non-empty client random auth key
-  ([tag `0x0F`](#client-random-auth-key-tag-0x0f)).
+- on the desktop, a subscription address beside a non-empty client random auth
+  key ([tag `0x0F`](#client-random-auth-key-tag-0x0f)).
 
 A link that is both is refused for its auth key: a subscription would hand out
-the same server, which this version cannot connect to either.
+a server without it.
 
 Unknown tags are not an error: they are ignored.
 
@@ -329,15 +331,15 @@ except `dns_upstreams`, which is at the top level.
 | `0x0C` | Display name | Not a key: the config's name and file name |
 | `0x0D` | DNS upstreams | `dns_upstreams` |
 | `0x0E` | Subscription address | Not written, anywhere |
-| `0x0F` | Client random auth key | Not written: a link with one is not imported. Android: `client_random_auth_key` |
+| `0x0F` | Client random auth key | `client_random_auth_key`, after `anti_dpi`, when there is one |
 | `0x10` | TLS profile | Not written. Android: `tls_profile`, but for `chrome` |
 
 A TrustTunnel 1.3 config imported from a file is handled the same way:
 
 - An empty `client_random_auth_key`, which the endpoint's export always writes,
-  is kept as it is. A non-empty one refuses the import with the message above
-  (on Android 1.1.0 and later it is kept, and one that is not a string of
-  whole bytes of hex refuses the import as invalid).
+  is kept as it is, and so is a non-empty one of whole bytes of hex (the desktop
+  from 1.4.1 on). One that is not refuses the import ("Not a valid TrustTunnel
+  config: malformed client_random_auth_key value").
 - A subscription address, as `subscription_url` or as an
   `[endpoint.subscription]` table, is left out of the copy FreeTunnel stores, and
   the notice after the import says so. The file you picked is not changed.
@@ -387,9 +389,9 @@ it from file as it would the link with the same server.
   Anything else in the file is left out, as a link's unknown tags are.
 - **The name.** `name` names the config. The endpoint writes `name = ""` for a
   server it was given no name for, and then the file's name is used.
-- **The link's rules.** A non-empty `client_random_auth_key`, and a
-  subscription address without a whole server, are refused with the link's
-  messages. `subscription_url` is left out, and the question says so. The
+- **The link's rules.** A `client_random_auth_key` beside a subscription
+  address, and a subscription address without a whole server, are refused with
+  the link's messages. `subscription_url` is left out, and the question says so. The
   certificate keeps only its certificates (see
   [tag `0x08`](#certificate-tag-0x08)). A client random the core cannot use, a
   certificate with no certificate in it, and no address or username without a

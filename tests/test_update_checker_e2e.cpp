@@ -71,6 +71,10 @@ private slots:
     // on Windows too. The bodies skip where they do not apply.
     void anAppImageInstallPicksTheAppImage();
     void aLinuxInstallTakesTheOtherKindWhenItsOwnIsMissing();
+    void aWindows7BuildTakesOnlyItsOwnReleases();
+    void aWindows7BuildWithNoWindows7ReleaseHasNoUpdate();
+    void aDesktopBuildIsNeverOfferedAWindows7Release();
+    void aWindows7ManifestMustSayItIsForWindows7();
 };
 
 #ifdef FT_TEST_HAVE_OPENSSL
@@ -1303,6 +1307,175 @@ void TestUpdateCheckerE2e::cleanupTestCase()
     const QString staging = QStandardPaths::writableLocation(QStandardPaths::CacheLocation)
             + QStringLiteral("/updates");
     QDir(staging).removeRecursively();
+}
+
+
+// ---- The Windows 7 build's own releases (UpdateChecker::Channel::Windows7) ----
+
+// A win7-X.Y.Z release as win7.yml publishes it: its Setup.exe and portable zip,
+// the import report, and SHA256SUMS-windows7.txt with its signature.
+static QJsonObject windows7Release(const QString &tag)
+{
+    const QString base = kReleasesUrl + QStringLiteral("download/") + tag + QLatin1Char('/');
+    QJsonObject release;
+    release[QStringLiteral("tag_name")] = tag;
+    release[QStringLiteral("html_url")] = kReleasesUrl + QStringLiteral("tag/") + tag;
+    release[QStringLiteral("draft")] = false;
+    release[QStringLiteral("prerelease")] = false;
+    QJsonArray assets;
+    for (const QString &name : {QStringLiteral("freetunnel-windows7-x86_64-Setup.exe"),
+                                QStringLiteral("freetunnel-windows7-x86_64-portable.zip"),
+                                QStringLiteral("win7-import-check.md"),
+                                QStringLiteral("SHA256SUMS-windows7.txt"),
+                                QStringLiteral("SHA256SUMS-windows7.txt.sig")})
+        assets.append(assetJson(name, base + name));
+    release[QStringLiteral("assets")] = assets;
+    return release;
+}
+
+// The Windows 7 build is offered the newest win7-* release and nothing else: not
+// the desktop's v*, whose installer needs Windows 10, however new. A win7 release
+// is never the latest one, so the check asks the list at once.
+void TestUpdateCheckerE2e::aWindows7BuildTakesOnlyItsOwnReleases()
+{
+    MockHttpServer http;
+    QVERIFY(http.listen());
+    qputenv("FT_GITHUB_API_BASE", http.baseUrl().toUtf8());
+    const auto unset = qScopeGuard([] { qunsetenv("FT_GITHUB_API_BASE"); });
+    serveReleaseList(http, {desktopRelease(QStringLiteral("v3.0.0")),
+                            otherRelease(QStringLiteral("android-2.0.0")),
+                            windows7Release(QStringLiteral("win7-1.4.0")),
+                            markedAs(windows7Release(QStringLiteral("win7-9.0.0")), QStringLiteral("prerelease")),
+                            windows7Release(QStringLiteral("win7-1.5.0"))});
+    QTest::failOnWarning(QRegularExpression(QStringLiteral("is not a desktop release")));
+
+    UpdateChecker checker(QStringLiteral("alexsys87/freetunnel"), QStringLiteral("1.4.0"), nullptr,
+                          UpdateChecker::Channel::Windows7);
+    QSignalSpy available(&checker, &UpdateChecker::updateAvailable);
+    QSignalSpy none(&checker, &UpdateChecker::noUpdateAvailable);
+    checker.checkNow();
+    QVERIFY(QTest::qWaitFor([&]() { return available.count() > 0 || none.count() > 0; }, 5000));
+
+    QCOMPARE(available.count(), 1);
+    const UpdateChecker::ReleaseInfo &info = checker.latestRelease();
+    QCOMPARE(info.tagName, QStringLiteral("win7-1.5.0"));
+    QCOMPARE(info.version, QStringLiteral("1.5.0"));
+    const QString assetBase = kReleasesUrl + QStringLiteral("download/win7-1.5.0/");
+    QCOMPARE(info.assetName, QStringLiteral("freetunnel-windows7-x86_64-Setup.exe"));
+    QCOMPARE(info.installerUrl, assetBase + QStringLiteral("freetunnel-windows7-x86_64-Setup.exe"));
+    QCOMPARE(info.checksumsUrl, assetBase + QStringLiteral("SHA256SUMS-windows7.txt"));
+    QCOMPARE(info.signatureUrl, assetBase + QStringLiteral("SHA256SUMS-windows7.txt.sig"));
+    QCOMPARE(info.htmlUrl, kReleasesUrl + QStringLiteral("tag/win7-1.5.0"));
+    QCOMPARE(http.requestCount(kLatestPath), 0);
+    QCOMPARE(http.requestCount(kListPath), 1);
+}
+
+// Only desktop releases in the list: nothing to offer the Windows 7 build.
+void TestUpdateCheckerE2e::aWindows7BuildWithNoWindows7ReleaseHasNoUpdate()
+{
+    MockHttpServer http;
+    QVERIFY(http.listen());
+    qputenv("FT_GITHUB_API_BASE", http.baseUrl().toUtf8());
+    const auto unset = qScopeGuard([] { qunsetenv("FT_GITHUB_API_BASE"); });
+    serveReleaseList(http, {desktopRelease(QStringLiteral("v3.0.0")), windows7Release(QStringLiteral("win7-1.4.0"))});
+
+    UpdateChecker checker(QStringLiteral("alexsys87/freetunnel"), QStringLiteral("1.4.0"), nullptr,
+                          UpdateChecker::Channel::Windows7);
+    QSignalSpy available(&checker, &UpdateChecker::updateAvailable);
+    QSignalSpy none(&checker, &UpdateChecker::noUpdateAvailable);
+    checker.checkNow();
+    QVERIFY(QTest::qWaitFor([&]() { return available.count() > 0 || none.count() > 0; }, 5000));
+    QCOMPARE(available.count(), 0);
+    QCOMPARE(none.count(), 1);
+    QVERIFY2(none.at(0).at(0).toString().contains(QStringLiteral("1.4.0")), qPrintable(none.at(0).at(0).toString()));
+}
+
+// And the other way round: a win7 release marked the latest by mistake sends the
+// desktop build to the list, which offers it the newest v*.
+void TestUpdateCheckerE2e::aDesktopBuildIsNeverOfferedAWindows7Release()
+{
+    MockHttpServer http;
+    QVERIFY(http.listen());
+    qputenv("FT_GITHUB_API_BASE", http.baseUrl().toUtf8());
+    const auto unset = qScopeGuard([] { qunsetenv("FT_GITHUB_API_BASE"); });
+    serveReleaseList(http, {windows7Release(QStringLiteral("win7-9.0.0")), desktopRelease(QStringLiteral("v2.0.0"))});
+    expectFallbackWarning(QStringLiteral("win7-9.0.0"));
+
+    UpdateChecker checker(QStringLiteral("alexsys87/freetunnel"), QStringLiteral("1.0.0"), nullptr,
+                          UpdateChecker::Channel::Desktop);
+    QSignalSpy available(&checker, &UpdateChecker::updateAvailable);
+    QSignalSpy none(&checker, &UpdateChecker::noUpdateAvailable);
+    QVERIFY(runCheck(http, windows7Release(QStringLiteral("win7-9.0.0")), checker, available, none));
+    QCOMPARE(available.count(), 1);
+    QCOMPARE(checker.latestRelease().tagName, QStringLiteral("v2.0.0"));
+}
+
+// win7.yml signs a manifest that says X.Y.Z+win7. One that says X.Y.Z alone, as
+// the desktop's of the same version does, is refused: neither build installs the
+// other's, even where the hashes and the key are right.
+void TestUpdateCheckerE2e::aWindows7ManifestMustSayItIsForWindows7()
+{
+#ifndef FT_TEST_HAVE_OPENSSL
+    QSKIP("Built without OpenSSL headers, so no manifest can be signed.");
+#else
+    QVERIFY(signedReleaseFixtureIsWired());
+    const QString setup = QStringLiteral("freetunnel-windows7-x86_64-Setup.exe");
+    for (const bool forWindows7 : {true, false}) {
+        MockHttpServer http;
+        QVERIFY(http.listen());
+        const QString base = http.baseUrl();
+        qputenv("FT_GITHUB_API_BASE", base.toUtf8());
+        qunsetenv("FT_TEST_SKIP_UPDATE_SIG");
+        const auto unset = qScopeGuard([] { qunsetenv("FT_GITHUB_API_BASE"); });
+
+        const QByteArray installerBody = QByteArrayLiteral("windows7-installer-payload");
+        const QByteArray sums = versionedSumsManifestFor(
+                installerBody, setup, forWindows7 ? QStringLiteral("2.0.0+win7") : QStringLiteral("2.0.0"));
+        const QByteArray signature = signWithTestKey(sums);
+        QVERIFY(!signature.isEmpty());
+
+        QJsonObject release;
+        release[QStringLiteral("tag_name")] = QStringLiteral("win7-2.0.0");
+        release[QStringLiteral("html_url")] = base + QStringLiteral("/release");
+        release[QStringLiteral("draft")] = false;
+        release[QStringLiteral("prerelease")] = false;
+        release[QStringLiteral("assets")] = QJsonArray{
+                assetJson(setup, base + QStringLiteral("/installer")),
+                assetJson(QStringLiteral("SHA256SUMS-windows7.txt"), base + QStringLiteral("/checksums")),
+                assetJson(QStringLiteral("SHA256SUMS-windows7.txt.sig"), base + QStringLiteral("/signature"))};
+        serveReleaseList(http, {release});
+        MockHttpServer::Route sumsRoute;
+        sumsRoute.body = sums;
+        http.setRoute(QStringLiteral("/checksums"), sumsRoute);
+        MockHttpServer::Route sigRoute;
+        sigRoute.body = signature;
+        http.setRoute(QStringLiteral("/signature"), sigRoute);
+        MockHttpServer::Route installerRoute;
+        installerRoute.body = installerBody;
+        http.setRoute(QStringLiteral("/installer"), installerRoute);
+
+        UpdateChecker checker(QStringLiteral("alexsys87/freetunnel"), QStringLiteral("1.0.0"), nullptr,
+                              UpdateChecker::Channel::Windows7);
+        QSignalSpy available(&checker, &UpdateChecker::updateAvailable);
+        checker.checkNow();
+        QVERIFY(QTest::qWaitFor([&]() { return available.count() > 0; }, 5000));
+
+        QSignalSpy ready(&checker, &UpdateChecker::downloadReady);
+        QSignalSpy failed(&checker, &UpdateChecker::downloadFailed);
+        checker.downloadLatest();
+        QVERIFY(QTest::qWaitFor([&]() { return ready.count() > 0 || failed.count() > 0; }, 10000));
+        if (forWindows7) {
+            QVERIFY2(failed.isEmpty(), failed.isEmpty() ? "" : qPrintable(failed.at(0).at(0).toString()));
+            QCOMPARE(ready.count(), 1);
+            QFile::remove(ready.at(0).at(0).toString());
+        } else {
+            QCOMPARE(ready.count(), 0);
+            QCOMPARE(failureKind(failed), UpdateChecker::DownloadFailure::Refused);
+            QVERIFY2(failed.at(0).at(0).toString().contains(QStringLiteral("2.0.0+win7")),
+                     qPrintable(failed.at(0).at(0).toString()));
+        }
+    }
+#endif
 }
 
 QTEST_MAIN(TestUpdateCheckerE2e)

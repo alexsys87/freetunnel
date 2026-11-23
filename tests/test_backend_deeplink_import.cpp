@@ -48,9 +48,9 @@ private slots:
     void aVersion2LinkFromTheEndpointImports();
     void aSubscriptionLinkSaysItsServerWontUpdateItself();
     void aSubscriptionOnlyLinkIsRefusedWithItsReason();
-    void aServerThatNeedsAnAuthKeyIsRefusedWithItsReason();
+    void aServerWithAnAuthKeyImportsAndItsLinkCarriesIt();
     void aLinkTooNewIsStillALinkError();
-    void importFileRefusesAServerThatNeedsAnAuthKey();
+    void importFileKeepsAServersAuthKeyAndRefusesADamagedOne();
     void importFileTakesAnEmptyAuthKey();
     void importFileLeavesTheSubscriptionOut();
 
@@ -67,7 +67,7 @@ private slots:
     void anEndpointExportWithTheNameOfAConfigOffersReplace();
     void anEndpointExportWithoutANameIsNamedAfterItsFile();
     void anEndpointExportThatSkipsCertificateChecksSaysSo();
-    void importFileRefusesAnEndpointExportThatNeedsAnAuthKey();
+    void importFileTakesAnEndpointExportWithAnAuthKey();
     void importFileRefusesAnEndpointExportThatIsOnlyASubscription();
     void importFileRefusesAnEndpointExportWithAMalformedClientRandom();
     void importFileRefusesAnEndpointExportWithoutAServer();
@@ -643,19 +643,35 @@ void TestBackendDeepLinkImport::aSubscriptionOnlyLinkIsRefusedWithItsReason()
     QCOMPARE(backend.configs().size(), before);
 }
 
-void TestBackendDeepLinkImport::aServerThatNeedsAnAuthKeyIsRefusedWithItsReason()
+// TrustTunnel 1.3, the core of every desktop build since 1.4.0, derives the TLS
+// client random from a server's auth key. A link with one imports as any other,
+// the key goes into the config, and the config's own link carries it on, as
+// version 2, the one the format defines tag 0x0F in.
+void TestBackendDeepLinkImport::aServerWithAnAuthKeyImportsAndItsLinkCarriesIt()
 {
     Backend backend;
-    const int before = backend.configs().size();
     QSignalSpy confirmSpy(&backend, &Backend::deepLinkImportConfirmationRequired);
     QSignalSpy failed(&backend, &Backend::errorOccurred);
     QVERIFY(!backend.importDeepLink(v2::kAuthKey));
-    QCOMPARE(confirmSpy.count(), 0);
-    QCOMPARE(failed.count(), 1);
-    QCOMPARE(failed.last().at(0).toString(), freetunnel::newerCoreRefusal());
-    QVERIFY(!backend.confirmDeepLinkImport(v2::kAuthKey));
-    QCOMPARE(failed.last().at(0).toString(), freetunnel::newerCoreRefusal());
-    QCOMPARE(backend.configs().size(), before);
+    QCOMPARE(failed.count(), 0);
+    QCOMPARE(confirmSpy.count(), 1);
+
+    QSignalSpy imported(&backend, &Backend::configImported);
+    QVERIFY(backend.confirmDeepLinkImport(v2::kAuthKey));
+    QCOMPARE(imported.count(), 1);
+    QCOMPARE(failed.count(), 0);
+    QFile f(pathOfImported(imported));
+    QVERIFY(f.open(QIODevice::ReadOnly));
+    const QString text = QString::fromUtf8(f.readAll());
+    QVERIFY2(text.contains(QStringLiteral("\nclient_random_auth_key = \"aabbccdd\"\n")), qPrintable(text));
+    QCOMPARE(freetunnel::endpointClientRandomAuthKey(text), QStringLiteral("aabbccdd"));
+
+    const int row = backend.configs().indexOf(imported.last().at(0).toString());
+    QVERIFY(row >= 0);
+    const auto link = freetunnel::parseDeepLink(backend.configDeepLink(row));
+    QVERIFY(link);
+    QCOMPARE(link->version, 2);
+    QCOMPARE(link->clientRandomAuthKey, QStringLiteral("aabbccdd"));
 }
 
 // A version this client does not read is still said to be a link problem.
@@ -668,25 +684,42 @@ void TestBackendDeepLinkImport::aLinkTooNewIsStillALinkError()
     QCOMPARE(failed.last().at(0).toString(), QStringLiteral("Link error: unsupported deep link version 3"));
 }
 
-// A config file for a server that checks the auth key would import and then fail
-// every connect, turned away at the handshake with nothing to say why.
-void TestBackendDeepLinkImport::importFileRefusesAServerThatNeedsAnAuthKey()
+// A config file for a server that checks the auth key imports with its key, which
+// the core uses. One that is not whole bytes of hex is refused: the core would
+// take it as written, and every connect would fail with nothing to say why.
+void TestBackendDeepLinkImport::importFileKeepsAServersAuthKeyAndRefusesADamagedOne()
 {
-    QByteArray body = validImportBody();
-    body.append("client_random_auth_key = \"aabbccdd\"\n");
-    const QString path = writeTempConfig(QStringLiteral("auth-key.toml"), body);
-    QVERIFY(!path.isEmpty());
-
-    Backend backend;
-    const int before = backend.configs().size();
-    QSignalSpy failed(&backend, &Backend::errorOccurred);
-    QVERIFY(!backend.importFile(path));
-    QCOMPARE(failed.count(), 1);
-    QCOMPARE(failed.last().at(0).toString(), freetunnel::newerCoreRefusal());
-    QCOMPARE(backend.configs().size(), before);
     const QString base = QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation);
-    QVERIFY(!QFileInfo::exists(QDir(base).filePath(QStringLiteral("auth-key.toml"))));
-    QFile::remove(path);
+    {
+        QByteArray body = validImportBody();
+        body.append("client_random_auth_key = \"aabbccdd\"\n");
+        const QString path = writeTempConfig(QStringLiteral("auth-key.toml"), body);
+        QVERIFY(!path.isEmpty());
+        Backend backend;
+        QSignalSpy failed(&backend, &Backend::errorOccurred);
+        QVERIFY(backend.importFile(path));
+        QCOMPARE(failed.count(), 0);
+        QFile f(QDir(base).filePath(QStringLiteral("auth-key.toml")));
+        QVERIFY(f.open(QIODevice::ReadOnly));
+        QCOMPARE(freetunnel::endpointClientRandomAuthKey(QString::fromUtf8(f.readAll())), QStringLiteral("aabbccdd"));
+        QFile::remove(path);
+    }
+    for (const char *bad : {"abc", "zz", "0xaa"}) {
+        QByteArray body = validImportBody();
+        body.append("client_random_auth_key = \"").append(bad).append("\"\n");
+        const QString path = writeTempConfig(QStringLiteral("bad-auth-key.toml"), body);
+        QVERIFY(!path.isEmpty());
+        Backend backend;
+        const int before = backend.configs().size();
+        QSignalSpy failed(&backend, &Backend::errorOccurred);
+        QVERIFY(!backend.importFile(path));
+        QCOMPARE(failed.count(), 1);
+        QCOMPARE(failed.last().at(0).toString(),
+                 QStringLiteral("Not a valid TrustTunnel config: malformed client_random_auth_key value"));
+        QCOMPARE(backend.configs().size(), before);
+        QVERIFY(!QFileInfo::exists(QDir(base).filePath(QStringLiteral("bad-auth-key.toml"))));
+        QFile::remove(path);
+    }
 }
 
 // The endpoint's export always writes the key, empty for a server without one.
@@ -1112,13 +1145,19 @@ static QString refusalOf(const QString &fileName, const endpoint_export::Fields 
     return failed.last().at(0).toString();
 }
 
-// The refusals a link meets, each with its own sentence.
-void TestBackendDeepLinkImport::importFileRefusesAnEndpointExportThatNeedsAnAuthKey()
+// An export with an auth key is asked about as any other (refusalOf says nothing),
+// and one with a key that is not whole bytes of hex is refused as damaged.
+void TestBackendDeepLinkImport::importFileTakesAnEndpointExportWithAnAuthKey()
 {
     endpoint_export::Fields f;
     f.clientRandomAuthKey = QStringLiteral("aabbccdd");
-    QCOMPARE(refusalOf(QStringLiteral("export-auth-key.toml"), f), freetunnel::newerCoreRefusal());
+    QCOMPARE(refusalOf(QStringLiteral("export-auth-key.toml"), f), QString());
+    f.clientRandomAuthKey = QStringLiteral("abc");
+    QCOMPARE(refusalOf(QStringLiteral("export-bad-auth-key.toml"), f),
+             QStringLiteral("Not a valid TrustTunnel config: malformed client_random_auth_key value"));
 }
+
+// The refusals a link meets, each with its own sentence.
 
 void TestBackendDeepLinkImport::importFileRefusesAnEndpointExportThatIsOnlyASubscription()
 {

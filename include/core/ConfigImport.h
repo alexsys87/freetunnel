@@ -47,8 +47,10 @@ struct PreparedImport {
 // parser's, a fragment the caller puts after "Link error:" (for a file, after
 // "Not a valid TrustTunnel config:"). The others are about a link that is fine
 // but asks for what this version does not have yet, and their message is a whole
-// sentence, said as it is.
-enum class LinkRefusal { Damaged, SubscriptionOnly, NeedsNewerCore };
+// sentence, said as it is. A client random auth key is kept (TrustTunnel 1.3 uses
+// it), but not beside a subscription address: a config made from the subscription
+// would be without it (see subscriptionAuthKeyRefusal).
+enum class LinkRefusal { Damaged, SubscriptionOnly, SubscriptionWithAuthKey };
 
 // Decode an official `tt://` deep link into a ready-to-write TOML config and a
 // sanitized file name. Returns nullopt and sets *error (and *refusal) on failure.
@@ -58,7 +60,7 @@ std::optional<PreparedImport> prepareDeepLinkImport(const QString &link, QString
 // The same for the TOML file a TrustTunnel endpoint exports (parseEndpointExport):
 // read into the config a link with that server gives, by the same rules, with
 // fromFile set and the link the file was turned into, which never carries a
-// subscription address or an auth key. The endpoint writes `name = ""` unless it
+// subscription address, and carries the auth key when there is one. The endpoint writes `name = ""` unless it
 // was given a name, and then fallbackName, the file's, names the config.
 std::optional<PreparedImport> prepareEndpointExportImport(const QString &toml, const QString &fallbackName,
                                                           QString *error = nullptr,
@@ -76,9 +78,11 @@ std::optional<PreparedImport> prepareSubscriptionImport(const ConfigToml &server
 //
 // A subscription link with no server of its own to fall back on.
 QString subscriptionOnlyRefusal();
-// A server that wants a client random auth key, which this version's TrustTunnel
-// core cannot compute.
-QString newerCoreRefusal();
+// A server with both a subscription address and a client random auth key. The
+// key is taken from a link or a file alone: a subscription's document has no
+// field for it, so a config made or updated from the subscription would lose it,
+// and the server would turn every connection away with nothing to say why.
+QString subscriptionAuthKeyRefusal();
 // A config imported without the subscription address it came with.
 QString subscriptionNotKeptNote();
 // A config whose certificate came with something else beside it, such as a

@@ -477,8 +477,8 @@
         <translation>Ссылки-подписки пока не поддерживаются. Попросите у провайдера обычную ссылку или обновите FreeTunnel, когда появятся подписки.</translation>
     </message>
     <message>
-        <source>This server needs a newer TrustTunnel core than this version of FreeTunnel uses.</source>
-        <translation>Этому серверу нужно ядро TrustTunnel новее, чем в этой версии FreeTunnel.</translation>
+        <source>This server&apos;s subscription can&apos;t carry its client random auth key yet. Ask your provider for a regular link.</source>
+        <translation>Подписка этого сервера пока не может передать его ключ client random. Попросите у провайдера обычную ссылку.</translation>
     </message>
     <message>
         <source>Subscriptions aren&apos;t supported yet: this server won&apos;t update itself, and its subscription address isn&apos;t saved.</source>
@@ -1315,8 +1315,8 @@
         <translation>Обновите FreeTunnel, чтобы прочитать эту подписку</translation>
     </message>
     <message>
-        <source>This subscription needs a newer TrustTunnel core than this version of FreeTunnel uses</source>
-        <translation>Этой подписке нужно ядро TrustTunnel новее, чем в этой версии FreeTunnel</translation>
+        <source>This subscription sends a client random auth key, which FreeTunnel can&apos;t take from a subscription yet</source>
+        <translation>Эта подписка передаёт ключ client random, который FreeTunnel пока не умеет брать из подписки</translation>
     </message>
 </context>
 <context>

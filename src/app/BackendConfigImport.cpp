@@ -99,7 +99,9 @@ bool Backend::importFile(const QString &path)
         if (importErr == QLatin1String("read"))
             emit errorOccurred(tr("Could not read the file"));
         else if (importErr == QLatin1String("authkey"))
-            emit errorOccurred(freetunnel::newerCoreRefusal());
+            emit errorOccurred(tr("Not a valid TrustTunnel config: %1")
+                                       .arg(QCoreApplication::translate("DeepLink",
+                                                                        "malformed client_random_auth_key value")));
         else if (importErr == QLatin1String("certificate"))
             emit errorOccurred(tr("Not a valid TrustTunnel config: %1")
                                        .arg(QCoreApplication::translate("DeepLink", "malformed certificate")));

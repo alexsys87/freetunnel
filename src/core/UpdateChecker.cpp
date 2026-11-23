@@ -73,6 +73,52 @@ bool isDesktopTag(const QString &tag)
     return isPlausibleTag(tag) && re.match(tag).hasMatch();
 }
 
+// The Windows 7 build's releases, win7-1.4.0 and on, which win7.yml publishes
+// beside each v* one.
+bool isWindows7Tag(const QString &tag)
+{
+    static const QRegularExpression re(QStringLiteral("\\Awin7-[0-9]"));
+    return isPlausibleTag(tag) && re.match(tag).hasMatch();
+}
+
+// What a channel's releases look like: their tags, what to take off a tag for the
+// version, the manifest and its signature, and what the manifest says it is for.
+bool isChannelTag(UpdateChecker::Channel channel, const QString &tag)
+{
+    return channel == UpdateChecker::Channel::Windows7 ? isWindows7Tag(tag) : isDesktopTag(tag);
+}
+
+QString versionOfTag(UpdateChecker::Channel channel, const QString &tag)
+{
+    if (channel == UpdateChecker::Channel::Windows7)
+        return tag.mid(QLatin1String("win7-").size());
+    return tag.startsWith(QLatin1Char('v')) || tag.startsWith(QLatin1Char('V')) ? tag.mid(1) : tag;
+}
+
+QString checksumsName(UpdateChecker::Channel channel)
+{
+    return channel == UpdateChecker::Channel::Windows7 ? QStringLiteral("SHA256SUMS-windows7.txt")
+                                                       : QStringLiteral("SHA256SUMS.txt");
+}
+
+// The "#version=" a channel's signed manifest carries for a version. The Windows 7
+// one says X.Y.Z+win7 (win7.yml), so a manifest signed for the other build of the
+// same version is refused as one signed for another version.
+QString manifestVersionFor(UpdateChecker::Channel channel, const QString &version)
+{
+    return channel == UpdateChecker::Channel::Windows7 ? version + QStringLiteral("+win7") : version;
+}
+
+// The page the app opens for a release it cannot install by itself, when the
+// release's own page cannot be trusted. A Windows 7 release is never the latest
+// one, so its build gets the list of releases.
+QString releasesPageFor(UpdateChecker::Channel channel, const QString &repo)
+{
+    return channel == UpdateChecker::Channel::Windows7
+            ? QStringLiteral("https://github.com/%1/releases").arg(repo)
+            : QStringLiteral("https://github.com/%1/releases/latest").arg(repo);
+}
+
 #ifdef FT_ENABLE_TEST_HOOKS
 // When the update endpoint is redirected for tests, allow that same host (the
 // mock serves assets over http on loopback). The whole helper — and its call
@@ -134,7 +180,8 @@ bool isTrustedAssetUrl(const QString &urlStr, const QString &repo, const QString
 // an arbitrary page opened for the user. Take it only when it really is this
 // repo's release page; otherwise fall back to the canonical releases URL, which
 // is built from the compiled-in repo and can't be influenced.
-QString sanitizedReleasePageUrl(const QString &urlStr, const QString &repo, const QString &tag)
+QString sanitizedReleasePageUrl(const QString &urlStr, const QString &repo, const QString &tag,
+                                UpdateChecker::Channel channel)
 {
 #ifdef FT_ENABLE_TEST_HOOKS
     if (matchesTestBaseHost(QUrl(urlStr).host().toLower()))
@@ -147,7 +194,7 @@ QString sanitizedReleasePageUrl(const QString &urlStr, const QString &repo, cons
             && QStringLiteral("%1/%2").arg(seg.at(0), seg.at(1)).compare(repo, Qt::CaseInsensitive) == 0;
     if (isReleasePage)
         return urlStr;
-    return QStringLiteral("https://github.com/%1/releases/latest").arg(repo);
+    return releasesPageFor(channel, repo);
 }
 
 // Where the verified installer is staged before it is executed. Not
@@ -264,7 +311,7 @@ QNetworkRequest apiRequest(const QString &path, const QString &currentVersion)
 // version comes before it. Drafts and pre-releases are skipped, as
 // /releases/latest skips them; drafts are listed only to a token that can push,
 // and this check sends none, so that test is only in case.
-QJsonObject newestDesktopRelease(const QJsonArray &releases)
+QJsonObject newestRelease(const QJsonArray &releases, UpdateChecker::Channel channel)
 {
     QJsonObject newest;
     QString newestVersion;
@@ -272,9 +319,9 @@ QJsonObject newestDesktopRelease(const QJsonArray &releases)
         const QJsonObject release = val.toObject();
         const QString tag = release.value("tag_name").toString();
         if (release.value("draft").toBool() || release.value("prerelease").toBool()
-            || !isDesktopTag(tag))
+            || !isChannelTag(channel, tag))
             continue;
-        const QString version = tag.mid(1);
+        const QString version = versionOfTag(channel, tag);
         if (newest.isEmpty() || isVersionNewer(newestVersion, version)) {
             newest = release;
             newestVersion = version;
@@ -284,12 +331,23 @@ QJsonObject newestDesktopRelease(const QJsonArray &releases)
 }
 } // namespace
 
+UpdateChecker::Channel UpdateChecker::buildChannel()
+{
+#ifdef FREETUNNEL_WINDOWS7
+    return Channel::Windows7;
+#else
+    return Channel::Desktop;
+#endif
+}
+
 UpdateChecker::UpdateChecker(const QString &githubRepo,
                              const QString &currentVersion,
-                             QObject *parent)
+                             QObject *parent,
+                             Channel channel)
     : QObject(parent)
     , m_githubRepo(githubRepo)
     , m_currentVersion(currentVersion)
+    , m_channel(channel)
     , m_nam(new QNetworkAccessManager(this))
 {
     // Qt leaves the transfer timeout off, so a connection that stops delivering
@@ -321,6 +379,12 @@ void UpdateChecker::checkNow()
         return;
     m_checkInFlight = true;
 
+    // A Windows 7 release is never the latest one (win7.yml), so its build goes to
+    // the list at once.
+    if (m_channel == Channel::Windows7) {
+        requestReleaseList();
+        return;
+    }
     // https://docs.github.com/en/rest/releases/releases#get-the-latest-release
     QNetworkReply *reply = m_nam->get(
             apiRequest(QStringLiteral("/repos/%1/releases/latest").arg(m_githubRepo), m_currentVersion));
@@ -348,8 +412,17 @@ struct InstallerCandidates {
 
 // Basename only, always — never let a crafted asset name escape the staging dir.
 void noteInstallerCandidate(const QString &name, const QString &downloadUrl,
-                            InstallerCandidates *out)
+                            InstallerCandidates *out, UpdateChecker::Channel channel)
 {
+    // Only a Windows build is ever on the Windows 7 channel; deciding by the channel
+    // rather than the platform lets the tests on every platform reach it.
+    if (channel == UpdateChecker::Channel::Windows7) {
+        if (name.endsWith(QStringLiteral("-Setup.exe"), Qt::CaseInsensitive)) {
+            out->url = downloadUrl;
+            out->name = QFileInfo(name).fileName();
+        }
+        return;
+    }
 #ifdef _WIN32
     if (name.endsWith(".exe", Qt::CaseInsensitive)) {
         out->url = downloadUrl;
@@ -393,14 +466,19 @@ void UpdateChecker::selectReleaseAssets(const QJsonObject &release, const QStrin
         // the tag the response is advertising.
         if (!isTrustedAssetUrl(downloadUrl, m_githubRepo, tagName))
             continue;
-        if (name == QLatin1String("SHA256SUMS.txt"))
+        if (name == checksumsName(m_channel))
             m_latest.checksumsUrl = downloadUrl;
-        else if (name == QLatin1String("SHA256SUMS.txt.sig"))
+        else if (name == checksumsName(m_channel) + QStringLiteral(".sig"))
             m_latest.signatureUrl = downloadUrl;
         else
-            noteInstallerCandidate(name, downloadUrl, &found);
+            noteInstallerCandidate(name, downloadUrl, &found, m_channel);
     }
 
+    if (m_channel == Channel::Windows7) {
+        m_latest.installerUrl = found.url;
+        m_latest.assetName = found.name;
+        return;
+    }
 #if !defined(_WIN32) && !defined(__APPLE__)
     // Prefer the artifact matching how this copy was installed; fall back to the
     // other rather than offering nothing, since a release may publish only one.
@@ -442,7 +520,7 @@ void UpdateChecker::onCheckFinished(QNetworkReply *reply)
         emit noUpdateAvailable(tr("Invalid response from GitHub API"));
         return;
     }
-    if (!isDesktopTag(tagName)) {
+    if (!isChannelTag(m_channel, tagName)) {
         fetchReleaseList(tagName);
         return;
     }
@@ -453,17 +531,14 @@ void UpdateChecker::onCheckFinished(QNetworkReply *reply)
 // now, whether /releases/latest named it or the release list gave it.
 void UpdateChecker::offerRelease(const QJsonObject &release, const QString &tagName)
 {
-    // Strip leading 'v' from tag
-    QString remoteVersion = tagName;
-    if (remoteVersion.startsWith('v') || remoteVersion.startsWith('V')) {
-        remoteVersion = remoteVersion.mid(1);
-    }
+    // The tag without its v, or win7-.
+    const QString remoteVersion = versionOfTag(m_channel, tagName);
 
     m_latest = ReleaseInfo{};
     m_latest.tagName = tagName;
     m_latest.version = remoteVersion;
     m_latest.htmlUrl = sanitizedReleasePageUrl(release.value("html_url").toString(),
-                                               m_githubRepo, tagName);
+                                               m_githubRepo, tagName, m_channel);
 
     selectReleaseAssets(release, tagName);
 
@@ -487,6 +562,11 @@ void UpdateChecker::fetchReleaseList(const QString &latestTag)
     qWarning("UpdateChecker: the latest release, %s, is not a desktop release — "
              "taking the newest desktop release from the release list instead",
              qPrintable(latestTag));
+    requestReleaseList();
+}
+
+void UpdateChecker::requestReleaseList()
+{
     // Still the same check, which onCheckFinished() took for done: one asked for
     // meanwhile waits for this answer.
     m_checkInFlight = true;
@@ -512,7 +592,7 @@ void UpdateChecker::onReleaseListFinished(QNetworkReply *reply)
         emit noUpdateAvailable(tr("Invalid response from GitHub API"));
         return;
     }
-    const QJsonObject release = newestDesktopRelease(doc.array());
+    const QJsonObject release = newestRelease(doc.array(), m_channel);
     if (release.isEmpty()) {
         emit noUpdateAvailable(tr("No releases found"));
         return;
@@ -656,11 +736,13 @@ void UpdateChecker::onSignatureFetched(QNetworkReply *reply)
                             DownloadFailure::Refused);
         return;
     }
-    if (manifestVersion != m_latest.version) {
+    // A Windows 7 manifest says X.Y.Z+win7, so neither build takes the other's.
+    const QString expectedVersion = manifestVersionFor(m_channel, m_latest.version);
+    if (manifestVersion != expectedVersion) {
         emit downloadFailed(
                 tr("This update is signed for version %1, but %2 was offered — "
                    "aborting.")
-                        .arg(manifestVersion, m_latest.version),
+                        .arg(manifestVersion, expectedVersion),
                 DownloadFailure::Refused);
         return;
     }

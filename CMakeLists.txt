@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(FreeTunnel VERSION 1.4.0 LANGUAGES CXX)
+project(FreeTunnel VERSION 1.4.1 LANGUAGES CXX)
 
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
@@ -201,6 +201,13 @@ target_compile_definitions(FreeTunnel PRIVATE
     FREETUNNEL_VERSION="${PROJECT_VERSION}"
     FREETUNNEL_CORE_REF="${FREETUNNEL_CORE_REF}"
 )
+# The Windows 7 build (.github/workflows/win7.yml) looks for its updates in its own
+# releases, win7-X.Y.Z, not the desktop's vX.Y.Z, whose installer needs Windows 10
+# (UpdateChecker::buildChannel).
+option(FREETUNNEL_WINDOWS7 "Build for Windows 7: take updates from the win7-* releases" OFF)
+if (FREETUNNEL_WINDOWS7)
+    target_compile_definitions(FreeTunnel PRIVATE FREETUNNEL_WINDOWS7)
+endif ()
 
 # --- Build hardening -------------------------------------------------------
 # Defense-in-depth for a process that parses untrusted network/IPC/TLV input in

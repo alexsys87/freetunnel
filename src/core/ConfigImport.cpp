@@ -21,11 +21,11 @@ QString subscriptionOnlyRefusal()
                                        "a regular link, or update FreeTunnel when subscriptions arrive.");
 }
 
-QString newerCoreRefusal()
+QString subscriptionAuthKeyRefusal()
 {
     return QCoreApplication::translate("ConfigImport",
-                                       "This server needs a newer TrustTunnel core than this version of "
-                                       "FreeTunnel uses.");
+                                       "This server's subscription can't carry its client random auth key yet. "
+                                       "Ask your provider for a regular link.");
 }
 
 QString subscriptionNotKeptNote()
@@ -69,11 +69,19 @@ std::optional<PreparedImport> prepareServer(DeepLinkConfig cfg, bool subscriptio
                                             const KeptCertificates &certificates, QString *error,
                                             LinkRefusal *refusal)
 {
-    // A server that checks the auth key turns this core away at the TLS
-    // handshake, and with nothing in the app to say why. First, because it is
-    // the last word: a subscription would hand out the same server.
-    if (!cfg.clientRandomAuthKey.isEmpty())
-        return refuse(LinkRefusal::NeedsNewerCore, newerCoreRefusal(), error, refusal);
+    // The auth key is kept: TrustTunnel 1.3 derives the TLS client random from it.
+    // One that is not whole bytes of hex is damage, as a link's parser takes it
+    // (an export's is read as text): the core would take it as written, and every
+    // connection to the server would fail with nothing to say why.
+    if (!isClientRandomAuthKey(cfg.clientRandomAuthKey))
+        return refuse(LinkRefusal::Damaged,
+                      QCoreApplication::translate("DeepLink", "malformed client_random_auth_key value"), error,
+                      refusal);
+    // But not beside a subscription address, whose document has no field for it:
+    // the server it hands out would lack the key. First of the rules, as the key
+    // was before 1.4.0, because a subscription would hand out the same server.
+    if (subscription && !cfg.clientRandomAuthKey.isEmpty())
+        return refuse(LinkRefusal::SubscriptionWithAuthKey, subscriptionAuthKeyRefusal(), error, refusal);
     // A link that is only a subscription address names no server until the
     // subscription is fetched, and fetching one is later work. One that carries
     // its server as well imports that server, without the address (below).
@@ -101,8 +109,8 @@ std::optional<PreparedImport> prepareServer(DeepLinkConfig cfg, bool subscriptio
         out.unclippedFileName = whole;
     if (!name.isEmpty())
         out.legacyFileName = legacyConfigBaseName(name) + QStringLiteral(".toml");
-    // deepLinkConfigToToml() writes neither of the version 2 fields, so the
-    // address, and the password in it, go no further than this.
+    // deepLinkConfigToToml() writes the auth key and not the subscription address,
+    // so the address, and the password in it, go no further than this.
     out.tomlContent = deepLinkConfigToToml(cfg);
     out.skipVerification = cfg.skipVerification;
     out.subscriptionNotKept = subscription;
@@ -191,7 +199,8 @@ std::optional<PreparedImport> prepareEndpointExportImport(const QString &toml, c
         return out;
     out->fromFile = true;
     // Version 1, with the name (0x0C) and the certificates alone, and never the
-    // subscription address or an auth key (see encodeDeepLink).
+    // subscription address; version 2 with tag 0x0F where it has an auth key
+    // (see encodeDeepLink).
     cfg.certificate = certificates.der;
     out->link = encodeDeepLink(cfg);
     return out;

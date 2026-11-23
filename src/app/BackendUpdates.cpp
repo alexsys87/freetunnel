@@ -27,8 +27,12 @@ static QString releaseRepository()
     return QStringLiteral("alexsys87/freetunnel");
 }
 
+// A Windows 7 release (win7-X.Y.Z) is never the latest one, so the Windows 7
+// build opens the list of releases.
 static QString latestReleasePage()
 {
+    if (UpdateChecker::buildChannel() == UpdateChecker::Channel::Windows7)
+        return QStringLiteral("https://github.com/%1/releases").arg(releaseRepository());
     return QStringLiteral("https://github.com/%1/releases/latest").arg(releaseRepository());
 }
 

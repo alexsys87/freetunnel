@@ -25,7 +25,11 @@ import check have passed, the `release` job signs the checksums with the
 project's release key and makes the release `win7-X.Y.Z` (X.Y.Z is the
 project version) with the two files, `win7-import-check.md`,
 `SHA256SUMS-windows7.txt` and its `.sig`. It is never the latest release, so the
-in-app update check keeps following the desktop's `v*` releases. A published
+in-app update check of the other builds keeps following the desktop's `v*`
+releases, while the Windows 7 build (built with `-DFREETUNNEL_WINDOWS7=ON`)
+looks for the newest `win7-*` one, its `Setup.exe` and `SHA256SUMS-windows7.txt`,
+whose signed `#version=X.Y.Z+win7` line binds it to this build (1.4.1 on;
+1.4.0 and earlier follow the `v*` releases). A published
 version is not replaced: for a new release, bump the project version.
 
 The first run builds OpenSSL and Qt, which takes a few hours. Later runs reuse

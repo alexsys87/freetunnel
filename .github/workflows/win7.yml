@@ -450,6 +450,7 @@ jobs:
               -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl `
               -DIPV6_UNAVAILABLE=ON -DDISABLE_HTTP3=OFF `
               -DBUILD_TRUSTTUNNEL_QT=ON `
+              -DFREETUNNEL_WINDOWS7=ON `
               -DCMAKE_PREFIX_PATH="$env:QT_WIN7_PREFIX"
             if ($LASTEXITCODE -eq 0) { $ok = $true; break }
             if ($attempt -lt 3) {
@@ -719,7 +720,8 @@ jobs:
             echo "\`SHA256SUMS-windows7.txt.sig\` with the project's release key)."
             echo "SmartScreen may warn: choose \"More info\" → \"Run anyway\"."
             echo
-            echo "The app's own update check follows the desktop's releases, not this one."
+            echo "The app's own update check looks for the next Windows 7 release (win7-*), not the"
+            echo "Windows 10 and 11 one."
             echo
             echo "### What is in FreeTunnel ${VERSION}"
             echo
