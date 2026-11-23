@@ -210,7 +210,8 @@ QString Backend::configDeepLink(int index) const
     QFile file(path);
     if (!file.open(QIODevice::ReadOnly | QIODevice::Text))
         return QString();
-    const freetunnel::ConfigToml c = freetunnel::parseConfigToml(QString::fromUtf8(file.readAll()));
+    const QString content = QString::fromUtf8(file.readAll());
+    const freetunnel::ConfigToml c = freetunnel::parseConfigToml(content);
     freetunnel::DeepLinkConfig dl;
     dl.version = freetunnel::kDeepLinkWriteVersion;
     dl.hostname = c.hostname;
@@ -233,6 +234,10 @@ QString Backend::configDeepLink(int index) const
     dl.name = nameForPath(path);
     for (const QString &d : freetunnel::splitDnsList(c.dns))
         dl.dnsUpstreams << d.trimmed();
+    // The server's auth key, which the link carries as tag 0x0F (version 2):
+    // without it the server turns the client away. One the core could not use is
+    // left out, as encodeDeepLink() leaves it.
+    dl.clientRandomAuthKey = freetunnel::endpointClientRandomAuthKey(content);
     return freetunnel::encodeDeepLink(dl);
 }
 

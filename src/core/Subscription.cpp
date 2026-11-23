@@ -350,8 +350,10 @@ bool readOptionalFields(const DocumentReader &in, SubscriptionDocument *doc)
     return readDnsUpstreams(in, doc);
 }
 
-// No version of the format has the key yet; a server that checks one turns this
-// core away at the TLS handshake, as a link's 0x0F does. Empty is no key.
+// No version of the format has the key yet, and nothing here carries one into the
+// config a subscription makes or updates, though the core (TrustTunnel 1.3) could
+// use it: a server that checks one would turn the config away at the handshake.
+// A link or a file with a key imports it (ConfigImport). Empty is no key.
 bool readAuthKey(const DocumentReader &in)
 {
     QString key;

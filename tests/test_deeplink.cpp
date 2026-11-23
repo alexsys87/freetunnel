@@ -32,6 +32,7 @@ private slots:
     void deepLinkCertificatesSaysWhatItDropped_data();
     void deepLinkCertificatesSaysWhatItDropped();
     void encodeDeepLinkWritesOnlyCertificates();
+    void ourLinkCarriesTheAuthKey();
     void aLinkWithAKeyInTag8KeepsTheCertificate();
     void randomCertificateFieldsKeepOnlyCertificates();
     void aMaskedClientRandomReachesTheConfigWhole();
@@ -931,10 +932,10 @@ void TestDeepLink::version1LinksReadAsBefore()
                      .has_value());
 }
 
-// Version 2 adds only tags our links never carry, and FreeTunnel 1.2.3 and
-// earlier, like TrustTunnel's clients up to 1.1.11, refuse a version 2 link
-// outright. So a share link stays version 1, whatever the config it came from
-// was imported from.
+// Version 2 adds tags our links rarely carry, and FreeTunnel 1.2.3 and earlier,
+// like TrustTunnel's clients up to 1.1.11, refuse a version 2 link outright. So a
+// share link stays version 1, whatever the config it came from was imported
+// from, unless it carries the server's auth key (ourLinkCarriesTheAuthKey).
 void TestDeepLink::ourOwnLinksStayVersion1()
 {
     QCOMPARE(kDeepLinkWriteVersion, 1);
@@ -943,7 +944,8 @@ void TestDeepLink::ourOwnLinksStayVersion1()
     QString err;
     auto cfg = parseDeepLink(v2::kFull, &err);
     QVERIFY2(cfg.has_value(), qPrintable(err));
-    cfg->clientRandomAuthKey = QStringLiteral("aabbccdd");
+    // One the core could not use is not written, and the link stays version 1.
+    cfg->clientRandomAuthKey = QStringLiteral("abc");
     cfg->version = kDeepLinkMaxVersion; // what the struct says is not what is written
     const QString ours = encodeDeepLink(*cfg);
 
@@ -997,18 +999,23 @@ void TestDeepLink::encodesTheLinksTheAndroidAppPins()
 }
 
 // The subscription address carries the VPN password in plain text; what a link
-// becomes on disk never holds it, nor an auth key the core would not use.
+// becomes on disk never holds it. The auth key it does hold, after anti_dpi, for
+// TrustTunnel 1.3 to derive the client random from; a config without one is the
+// text it was before.
 void TestDeepLink::theTomlNeverHoldsTheVersion2Fields()
 {
     QString err;
     auto cfg = parseDeepLink(v2::kFull, &err);
     QVERIFY2(cfg.has_value(), qPrintable(err));
+    const QString without = deepLinkConfigToToml(*cfg);
+    QVERIFY2(!without.contains(QStringLiteral("auth_key")), qPrintable(without));
     cfg->clientRandomAuthKey = QStringLiteral("aabbccdd");
     const QString toml = deepLinkConfigToToml(*cfg);
     QVERIFY2(!toml.contains(QStringLiteral("subscription")), qPrintable(toml));
     QVERIFY2(!toml.contains(QStringLiteral("https://alice")), qPrintable(toml));
-    QVERIFY2(!toml.contains(QStringLiteral("auth_key")) && !toml.contains(QStringLiteral("aabbccdd")),
-             qPrintable(toml));
+    QCOMPARE(toml, QString(without).replace(QStringLiteral("anti_dpi = false\n"),
+                                            QStringLiteral("anti_dpi = false\nclient_random_auth_key = \"aabbccdd\"\n")));
+    QCOMPARE(endpointClientRandomAuthKey(toml), QStringLiteral("aabbccdd"));
     QVERIFY2(toml.contains(QStringLiteral("hostname = \"vpn.example.com\"")), qPrintable(toml));
 }
 
@@ -1098,6 +1105,37 @@ void TestDeepLink::aVersionThatCannotBeReadIsDamage()
                                    &err);
     QVERIFY2(cfg.has_value(), qPrintable(err));
     QCOMPARE(cfg->version, 2);
+}
+
+// A config with an auth key gets a link with it, as tag 0x0F after everything a
+// link without one has, and version 2, where the format defines the tag: that is
+// what the Android app writes too (DeepLinkImport.encode), and what TrustTunnel's
+// own clients read. Without the key the link is byte for byte the version 1 one.
+void TestDeepLink::ourLinkCarriesTheAuthKey()
+{
+    QCOMPARE(kDeepLinkWriteVersionWithAuthKey, 2);
+    DeepLinkConfig in;
+    in.hostname = QStringLiteral("vpn.example.com");
+    in.addresses = {QStringLiteral("1.2.3.4:443")};
+    in.username = QStringLiteral("alice");
+    in.password = QStringLiteral("secret");
+    in.name = QStringLiteral("Work");
+    const QByteArray plain = QByteArray::fromBase64(encodeDeepLink(in).mid(6).toLatin1(), QByteArray::Base64UrlEncoding);
+    in.clientRandomAuthKey = QStringLiteral("aabbccdd");
+    const QString withKey = encodeDeepLink(in);
+    const QByteArray keyed = QByteArray::fromBase64(withKey.mid(6).toLatin1(), QByteArray::Base64UrlEncoding);
+    QCOMPARE(keyed.left(3), QByteArray("\x00\x01\x02", 3));
+    QCOMPARE(keyed.mid(3, plain.size() - 3), plain.mid(3));
+    QCOMPARE(keyed.mid(plain.size()), QByteArray("\x0f\x08" "aabbccdd", 10));
+    QString err;
+    const auto back = parseDeepLink(withKey, &err);
+    QVERIFY2(back.has_value(), qPrintable(err));
+    QCOMPARE(back->version, 2);
+    QCOMPARE(back->clientRandomAuthKey, QStringLiteral("aabbccdd"));
+    QVERIFY(isClientRandomAuthKey(QString()));
+    QVERIFY(isClientRandomAuthKey(QStringLiteral("09afAF")));
+    for (const char *bad : {"abc", "zz", "0xaa", "aa bb", "\xd0\xb0\xd0\xb0"})
+        QVERIFY2(!isClientRandomAuthKey(QString::fromUtf8(bad)), bad);
 }
 
 #include "test_deeplink.moc"

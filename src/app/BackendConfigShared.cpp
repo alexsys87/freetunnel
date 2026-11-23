@@ -17,6 +17,7 @@
 #include "core/ConfigPaths.h"
 #include "core/ConfigToml.h"
 #include "core/CredentialStore.h"
+#include "core/DeepLink.h"
 
 namespace freetunnel::backend_config {
 
@@ -205,10 +206,11 @@ bool readValidatedImportContent(const QString &path, QString *contentOut, QStrin
             *contentOut = content;
         return false;
     }
-    // A server that checks the auth key turns this core away at the TLS
-    // handshake. Imported, the config would fail every connect with nothing to
-    // say why; the empty key the endpoint's export always writes is no key.
-    if (!freetunnel::endpointClientRandomAuthKey(content).isEmpty()) {
+    // The auth key is kept, as written: TrustTunnel 1.3 derives the TLS client
+    // random from it. One that is not whole bytes of hex is refused, as a link's
+    // is: the core takes the key as written, and every connect would fail with
+    // nothing to say why. The empty key the endpoint's export writes is no key.
+    if (!freetunnel::isClientRandomAuthKey(freetunnel::endpointClientRandomAuthKey(content))) {
         if (errOut)
             *errOut = QStringLiteral("authkey");
         return false;

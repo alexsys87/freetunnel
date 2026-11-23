@@ -20,8 +20,8 @@ its own signing key, so the two projects' releases do not update each other.
   is refused, and from other links and files only the server's own settings
   are imported. The subscription address is not kept; the rest of a file is
   kept as written. The rules for each version 2 field are the desktop's, in
-  [DEEP_LINK.md](../DEEP_LINK.md), but for two that core 1.3 reads and the
-  desktop's core does not yet. A **client random auth key** (tag `0x0F`, or
+  [DEEP_LINK.md](../DEEP_LINK.md), but for the TLS profile, which the desktop
+  leaves out. A **client random auth key** (tag `0x0F`, or
   `client_random_auth_key` in TOML) is kept, and the core derives the TLS
   client random from it: servers with an auth-key rule work. An empty key is
   no key; one that is not a string of whole bytes of hex refuses the import

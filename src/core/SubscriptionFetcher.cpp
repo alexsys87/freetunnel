@@ -178,7 +178,7 @@ constexpr const char *kInvalid = QT_TRANSLATE_NOOP("SubscriptionFetcher", "The s
 constexpr const char *kNewerFormat =
         QT_TRANSLATE_NOOP("SubscriptionFetcher", "Update FreeTunnel to read this subscription");
 constexpr const char *kNewerCore = QT_TRANSLATE_NOOP(
-        "SubscriptionFetcher", "This subscription needs a newer TrustTunnel core than this version of FreeTunnel uses");
+        "SubscriptionFetcher", "This subscription sends a client random auth key, which FreeTunnel can't take from a subscription yet");
 
 // A 403 is the operator turning updates off, and a 404, 405 or 407 a server with
 // no subscription here: nothing automatic tries again until the user does. So

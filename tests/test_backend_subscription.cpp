@@ -599,7 +599,8 @@ void TestBackendSubscription::anEndpointExportWithASubscriptionAsksBeforeAnyFetc
     QVERIFY(request.pinned);
     QCOMPARE(request.connectHost, QStringLiteral("203.0.113.5"));
 
-    // One that needs an auth key is refused as it was, subscription or not.
+    // One with an auth key beside its subscription is refused: the subscription's
+    // document has no field for the key, so its server would come without it.
     endpoint_export::Fields withKey;
     withKey.clientRandomAuthKey = QStringLiteral("aabbccdd");
     {
@@ -610,7 +611,7 @@ void TestBackendSubscription::anEndpointExportWithASubscriptionAsksBeforeAnyFetc
     QSignalSpy failed(rig.backend.get(), &Backend::errorOccurred);
     QVERIFY(!rig.backend->importFile(file));
     QCOMPARE(consent.count(), 1);
-    QCOMPARE(failed.last().at(0).toString(), freetunnel::newerCoreRefusal());
+    QCOMPARE(failed.last().at(0).toString(), freetunnel::subscriptionAuthKeyRefusal());
 }
 
 void TestBackendSubscription::aLinkRefusedForSomethingElseIsRefusedAsBefore()
@@ -618,11 +619,12 @@ void TestBackendSubscription::aLinkRefusedForSomethingElseIsRefusedAsBefore()
     Rig rig;
     QSignalSpy consent(rig.subs(), &SubscriptionController::consentRequired);
     QSignalSpy failed(rig.backend.get(), &Backend::errorOccurred);
-    // An auth key beside the address: the core cannot use the server either way.
+    // An auth key beside the address: the subscription would hand out the server
+    // without it.
     rig.backend->importDeepLink(v2::linkFromRecords({{0x00, QByteArray(1, 2)},
                                                      {0x0e, v2::kSubscription.toUtf8()},
                                                      {0x0f, QByteArrayLiteral("aabbccdd")}}));
-    QCOMPARE(failed.last().at(0).toString(), freetunnel::newerCoreRefusal());
+    QCOMPARE(failed.last().at(0).toString(), freetunnel::subscriptionAuthKeyRefusal());
     rig.backend->importDeepLink(v2::kHttpSubscription);
     QVERIFY(failed.last().at(0).toString().startsWith(QStringLiteral("Link error: ")));
     QCOMPARE(consent.count(), 0);

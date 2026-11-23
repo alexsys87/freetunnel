@@ -5,6 +5,21 @@ built from the section below it, so this file is the description of the release 
 write it before tagging. For the full commit history of a release, follow the
 compare link at the bottom of its release notes.
 
+## 1.4.1
+
+### Changed
+
+- **Servers with a client random auth key work.** A link, a config file or a
+  server's export with one, which FreeTunnel refused as needing a newer core,
+  imports, and the key is used: TrustTunnel 1.3, the core since 1.4.0, derives
+  the TLS client random from it. *Copy deep-link* and *Show QR code* carry it.
+  A key next to a subscription address is still refused, with its reason: a
+  subscription cannot carry the key into its config yet.
+- **Windows 7 looks for its own updates.** The Windows 7 build is offered the
+  next `win7-*` release, no longer the Windows 10 and 11 installer, which does
+  not run on Windows 7. Install this release by hand once: 1.4.0 for Windows 7
+  still looks at the other releases.
+
 ## 1.4.0
 
 ### Added

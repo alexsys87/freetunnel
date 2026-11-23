@@ -62,7 +62,7 @@ enum class SubscriptionDocError {
     Invalid,            // damaged, or a field this client cannot take
     UnsupportedVersion, // newer than kSubscriptionMaxVersion
     SkipVerification,   // asks to skip TLS verification, which a subscription never may
-    NeedsNewerCore,     // a client_random_auth_key, which this core cannot compute
+    NeedsNewerCore,     // a client_random_auth_key, which a subscription cannot carry into its config yet
     TooLarge,           // over kMaxSubscriptionBodyBytes
 };
 

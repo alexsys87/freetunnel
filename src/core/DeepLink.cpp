@@ -487,6 +487,11 @@ void writeOptionalDeepLinkMetaTlvs(QByteArray &p, const DeepLinkConfig &cfg)
         writeTlv(p, 0x0C, cfg.name.toUtf8());
     if (!cfg.dnsUpstreams.isEmpty())
         writeTlv(p, 0x0D, encodeStringList(cfg.dnsUpstreams));
+    // Last, so a link without one is byte for byte what it was before 1.4.0, and
+    // only a key the core can use: one that is not would make a link no client
+    // imports (TrustTunnel's decoder refuses it, as parseDeepLink() does).
+    if (!cfg.clientRandomAuthKey.isEmpty() && isClientRandomAuthKey(cfg.clientRandomAuthKey))
+        writeTlv(p, 0x0F, cfg.clientRandomAuthKey.toLatin1());
 }
 
 void writeOptionalDeepLinkTlvs(QByteArray &p, const DeepLinkConfig &cfg)
@@ -514,6 +519,17 @@ std::optional<DeepLinkConfig> parseDeepLink(const QString &uri, QString *error) 
         return std::nullopt;
     }
     return decodeDeepLinkPayload(payload, error);
+}
+
+bool isClientRandomAuthKey(const QString &key)
+{
+    if (key.size() % 2 != 0)
+        return false;
+    for (const QChar c : key) {
+        if (c.unicode() > 0x7f || !isAsciiHexDigit(char(c.unicode())))
+            return false;
+    }
+    return true;
 }
 
 bool deepLinkHasStaticServer(const DeepLinkConfig &cfg)
@@ -544,8 +560,10 @@ QByteArray deepLinkCertificates(const QByteArray &der, bool *dropped)
 QString encodeDeepLink(const DeepLinkConfig &cfg) {
     QByteArray p;
     // kDeepLinkWriteVersion, not the newest this client reads (see DeepLink.h).
-    // Leaving subscriptionUrl and clientRandomAuthKey out is what keeps that true.
-    writeTlv(p, 0x00, varintBytes(kDeepLinkWriteVersion));
+    // Leaving subscriptionUrl out is what keeps that true; a link with an auth key,
+    // tag 0x0F, is version 2, where the format defines the tag.
+    const bool authKey = !cfg.clientRandomAuthKey.isEmpty() && isClientRandomAuthKey(cfg.clientRandomAuthKey);
+    writeTlv(p, 0x00, varintBytes(authKey ? kDeepLinkWriteVersionWithAuthKey : kDeepLinkWriteVersion));
     writeTlv(p, 0x01, cfg.hostname.toUtf8());
     for (const QString &addr : cfg.addresses)
         writeTlv(p, 0x02, addr.toUtf8());
@@ -583,6 +601,10 @@ static QString endpointTomlSection(const DeepLinkConfig &cfg)
     t += QStringLiteral("upstream_protocol = \"%1\"\n")
                  .arg(cfg.upstreamProtocol == UpstreamProtocol::Http3 ? "http3" : "http2");
     t += QStringLiteral("anti_dpi = %1\n").arg(cfg.antiDpi ? "true" : "false");
+    // Only when there is one, so that a config without one is the text it was
+    // before 1.4.0 and the Android app writes the same (DeepLinkImport.toToml).
+    if (!cfg.clientRandomAuthKey.isEmpty())
+        t += QStringLiteral("client_random_auth_key = \"%1\"\n").arg(tomlEscape(cfg.clientRandomAuthKey));
     const QString pem = derToPem(cfg.certificate);
     if (!pem.isEmpty())
         t += QStringLiteral("certificate = \"\"\"\n%1\"\"\"\n").arg(pem);
