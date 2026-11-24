@@ -1838,11 +1838,14 @@ public final class MainActivity extends Activity {
     }
 
     // The export icon's choices, under it with no check mark: the config as a .toml file, through the system's file picker,
-    // and as a tt:// link on the clipboard. Both carry the password, which the notice afterwards says.
+    // as a tt:// link on the clipboard, and as that link's QR code on the screen, as the desktop's Show QR code is. All carry
+    // the password, which the notice afterwards or the card says.
     private void exportMenu(Config config, int index) {
-        String[] options = {getString(R.string.export_toml), getString(R.string.export_deep_link)};
+        String[] options = {getString(R.string.export_toml), getString(R.string.export_deep_link), getString(R.string.export_qr)};
         final String key = "config:" + index + ":export";
-        Overlay menu = showSelect(key, options, -1, which -> { if (which == 0) exportToml(config); else copyDeepLink(config); });
+        Overlay menu = showSelect(key, options, -1, which -> {
+            if (which == 0) exportToml(config); else if (which == 1) copyDeepLink(config); else showQrCode(config);
+        });
         // The desktop anchors it to the icon's cell, which is the whole 56 high slot of the row: 4 below that. The icon's own is 40 high
         // here, in a row of 48, so the cell is 8 more above and below it.
         menu.layer.setAnchor(l -> {
@@ -1881,12 +1884,15 @@ public final class MainActivity extends Activity {
             runOnUiThread(() -> { if (!isDestroyed()) toast(getString(ok ? R.string.config_exported : R.string.export_failed)); });
         });
     }
-    private void copyDeepLink(Config config) {
-        String link = null;
+    // The tt:// link of a config, or null when it cannot be made.
+    private static String deepLinkOf(Config config) {
         try {
             DeepLinkImport.Link described = DeepLinkImport.linkOf(config.name, RoutingConfig.validate(config.toml));
-            if (described != null) link = DeepLinkImport.encode(described);
-        } catch (Exception e) { link = null; }
+            return described == null ? null : DeepLinkImport.encode(described);
+        } catch (Exception e) { return null; }
+    }
+    private void copyDeepLink(Config config) {
+        String link = deepLinkOf(config);
         if (link == null) { toast(getString(R.string.deep_link_failed)); return; }
         ClipData clip = ClipData.newPlainText("FreeTunnel link", link);
         // The link holds the password: a keyboard's clipboard history and the preview Android shows are asked to leave it out.
@@ -1897,6 +1903,59 @@ public final class MainActivity extends Activity {
         }
         ((ClipboardManager) getSystemService(CLIPBOARD_SERVICE)).setPrimaryClip(clip);
         toast(getString(R.string.deep_link_copied));
+    }
+    // Show QR code: the same link as Copy deep-link, as a QR code another phone scans in with + → Scan QR code, as the desktop's
+    // QrCodeDialog is. A card like Receive from phone's: ←, the config's name, the code on its own white tile (black on white in
+    // both themes, so that a camera reads it) and a hint that it holds the password. A link with a long certificate chain can be
+    // too long for any QR code; the toast then says to export the .toml instead. The screen stays on while the card is up, and
+    // nothing of the link is kept once it is closed. Keys: qr:back.
+    private void showQrCode(Config config) {
+        String link = deepLinkOf(config);
+        if (link == null) { toast(getString(R.string.deep_link_failed)); return; }
+        float density = getResources().getDisplayMetrics().density;
+        // As wide as the card leaves room for, less its padding, and as tall as the window leaves room for under the header, the
+        // title and the hint, at most 320.
+        int roomW = Math.round(Math.min(420f, host.getWidth() > 0 ? host.getWidth() / density - 32 : 360) - 36);
+        int roomH = host.getHeight() > 0 ? Math.round(host.getHeight() / density - Math.max(40f, host.getPaddingTop() / density)
+                - Math.max(12f, host.getPaddingBottom() / density)) - 200 : 320;
+        final LinkReceiver.Qr qr;
+        try { qr = LinkReceiver.qr(link, dp(Math.max(160, Math.min(320, Math.min(roomW, roomH)))), io.nayuki.qrcodegen.QrCode.Ecc.LOW); }
+        catch (io.nayuki.qrcodegen.DataTooLongException e) { toast(getString(R.string.qr_too_long)); return; }
+        Theme t = t();
+        final Overlay[] shown = new Overlay[1];
+        LinearLayout card = column();
+        card.addView(ui.cardHeader(getString(R.string.export_qr), "qr:back", getString(R.string.text_back),
+                v -> closeOverlay(shown[0])), lp(-1, -2));
+        LinearLayout box = column(); box.setGravity(Gravity.CENTER_HORIZONTAL); box.setPadding(dp(18), 0, dp(18), dp(12));
+        TextView title = label("“" + config.name + "”", 14, t.text);
+        title.setGravity(Gravity.CENTER);
+        box.addView(title, lp(-1, -2));
+        gap(box, 10);
+        ImageView code = new ImageView(this);
+        code.setImageBitmap(Bitmap.createBitmap(qr.pixels, qr.side, qr.side, Bitmap.Config.ARGB_8888));
+        code.setContentDescription(getString(R.string.export_qr));
+        FrameLayout tile = new FrameLayout(this);
+        tile.setBackground(ui.shape(Color.WHITE, 10));
+        tile.setClipToOutline(true);
+        tile.addView(code, new FrameLayout.LayoutParams(-2, -2));
+        box.addView(tile, lp(-2, -2));
+        gap(box, 10);
+        TextView hint = label(getString(R.string.qr_hint), 12, t.textDim);
+        hint.setGravity(Gravity.CENTER_HORIZONTAL);
+        box.addView(hint, lp(-1, -2));
+        ScrollView scroll = new ScrollView(this);
+        scroll.setVerticalScrollBarEnabled(false);
+        scroll.setFocusable(false);
+        scroll.addView(box);
+        card.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
+        getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        Overlay overlay = showOverlay("qr", OverlayLayer.Kind.CARD, card, null, () -> {
+            getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+            code.setImageDrawable(null);
+        });
+        shown[0] = overlay;
+        overlay.width(dp(420));
+        overlay.defaultKey = "qr:back";
     }
     // The Configs page's menu under its +: no title. A TV has no camera for a link's QR code and a remote
     // is no way to type one, so there a phone's way in comes first; a phone or tablet with a camera has

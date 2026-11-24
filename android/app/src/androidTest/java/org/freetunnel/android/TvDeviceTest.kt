@@ -975,7 +975,8 @@ class TvDeviceTest {
         eventually("The export menu opens") { overlayTag(a, "select") != null }
         val menu = overlayTag(a, "select")!!
         val texts = onMain { descendants(menu).filterIsInstance<TextView>().map { it.text.toString() }.toList() }
-        assertEquals("Two rows, and no check mark", listOf(context.getString(R.string.export_toml), context.getString(R.string.export_deep_link)), texts)
+        assertEquals("Three rows, and no check mark", listOf(context.getString(R.string.export_toml), context.getString(R.string.export_deep_link),
+            context.getString(R.string.export_qr)), texts)
         click(a, "select:1")
         eventually("The menu closes") { overlayTag(a, "select") == null }
         eventually("The notice says the link holds the password") { context.getString(R.string.deep_link_copied) in toastTexts(a) }
@@ -991,6 +992,13 @@ class TvDeviceTest {
             assertTrue("Marked as sensitive, so a keyboard's history leaves it out",
                 onMain { clipboard.primaryClip?.description?.extras?.getBoolean(android.content.ClipDescription.EXTRA_IS_SENSITIVE) == true })
         }
+        // The QR code: a card with the link's code, closed by its back arrow.
+        click(a, "config:0:export")
+        eventually("The export menu opens for the QR code") { overlayTag(a, "select") != null }
+        click(a, "select:2")
+        eventually("The QR card opens") { overlayTag(a, "qr") != null }
+        click(a, "qr:back")
+        eventually("The QR card closes") { overlayTag(a, "qr") == null }
         // The file: a phone's screen to save to is not driven from here; a TV without one says so.
         val picker = context.packageManager.resolveActivity(Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE)
             .setType("application/octet-stream"), 0)
