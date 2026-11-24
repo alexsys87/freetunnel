@@ -51,7 +51,7 @@ private slots:
     void version1LinksReadAsBefore();
     void ourOwnLinksStayVersion1();
     void encodesTheLinksTheAndroidAppPins();
-    void theTomlNeverHoldsTheVersion2Fields();
+    void theTomlKeepsTheAuthKeyAndNotTheSubscriptionAddress();
     void readsASelfSignedVersion2Link();
     void aVersion2LinkIgnoresTagsItDoesNotDefine();
     void everyVersionRecordCounts();
@@ -1002,7 +1002,7 @@ void TestDeepLink::encodesTheLinksTheAndroidAppPins()
 // becomes on disk never holds it. The auth key it does hold, after anti_dpi, for
 // TrustTunnel 1.3 to derive the client random from; a config without one is the
 // text it was before.
-void TestDeepLink::theTomlNeverHoldsTheVersion2Fields()
+void TestDeepLink::theTomlKeepsTheAuthKeyAndNotTheSubscriptionAddress()
 {
     QString err;
     auto cfg = parseDeepLink(v2::kFull, &err);
@@ -1013,8 +1013,16 @@ void TestDeepLink::theTomlNeverHoldsTheVersion2Fields()
     const QString toml = deepLinkConfigToToml(*cfg);
     QVERIFY2(!toml.contains(QStringLiteral("subscription")), qPrintable(toml));
     QVERIFY2(!toml.contains(QStringLiteral("https://alice")), qPrintable(toml));
-    QCOMPARE(toml, QString(without).replace(QStringLiteral("anti_dpi = false\n"),
-                                            QStringLiteral("anti_dpi = false\nclient_random_auth_key = \"aabbccdd\"\n")));
+    // The key goes after anti_dpi, whatever that line says: the vector above has
+    // anti_dpi on, so replacing a hard-coded `anti_dpi = false` would leave the
+    // expected text without the key.
+    QString expected = without;
+    const qsizetype antiDpi = expected.indexOf(QStringLiteral("anti_dpi = "));
+    QVERIFY2(antiDpi >= 0, qPrintable(expected));
+    const qsizetype lineEnd = expected.indexOf(QLatin1Char('\n'), antiDpi);
+    QVERIFY(lineEnd >= 0);
+    expected.insert(lineEnd + 1, QStringLiteral("client_random_auth_key = \"aabbccdd\"\n"));
+    QCOMPARE(toml, expected);
     QCOMPARE(endpointClientRandomAuthKey(toml), QStringLiteral("aabbccdd"));
     QVERIFY2(toml.contains(QStringLiteral("hostname = \"vpn.example.com\"")), qPrintable(toml));
 }
