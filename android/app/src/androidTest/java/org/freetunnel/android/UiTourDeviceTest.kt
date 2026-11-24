@@ -779,7 +779,7 @@ class UiTourDeviceTest {
             goTo(1)
             activate("config:1:export")
             awaitOverlay("select")
-            shot("configs-export-menu", "The export menu under a row's icon: Export .toml… and Copy deep-link")
+            shot("configs-export-menu", "The export menu under a row's icon: Export .toml…, Copy deep-link and Show QR code")
         }
         screen("configs-delete-confirm") {
             goTo(1)

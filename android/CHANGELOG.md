@@ -1,5 +1,16 @@
 # Android changes
 
+## 1.2.0
+
+- **Show QR code.** A config's export menu on Configs (the arrow beside its
+  name) has *Show QR code* under *Export .toml…* and *Copy deep-link*, as the
+  desktop app has: the same deep link as a QR code, which another phone adds
+  with *+ → Scan QR code*. It carries the password, as the link does, so the
+  card says to show it only to the phone the server is being added to. A link
+  with a long certificate chain can be too long for a QR code; the app then
+  says to export the .toml instead.
+- Updates install over 1.1.0 and keep your servers.
+
 ## 1.1.0
 
 - **Scan QR code.** On a phone or tablet with a camera, the + menu on Configs
