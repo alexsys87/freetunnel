@@ -1146,15 +1146,24 @@ static QString refusalOf(const QString &fileName, const endpoint_export::Fields 
 }
 
 // An export with an auth key is asked about as any other (refusalOf says nothing),
-// and one with a key that is not whole bytes of hex is refused as damaged.
+// and one with a key that is not whole bytes of hex is refused as damaged. Beside
+// a subscription address the key is refused as in a link: the address would
+// overwrite the config and the key would be lost.
 void TestBackendDeepLinkImport::importFileTakesAnEndpointExportWithAnAuthKey()
 {
     endpoint_export::Fields f;
+    // The default export has subscriptions on; this case is about a key alone.
+    f.subscriptionUrl.clear();
     f.clientRandomAuthKey = QStringLiteral("aabbccdd");
     QCOMPARE(refusalOf(QStringLiteral("export-auth-key.toml"), f), QString());
     f.clientRandomAuthKey = QStringLiteral("abc");
     QCOMPARE(refusalOf(QStringLiteral("export-bad-auth-key.toml"), f),
              QStringLiteral("Not a valid TrustTunnel config: malformed client_random_auth_key value"));
+
+    f.clientRandomAuthKey = QStringLiteral("aabbccdd");
+    f.subscriptionUrl = QStringLiteral("https://alice:s3cret@vpn.example.com/subscription");
+    QCOMPARE(refusalOf(QStringLiteral("export-auth-key-subscription.toml"), f),
+             freetunnel::subscriptionAuthKeyRefusal());
 }
 
 // The refusals a link meets, each with its own sentence.
