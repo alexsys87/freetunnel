@@ -324,6 +324,7 @@ public final class MainActivity extends Activity {
         // Nothing animates while the app is not shown, and the speeds are of the time it is.
         hero.release();
         speedMeter.reset();
+        speedHistory.clear();
         // The logo does not animate across the time the app was not shown.
         homeFresh = true;
         AndroidUpdater.INSTANCE.observe(null);
@@ -498,7 +499,8 @@ public final class MainActivity extends Activity {
             // Nothing of Home is shown: its logo may not go on pulsing at views that are gone.
             hero.release();
             speedMeter.reset();
-            homeStatus = null; homeDown = null; homeUp = null; homeSelectorRow = null; homeSpeedRow = null;
+            speedHistory.clear();
+            homeStatus = null; homeDown = null; homeUp = null; homeSelectorRow = null; homeSpeedRow = null; homeGraph = null;
         }
         if (page == 0) home();
         else if (page == 4) {
@@ -1360,6 +1362,11 @@ public final class MainActivity extends Activity {
     private boolean homeFresh = true;
     private boolean resumed;
     private final SpeedMeter speedMeter = new SpeedMeter();
+    // The graph's height over the speed tiles.
+    private static final int HOME_GRAPH_HEIGHT = 40;
+    // The last minute of speeds, for the graph over the tiles: kept across renders of Home, as the meter is, and cleared with it.
+    private final SpeedHistory speedHistory = new SpeedHistory();
+    private View homeGraph;
     // Where the timer counts from when the service does not say (it always does, but a device test only sets the state).
     private long homeSeenUpAt;
     private long lastLogoClick;
@@ -1376,34 +1383,44 @@ public final class MainActivity extends Activity {
         stage.setClipChildren(false);
         pageRoot.addView(stage, new LinearLayout.LayoutParams(-1, 0, 1));
 
-        // The speed tiles, pinned 44 above the bottom, whatever the logo and the selector do.
+        // The speed tiles, pinned 44 above the bottom, whatever the logo and the selector do, and over them, 8 above and as wide as
+        // both, the graph of the last minute's speeds (SpeedGraphView), on the tiles' ground: ↓ in its colour, ↑ in its.
         TextView[] down = new TextView[1];
         TextView[] up = new TextView[1];
+        LinearLayout foot = column();
+        foot.setGravity(Gravity.CENTER_HORIZONTAL);
+        SpeedGraphView graph = new SpeedGraphView(this, speedHistory, t.success, t.textDim);
+        graph.setBackground(ui.shape(t.tile, 8));
+        foot.addView(graph, lp(116 + 12 + 116, HOME_GRAPH_HEIGHT));
+        gap(foot, 8);
         LinearLayout speeds = row();
         speeds.setGravity(Gravity.CENTER);
         speeds.addView(ui.speedTile(R.drawable.ic_arrow_down, t.success, down), lp(116, 44));
         ui.gapH(speeds, 12);
         speeds.addView(ui.speedTile(R.drawable.ic_arrow_up, t.textDim, up), lp(116, 44));
+        foot.addView(speeds, lp(-2, -2));
         FrameLayout.LayoutParams speedsLp = new FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
         // 44 above the window's bottom, as the desktop's are: on a TV the host is already padded by the overscan, which the desktop's
         // 44 lies outside of, so that much less here. On a phone the window's bottom is the top of the navigation bar, and 44 is right.
         speedsLp.bottomMargin = dp(44) - overscanY;
-        stage.addView(speeds, speedsLp);
+        stage.addView(foot, speedsLp);
         // The speeds are of the time Home has been shown: a start is taken when it is shown, and the first tick after it gives a speed.
-        if (vpnState != 2) speedMeter.reset();
-        else if (!homeContinues) { speedMeter.reset(); sampleSpeeds(); }
+        if (vpnState != 2) { speedMeter.reset(); speedHistory.clear(); }
+        else if (!homeContinues) { speedMeter.reset(); speedHistory.clear(); sampleSpeeds(); }
+        homeGraph = graph;
         homeDown = down[0];
         homeUp = up[0];
         homeDown.setText(speedText(speedMeter.downBytesPerSecond()));
         homeUp.setText(speedText(speedMeter.upBytesPerSecond()));
-        homeSpeedRow = speeds;
+        // The toast's gap ends at the graph, the top of what is at the foot.
+        homeSpeedRow = foot;
 
         // Above them, 22 clear, the logo, its line and the selector as one column, in the middle of what is left and 6 below it. (A
         // FrameLayout puts a centred child at the middle plus its top margin less its bottom margin, the whole of each: the 6 is the margin.)
         FrameLayout area = new FrameLayout(this);
         area.setClipChildren(false);
         FrameLayout.LayoutParams areaLp = new FrameLayout.LayoutParams(-1, -1);
-        areaLp.bottomMargin = dp(44 + 44 + 22) - overscanY;
+        areaLp.bottomMargin = dp(44 + 44 + 8 + HOME_GRAPH_HEIGHT + 22) - overscanY;
         stage.addView(area, areaLp);
         LinearLayout column = column();
         column.setGravity(Gravity.CENTER_HORIZONTAL);
@@ -1565,6 +1582,8 @@ public final class MainActivity extends Activity {
         sampleSpeeds();
         if (homeDown != null) homeDown.setText(speedText(speedMeter.downBytesPerSecond()));
         if (homeUp != null) homeUp.setText(speedText(speedMeter.upBytesPerSecond()));
+        speedHistory.add(speedMeter.downBytesPerSecond(), speedMeter.upBytesPerSecond());
+        if (homeGraph != null) homeGraph.invalidate();
     }
 
     // The config dropdown, right on Home (qml/pages/HomePage.qml, cfgPopup): under the selector, 6 below it and centred on it, as
