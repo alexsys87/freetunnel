@@ -1,5 +1,14 @@
 # Android changes
 
+## 1.3.0
+
+- **Speed graph on Home.** Over the two speed tiles, a small graph shows the
+  last minute of the connection's speeds, one point a second: what comes in
+  in green over a faint fill, what goes out in grey, as the tiles' arrows
+  are. Its scale follows the fastest moment shown. It starts afresh when you
+  connect, come back to Home or return to the app.
+- Updates install over 1.2.0 and keep your servers.
+
 ## 1.2.0
 
 - **Show QR code.** A config's export menu on Configs (the arrow beside its
