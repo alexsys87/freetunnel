@@ -303,6 +303,8 @@ public final class MainActivity extends Activity {
         }
         // After the receiver: the service sends a failure's reason here only while the app is on the screen.
         FreeTunnelVpnService.setAppVisible(true);
+        // The VPN-only applications have no internet while the VPN is off: blocked again if nothing holds them (after a restart).
+        FreeTunnelVpnService.refreshLock(this, false);
         AndroidUpdater.INSTANCE.observe(() -> { refreshUpdateDot(); if (page == 3) refreshUpdateControls(); });
         // The geo lists: their state on the Split page as it changes, and a check of those that are due (GeoUpdater).
         GeoUpdater.observe(geoListener);
@@ -2866,6 +2868,74 @@ public final class MainActivity extends Activity {
         appInputLp.topMargin = dp(6);
         body.addView(appInput, appInputLp);
         appSuggestions.attach(appInput);
+        gap(body, 14);
+        vpnOnlyApps(body);
+    }
+
+    // The last list of the page: the applications that go only through the VPN (VpnOnlyApps), the app's own and not the profile's.
+    // While the VPN is on they are always in it; while it is off they have no internet. The heading with Choose… and Clear all, as
+    // the profile's applications have, their chips, and a line that says what the list does. Keys: vpnonly:choose, vpnonly:clear and
+    // vpnonly:N.
+    private void vpnOnlyApps(LinearLayout body) {
+        List<String> chosen = VpnOnlyApps.load(prefs);
+        LinearLayout header = row();
+        TextView title = ui.sectionLabel(getString(R.string.vpn_only_title));
+        title.setSingleLine(true);
+        title.setEllipsize(TextUtils.TruncateAt.END);
+        header.addView(title, weighted());
+        TextView choose = ui.link(getString(R.string.text_choose), 12, Ui.LinkKind.ACCENT, "vpnonly:choose");
+        choose.setOnClickListener(v -> {
+            if (overlay("picker") == null) new AppPicker(pkg -> {
+                List<String> next = new ArrayList<>(VpnOnlyApps.load(prefs));
+                if (!next.contains(pkg)) next.add(pkg);
+                return editVpnOnly(next);
+            }).open();
+        });
+        header.addView(choose, ui.linkLp(chosen.isEmpty()));
+        if (!chosen.isEmpty()) {
+            TextView clear = ui.link(getString(R.string.split_clear_all), 12, Ui.LinkKind.DANGER, "vpnonly:clear");
+            clear.setOnClickListener(v -> showConfirm(getString(R.string.vpn_only_clear_question), getString(R.string.text_clear),
+                    () -> editVpnOnly(new ArrayList<>())));
+            header.addView(clear, ui.linkLp(true));
+        }
+        body.addView(header, lp(-1, -2));
+        if (!chosen.isEmpty()) {
+            gap(body, 6);
+            FlowLayout chips = new FlowLayout(this, dp(6));
+            PackageManager pm = getPackageManager();
+            for (int i = 0; i < chosen.size(); i++) {
+                final String pkg = chosen.get(i);
+                final String label = appLabel(pm, pkg);
+                LinearLayout chip = ui.chip(label, false, false, null, false);
+                ImageView x = ui.chipX("vpnonly:" + i, false);
+                x.setContentDescription(getString(R.string.text_delete) + " " + label);
+                x.setOnClickListener(v -> {
+                    List<String> next = new ArrayList<>(VpnOnlyApps.load(prefs));
+                    next.remove(pkg);
+                    editVpnOnly(next);
+                });
+                chip.addView(x, ui.chipXLp());
+                chips.addView(chip);
+            }
+            body.addView(chips, lp(-1, -2));
+        }
+        TextView hint = label(getString(R.string.vpn_only_hint), 11, t().textFaint);
+        LinearLayout.LayoutParams hintLp = lp(-1, -2);
+        hintLp.topMargin = dp(6);
+        body.addView(hint, hintLp);
+    }
+
+    // The list as it is to be: saved, the session built again with it or, with the VPN off, the block held as it now is, and the
+    // page drawn again. False, with the page as it was and a toast, when it could not be saved.
+    private boolean editVpnOnly(List<String> next) {
+        if (!VpnOnlyApps.save(prefs, next)) {
+            toast(getString(R.string.text_storage_is_unavailable_saved_data_has_been_preserved));
+            return false;
+        }
+        if (isVpnActive()) applyCurrentRules();
+        else FreeTunnelVpnService.refreshLock(this, true);
+        render();
+        return true;
     }
 
     // The name an application is listed by: the one the launcher shows, or its package where it is no longer installed, which is
@@ -3270,10 +3340,16 @@ public final class MainActivity extends Activity {
 
     private void appPicker() {
         if (overlay("picker") != null) return;
-        new AppPicker().open();
+        new AppPicker(null).open();
     }
 
+    // What a pick does with the package: true when it was taken, and the card goes.
+    private interface AppChoice { boolean take(String pkg); }
+
     private final class AppPicker {
+        // Null: the application goes in the profile being edited.
+        private final AppChoice target;
+        AppPicker(AppChoice target) { this.target = target; }
         private final List<AppEntry> apps = new ArrayList<>();
         private boolean scanning = true;
         private Overlay overlay;
@@ -3391,6 +3467,11 @@ public final class MainActivity extends Activity {
         // and the card goes.
         private void choose(AppEntry app) {
             if (overlay.closed) return;
+            if (target != null) {
+                Overlay card = overlay;
+                if (target.take(app.pkg) && !card.closed) closeOverlay(card);
+                return;
+            }
             editRules(m -> m.addApp(m.edited(), app.pkg), () -> closeOverlay(overlay));
         }
     }

@@ -1,5 +1,22 @@
 # Android changes
 
+## 1.4.0
+
+- **Applications that go only through the VPN.** The Split page ends with a
+  new list, *Applications — VPN only*: pick them with *Choose…*. While the
+  VPN is on they are always in it, whatever the mode and the profile, even
+  when *Applications — bypass VPN* names them too. While the VPN is off,
+  whether you turned it off or the connection failed, they have no internet:
+  FreeTunnel holds a VPN of its own for them that goes nowhere, says so in its
+  notification, and lets them out again when the VPN connects. The list is
+  the app's, not a profile's.
+  - Domain and address rules still decide where their traffic goes inside
+    the VPN, as for every application.
+  - The block lasts while Android keeps FreeTunnel running, and comes back
+    when you open the app. Another VPN app, or turning FreeTunnel's VPN off
+    in Android's settings, ends it.
+- Updates install over 1.3.0 and keep your servers.
+
 ## 1.3.0
 
 - **Speed graph on Home.** Over the two speed tiles, a small graph shows the

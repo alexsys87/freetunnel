@@ -110,6 +110,21 @@ class FreeTunnelVpnService : VpnService() {
         /** Preference: the versionCode being installed while the VPN was on. */
         const val RESUME_AFTER_UPDATE = "update_resume_vpn"
         @JvmStatic fun resume(context: Context) { send(context, ACTION_RESUME) }
+        /** Keeps the applications that go only through the VPN (VpnOnlyApps) from the internet while the VPN is off (lockApps). */
+        const val ACTION_LOCK = "org.freetunnel.android.LOCK_APPS"
+        // Whether the service holds the VPN that keeps them from it.
+        @Volatile private var locking = false
+        /**
+         * The VPN-only applications while the VPN is off: blocked, as the list now has them, or let go when it is empty. [changed] is
+         * true when the list was just edited; otherwise (the app came to the screen) a block that is already held is left as it is.
+         * Nothing while a session runs, which the app builds again with the list, or without the VPN permission, which only the app can ask for.
+         */
+        @JvmStatic fun refreshLock(context: Context, changed: Boolean) {
+            if (currentState != 0 || VpnService.prepare(context) != null) return
+            if (locking && !changed) return
+            if (!locking && VpnOnlyApps.installed(context).isEmpty()) return
+            send(context, ACTION_LOCK)
+        }
         private fun send(context: Context, action: String) {
             context.startForegroundService(Intent(context, FreeTunnelVpnService::class.java).setAction(action))
         }
@@ -122,6 +137,8 @@ class FreeTunnelVpnService : VpnService() {
     private val prefs by lazy { getSharedPreferences("freetunnel", MODE_PRIVATE) }
     private var client: VpnClient? = null
     private var retainedTun: ParcelFileDescriptor? = null
+    // The VPN that carries only the VPN-only applications and goes nowhere, while the VPN itself is off (lockApps).
+    private var lockTun: ParcelFileDescriptor? = null
     private var collector: NetworkUtils.Companion.NetworkCollector? = null
     private var generation = 0L
     private var establishedThisRequest = false
@@ -197,9 +214,23 @@ class FreeTunnelVpnService : VpnService() {
             if (destroyed || startId != latestStartId || epoch != permissionEpoch) return@execute
             servedStartId = startId
             if (intent?.action == ACTION_STOP) {
+                // The VPN-only applications are blocked before the session's TUN goes, so that none of their traffic leaves without it.
+                stopClient()
+                val locked = lockApps()
                 close()
-                stopForeground(STOP_FOREGROUND_REMOVE)
-                stopSelfResult(startId)
+                if (!locked) {
+                    stopForeground(STOP_FOREGROUND_REMOVE)
+                    stopSelfResult(startId)
+                }
+                return@execute
+            }
+            if (intent?.action == ACTION_LOCK) {
+                // Only while the VPN is off: a session, or an automatic attempt the kill switch holds, keeps them in it already.
+                if (client != null || retainedTun != null) return@execute
+                if (!lockApps()) {
+                    stopForeground(STOP_FOREGROUND_REMOVE)
+                    stopSelfResult(startId)
+                }
                 return@execute
             }
             // Android's Always-on start, which AOSP may send a second time while
@@ -252,7 +283,8 @@ class FreeTunnelVpnService : VpnService() {
         }
         // Request framework-managed recreation using SavedProfile. Android controls
         // restart scheduling; only system lockdown protects while no service runs.
-        return if (intent?.action == ACTION_STOP) START_NOT_STICKY else START_STICKY
+        // A block of the VPN-only applications is not restarted by Android: a restart without an intent would connect the VPN.
+        return if (intent?.action == ACTION_STOP || intent?.action == ACTION_LOCK) START_NOT_STICKY else START_STICKY
     }
 
     private fun replace(plan: RoutingConfig.Plan, startId: Int, epoch: Long) {
@@ -267,6 +299,8 @@ class FreeTunnelVpnService : VpnService() {
         // Own the new TUN before any operation that can fail. The core receives
         // a duplicate; our descriptor survives native failure and closes on stop.
         close(publish = false)
+        // The session's TUN has replaced the block of the VPN-only applications, which it carries now.
+        closeLock()
         retainedTun = newTun
         activePlan = plan
         keepBlocked = parsed.getBoolean("killswitch_enabled") ?: true
@@ -359,11 +393,13 @@ class FreeTunnelVpnService : VpnService() {
         val installed = plan.apps.filter { it != packageName }.filter {
             try { packageManager.getApplicationInfo(it, 0); true } catch (_: android.content.pm.PackageManager.NameNotFoundException) { false }
         }
+        // The applications that go only through the VPN are always in it: added to what it carries, or taken off what it leaves out.
+        val vpnOnly = VpnOnlyApps.installed(this)
         if (plan.allowApps && installed.isNotEmpty()) {
-            installed.forEach(builder::addAllowedApplication)
+            VpnOnlyApps.apply(installed, true, vpnOnly).forEach(builder::addAllowedApplication)
         } else {
             // If every saved app was uninstalled, the safe fallback is full VPN.
-            if (!plan.allowApps) installed.forEach(builder::addDisallowedApplication)
+            if (!plan.allowApps) VpnOnlyApps.apply(installed, false, vpnOnly).forEach(builder::addDisallowedApplication)
             builder.addDisallowedApplication(packageName)
         }
         return builder.establish() ?: error("Android could not establish VPN")
@@ -421,13 +457,65 @@ class FreeTunnelVpnService : VpnService() {
             if (loggedReasons.add(reason)) logEvent("$reason; kill switch keeps traffic blocked, reconnecting automatically", LogLines.WARN)
             scheduleRetry(backoff.next())
         } else {
+            // The VPN-only applications are blocked before the session's TUN goes, as on a disconnect.
+            val locked = lockApps()
             close()
             showFailure(reason)
-            stopForeground(STOP_FOREGROUND_REMOVE)
-            // Not the latest start: one that is newer than the one served last has asked for its own turn, and it keeps the service.
-            stopSelfResult(servedStartId)
+            if (!locked) {
+                stopForeground(STOP_FOREGROUND_REMOVE)
+                // Not the latest start: one that is newer than the one served last has asked for its own turn, and it keeps the service.
+                stopSelfResult(servedStartId)
+            }
         }
     }
+
+    /**
+     * While the VPN is off, a VPN of this app's that carries only the applications that go only through it (VpnOnlyApps), with
+     * every route of both families and nothing that reads it: what they send is dropped, and they have no internet until the VPN
+     * is on again. The VPN is still off for everything else, and for the app's screens, the tile and the state. False, and
+     * nothing held, when there are none installed, the permission is not this app's, or Android refuses the VPN. An allowlist
+     * that ended up empty would carry every application, so at least one must be taken.
+     */
+    private fun lockApps(): Boolean {
+        val apps = VpnOnlyApps.installed(this)
+        if (apps.isEmpty() || VpnService.prepare(this) != null) { closeLock(); return false }
+        val tun = try {
+            val builder = Builder().setSession("FreeTunnel").addAddress("172.20.2.13", 32).addRoute("0.0.0.0", 0)
+                .addAddress("fdfd:29::2", 128).addRoute("::", 0)
+            if (Build.VERSION.SDK_INT >= 29) builder.setMetered(false)
+            var taken = 0
+            for (pkg in apps) {
+                try { builder.addAllowedApplication(pkg); taken++ } catch (_: android.content.pm.PackageManager.NameNotFoundException) { }
+            }
+            if (taken == 0) null else builder.establish()
+        } catch (error: Exception) {
+            logEvent("Could not block the VPN-only applications: ${error.javaClass.simpleName}", LogLines.WARN)
+            null
+        }
+        if (tun == null) { closeLock(); return false }
+        val old = lockTun
+        lockTun = tun
+        locking = true
+        runCatching { old?.close() }
+        getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, lockNotification(apps.size))
+        logEvent("VPN off: ${apps.size} VPN-only application(s) kept without internet")
+        return true
+    }
+
+    private fun closeLock() {
+        val old = lockTun
+        lockTun = null
+        locking = false
+        runCatching { old?.close() }
+    }
+
+    private fun lockNotification(count: Int): Notification = NotificationCompat.Builder(this, CHANNEL)
+        .setSmallIcon(android.R.drawable.ic_lock_lock).setContentTitle("FreeTunnel")
+        .setContentText(getString(R.string.vpn_only_locked, count))
+        .setStyle(NotificationCompat.BigTextStyle().bigText(getString(R.string.vpn_only_locked, count)))
+        .setContentIntent(openApp())
+        .addAction(0, getString(R.string.vpn_only_connect), serviceAction(ACTION_START, 1))
+        .setOngoing(true).setPriority(NotificationCompat.PRIORITY_LOW).build()
 
     private fun recovered() {
         // A session begins here, not when the core recovers by itself from 3, 4
@@ -489,6 +577,7 @@ class FreeTunnelVpnService : VpnService() {
             // Revocation always invalidates resources, even if another START
             // arrived while this task waited. A later start must obtain consent.
             close()
+            closeLock()
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelfResult(revokedId)
         }
@@ -500,6 +589,7 @@ class FreeTunnelVpnService : VpnService() {
         if (owner === this) owner = null
         execute {
             close(publish = false)
+            closeLock()
             val connectivity = getSystemService(ConnectivityManager::class.java)
             collector?.let { runCatching { connectivity.unregisterNetworkCallback(it) } }
             availability?.let { runCatching { connectivity.unregisterNetworkCallback(it) } }

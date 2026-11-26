@@ -263,4 +263,9 @@
     <string name="geo_update_failed">"последнее обновление не удалось, см. журнал"</string>
     <string name="geo_bad_source">"Это не адрес списка: %1$s. Укажите https-адрес текстового списка или файла .dat с категорией после #, например …/geoip.dat#ru-blocked."</string>
     <string name="text_through_vpn_apps_are_not_applied_under_geo_routing">"Приложения «Через VPN» не применяются, пока маршрутизация идёт по спискам: Android пустил бы всё остальное в обход туннеля. Выберите для приложений режим «Без VPN» или «Всё через VPN»."</string>
+    <string name="vpn_only_title">"Приложения — только через VPN"</string>
+    <string name="vpn_only_hint">Они работают только через VPN, при любом режиме и профиле. Пока VPN выключен, у них нет интернета: FreeTunnel держит для них свой VPN, который никуда не ведёт.</string>
+    <string name="vpn_only_clear_question">"Убрать все приложения, работающие только через VPN?"</string>
+    <string name="vpn_only_locked">"VPN выключен: приложения только через VPN (%1$d) без интернета, пока он не включится"</string>
+    <string name="vpn_only_connect">"Подключить"</string>
 </resources>
