@@ -467,6 +467,23 @@ class TvDeviceTest {
         eventually("Down from a row to the next row") { focusedKey(a) == "config:1:select" }
     }
 
+    // The Split page ends with the applications that go only through the VPN: the app's own list, with Choose…, a chip for each that
+    // its x takes out, and a line that says what the list does. Set after the app is open, so that no block of them is started here.
+    @Test fun theVpnOnlyApplicationsAreTheSplitPagesLastListAndAChipsXTakesOneOut() {
+        val other = prefs.getStringSet("apps", null)?.firstOrNull() ?: return
+        val a = open()
+        prefs.edit().putStringSet(VpnOnlyApps.KEY, setOf(other)).commit()
+        render(a, 2)
+        assertTrue("Choose… is there", visible(a, "vpnonly:choose"))
+        assertTrue("a chip for the application", visible(a, "vpnonly:0"))
+        assertTrue("and the line that says what the list does", onMain {
+            descendants(pageRoot(a)).filterIsInstance<TextView>().any { it.text.toString() == context.getString(R.string.vpn_only_hint) }
+        })
+        click(a, "vpnonly:0")
+        eventually("The x takes it out of the list") { prefs.getStringSet(VpnOnlyApps.KEY, null).isNullOrEmpty() }
+        eventually("and off the page") { onMain { root(a).findViewWithTag<View?>("vpnonly:0") == null } }
+    }
+
     // ---- Home: the desktop's. The logo is the control, with the line, the selector, + and the speed tiles ----
 
     private fun hero(a: MainActivity) = field("hero").get(a) as HeroMotion

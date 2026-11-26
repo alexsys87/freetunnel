@@ -316,6 +316,13 @@ text_no_browser
 ## Settings > Language names each language in itself, which is never translated (and so is in res/values alone)
 language_english
 language_russian
+
+## Applications that go only through the VPN and have no internet without it: Android's per-app VPN, which the desktop has none of
+vpn_only_title
+vpn_only_hint
+vpn_only_clear_question
+vpn_only_locked
+vpn_only_connect
 ONLY
 
 cat > "$TMP/check.py" <<'PY'

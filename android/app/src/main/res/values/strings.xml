@@ -265,4 +265,9 @@
     <string name="geo_update_failed">"the last update failed, see the log"</string>
     <string name="geo_bad_source">"Not a list address: %1$s. Use an https address of a text list, or of a .dat file with its category after #, as in …/geoip.dat#ru-blocked."</string>
     <string name="text_through_vpn_apps_are_not_applied_under_geo_routing">"Applications set to go through the VPN are not applied while routing follows the lists: Android would send everything else around the tunnel. Set applications to Bypass VPN, or choose Everything through VPN."</string>
+    <string name="vpn_only_title">"Applications — VPN only"</string>
+    <string name="vpn_only_hint">These go only through the VPN, whatever the mode and the profile. While the VPN is off, they have no internet: FreeTunnel holds a VPN of its own for them that goes nowhere.</string>
+    <string name="vpn_only_clear_question">"Remove every application that goes only through the VPN?"</string>
+    <string name="vpn_only_locked">"VPN is off: %1$d VPN-only application(s) have no internet until it is on"</string>
+    <string name="vpn_only_connect">"Connect"</string>
 </resources>
