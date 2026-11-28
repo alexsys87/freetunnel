@@ -62,8 +62,9 @@ its own signing key, so the two projects' releases do not update each other.
   process-local, so a stopped process cannot leave a persisted Connected state.
 - Kill switch enabled by default. For protection while the process or TUN is
   absent, enable Android **Always-on VPN** and **Block connections without VPN**
-  (see [Always-on VPN](#always-on-vpn-and-block-connections-without-vpn) below: the
-  app's Settings says nothing about them, as the desktop's says nothing).
+  (see [Always-on VPN](#always-on-vpn-and-block-connections-without-vpn) below;
+  Settings shows a notice with a link to them while Android does not run the
+  VPN so).
   Android controls crash restart; neither START_STICKY nor Always-on is a watchdog.
 - Replacement TUN established before releasing the previous one. Unsupported
   IPv6 is blocked; supported IPv6 imported from links uses global `2000::/3`.
@@ -144,9 +145,10 @@ Android-only list.
   Android 13 and up keeps the choice itself, with its own per-app language setting listing the same two,
   and before that the app wraps its contexts, the VPN service's notifications and the tile's words
   too, in the saved one), *Theme* (System, Light or Dark) and *Connect on startup*, with a line between the rows.
-- **Security**: *Kill switch*, with its subtitle, and the amber banner while storage fails. Nothing of
-  Android's own is added to it: Always-on VPN is explained in
-  [Always-on VPN](#always-on-vpn-and-block-connections-without-vpn) below, not in the app.
+- **Security**: *Kill switch*, with its subtitle, and the amber banner while storage fails. Under it,
+  on a phone or tablet with Android 10 or later, a notice while the last session did not run as
+  Android's Always-on VPN with Block connections without VPN, and *Open Android's VPN settings*
+  (see [Always-on VPN](#always-on-vpn-and-block-connections-without-vpn) below).
 - **Excluded routes**: subnets that bypass the tunnel at the routing level, whatever the split rules say, as
   chips (the **×** takes one out at once) and a field that takes several at once, separated by spaces, commas
   or semicolons. What is no subnet is named, and a **/0**, which is every address and would take all its
@@ -801,8 +803,11 @@ the code gets them from, and the theme names Regular for any text nothing sets.
 
 The app's kill switch protects while FreeTunnel runs. For protection while the
 process or the tunnel is absent (after a crash, a force-stop or a reboot, before
-the app starts), Android's own system settings do the rest. The app has no row
-or link for them, as the desktop's Settings has none: turn them on in Android.
+the app starts), Android's own system settings do the rest. Each time a session
+starts, the service records whether Android runs it as the Always-on VPN with
+Block connections without VPN (Android 10 and later can tell); while it does
+not, Settings → Security shows a notice and *Open Android's VPN settings*. Not on
+a TV, most of which have no such screen.
 
 1. Open Android's Settings → Network & internet → VPN (on some devices
    Connections → More connection settings → VPN, or search Settings for "VPN").

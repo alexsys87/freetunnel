@@ -31,6 +31,9 @@ import java.util.concurrent.RejectedExecutionException
 class FreeTunnelVpnService : VpnService() {
     companion object {
         const val ACTION_START = "org.freetunnel.android.START_VPN"
+        // Whether Android ran the last session as its Always-on VPN with Block connections without VPN, as the service saw it
+        // when it built that session's TUN (Android 10 and later); Settings shows a notice while it is not so.
+        const val PREF_SYSTEM_LOCKDOWN = "system_lockdown"
         const val ACTION_STOP = "org.freetunnel.android.STOP_VPN"
         const val ACTION_STATE = "org.freetunnel.android.VPN_STATE"
         const val EXTRA_CONFIG = "config"
@@ -402,7 +405,9 @@ class FreeTunnelVpnService : VpnService() {
             if (!plan.allowApps) VpnOnlyApps.apply(installed, false, vpnOnly).forEach(builder::addDisallowedApplication)
             builder.addDisallowedApplication(packageName)
         }
-        return builder.establish() ?: error("Android could not establish VPN")
+        val established = builder.establish() ?: error("Android could not establish VPN")
+        if (Build.VERSION.SDK_INT >= 29) prefs.edit().putBoolean(PREF_SYSTEM_LOCKDOWN, isAlwaysOn && isLockdownEnabled).apply()
+        return established
     }
 
     private fun stopClient() {

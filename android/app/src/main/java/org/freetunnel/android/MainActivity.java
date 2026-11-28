@@ -16,6 +16,7 @@ import android.animation.ArgbEvaluator;
 import android.animation.ValueAnimator;
 import android.database.Cursor;
 import android.provider.OpenableColumns;
+import android.provider.Settings;
 import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.graphics.Paint;
@@ -3687,8 +3688,9 @@ public final class MainActivity extends Activity {
     // The Settings page, as the desktop's is (qml/pages/SettingsPage.qml), top to bottom: General (Language and Theme as Dropdowns,
     // a line between the rows, and Connect on startup), Security (the storage banner and Kill switch), Excluded routes (chips, and a
     // field), Logging, Maintenance (the update line) and the footer. Left out are what only the desktop has: Launch at system startup,
-    // Hotkeys and the Windows-only ports row. Nothing is there of Android's own (Always-on VPN is explained in android/README.md).
-    // Keys: settings:language, settings:theme, switch:auto_connect, switch:killswitch, routes:restore, routes:clear, route:N, routes:input, switch:logging,
+    // Hotkeys and the Windows-only ports row. Android's own is one notice under Kill switch: Always-on VPN with Block connections
+    // without VPN, while Android does not run the VPN so (systemLockdown).
+    // Keys: settings:language, settings:theme, switch:auto_connect, switch:killswitch, lockdown:notice, lockdown:open, routes:restore, routes:clear, route:N, routes:input, switch:logging,
     // settings:update (with update:tick, update:arrow, update:dots and update:version beside it), and in the footer settings:site
     // and settings:core.
     private void settings(LinearLayout body) {
@@ -3720,6 +3722,7 @@ public final class MainActivity extends Activity {
         section(body, getString(R.string.text_security));
         storageBanner(body);
         addSwitch(body, getString(R.string.settings_kill_switch), getString(R.string.settings_kill_switch_hint), "killswitch", true);
+        systemLockdown(body);
 
         // Excluded routes.
         excludedRoutes(body);
@@ -3750,6 +3753,28 @@ public final class MainActivity extends Activity {
         coreLp.leftMargin = -dp(Ui.LINK_PAD_H_DP);
         footer.addView(core, coreLp);
         body.addView(footer, lp(-1, -2));
+    }
+
+    // The kill switch holds only while FreeTunnel runs: after a crash, a force-stop or a reboot, and before the app starts, traffic
+    // goes around the VPN unless Android itself blocks it, with Always-on VPN and Block connections without VPN. While the last
+    // session was not run so (FreeTunnelVpnService.PREF_SYSTEM_LOCKDOWN), a notice says so, with a link to Android's VPN settings.
+    // From Android 10, where the service can tell; not on a TV, most of which have no such screen.
+    private void systemLockdown(LinearLayout body) {
+        if (isTv() || Build.VERSION.SDK_INT < 29 || prefs.getBoolean(FreeTunnelVpnService.PREF_SYSTEM_LOCKDOWN, false)) return;
+        gap(body, 6);
+        TextView notice = ui.notice(getString(R.string.lockdown_hint));
+        notice.setTag("lockdown:notice");
+        body.addView(notice, lp(-1, -2));
+        gap(body, 6);
+        TextView open = ui.link(getString(R.string.lockdown_open), 12, Ui.LinkKind.ACCENT, "lockdown:open");
+        open.setOnClickListener(v -> {
+            try { startActivity(new Intent(Settings.ACTION_VPN_SETTINGS)); }
+            catch (ActivityNotFoundException | SecurityException noSettings) { toast(getString(R.string.lockdown_no_settings)); }
+        });
+        LinearLayout.LayoutParams openLp = ui.linkLp(false);
+        openLp.leftMargin = -dp(Ui.LINK_PAD_H_DP);
+        body.addView(open, openLp);
+        gap(body, 6);
     }
 
     // A link out of the app: the browser's, where there is one. Most TVs have none, and say so.
