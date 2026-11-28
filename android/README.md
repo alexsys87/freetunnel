@@ -526,11 +526,17 @@ The public AAR download needs no GitHub PAT. Its SHA-256 is checked during
 preparation and every build:
 `c95f55817633663cdd3b79d5b8eb1f7926201ab1c5bcef9800ebabefc856e600`.
 
-The script fetches the AAR from this repository's own mirror first, a release
-named `core-android-1.3.0` with `trusttunnel-client-android-1.3.0.aar` attached,
-and only if that is missing from the public package page, whose HTML GitHub
-changes without notice (the build then stops with "Official package asset
-missing"). Whichever source answers, the file must have the SHA-256 above.
+The script tries three sources in turn. Whichever one answers, the file must
+have the SHA-256 above:
+
+1. This repository's own mirror: a release named `core-android-1.3.0` with
+   `trusttunnel-client-android-1.3.0.aar` attached.
+2. TrustTunnel's Maven registry on GitHub Packages
+   (`com.adguard.trusttunnel:trusttunnel-client-android`). It needs a token even
+   for a public package, so it is tried only when `GITHUB_TOKEN` is set. The
+   Android workflows pass the job's own token, with `packages: read`.
+3. The public package page, whose HTML GitHub changes without notice (the build
+   then stops with "Official package asset missing").
 To create the mirror once, download the AAR of the version from the
 [package page](https://github.com/TrustTunnel/TrustTunnelClient/packages/2733074)
 in a browser, check `shasum -a 256` against the digest above, and attach it to a

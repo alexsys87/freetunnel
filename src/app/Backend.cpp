@@ -141,9 +141,12 @@ void Backend::applyVpnClientState(VpnHelperClient::State st)
 
 void Backend::onVpnClientStateChanged(VpnHelperClient::State st)
 {
+    const bool wasConnected = m_connected;
     applyVpnClientState(st);
     emit stateChanged();
     appendLog(QStringLiteral("INFO"), statusText());
+    if (m_connected && !wasConnected)
+        checkSystemDnsAfterConnect();
     // A config switch / live rule reapply disconnects first, then reconnects only
     // once the old tunnel is fully down. Defer so we never re-enter the VPN client
     // from inside its own state callback (disconnectVpn can emit this synchronously).

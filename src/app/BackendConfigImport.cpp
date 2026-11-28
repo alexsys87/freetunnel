@@ -19,6 +19,7 @@
 #include "core/ConfigToml.h"
 #include "core/CredentialStore.h"
 #include "core/DeepLink.h"
+#include "core/TunRouting.h"
 
 bool Backend::importFromClipboard()
 {
@@ -65,7 +66,7 @@ bool Backend::finalizeImportedConfig(const QString &target, bool hadNoActive, bo
 // "Config added" one. Empty when there is nothing to say. Split out of
 // importFile().
 static QString importedFileNotice(const QString &name, bool skipVerification, bool subscriptionRemoved,
-                                  bool certificateTrimmed)
+                                  bool certificateTrimmed, const QStringList &routingNotes)
 {
     QString notice;
     if (skipVerification)
@@ -75,11 +76,30 @@ static QString importedFileNotice(const QString &name, bool skipVerification, bo
         notes << freetunnel::subscriptionNotKeptNote();
     if (certificateTrimmed)
         notes << freetunnel::certificateExtraIgnoredNote();
+    notes << routingNotes;
     if (notes.isEmpty())
         return notice;
     if (notice.isEmpty())
         notice = Backend::tr("Config added: %1.").arg(name);
     return notice + QLatin1Char(' ') + notes.join(QLatin1Char(' '));
+}
+
+// What a file's own [listener.tun] sends around the tunnel that a config made in
+// FreeTunnel would not. Said when the file is added, since nothing on the Home
+// page shows it once connected. Excluded routes that take a whole address family
+// out are refused before this (readValidatedImportContent).
+static QStringList importedRoutingNotes(const QString &content)
+{
+    const freetunnel::TunSection tun = freetunnel::readTunSection(content);
+    QStringList notes;
+    if (!tun.present)
+        return notes; // FreeTunnel writes its own routing for it
+    if (!freetunnel::coversAddressFamily(tun.includedRoutes, false))
+        notes << Backend::tr("It sends only part of IPv4 traffic into the VPN: the rest goes around it.");
+    if (!tun.changeSystemDns)
+        notes << Backend::tr("It does not set the system DNS: DNS queries go to your network's resolver, "
+                             "around the VPN.");
+    return notes;
 }
 
 bool Backend::importFile(const QString &path)
@@ -105,6 +125,9 @@ bool Backend::importFile(const QString &path)
         else if (importErr == QLatin1String("certificate"))
             emit errorOccurred(tr("Not a valid TrustTunnel config: %1")
                                        .arg(QCoreApplication::translate("DeepLink", "malformed certificate")));
+        else if (importErr == QLatin1String("routes"))
+            emit errorOccurred(tr("Not added: the config's excluded routes take every IPv4 or IPv6 address "
+                                  "out of the tunnel."));
         else
             emit errorOccurred(tr("Not a valid TrustTunnel config (missing address or credentials)"));
         return false;
@@ -128,8 +151,8 @@ bool Backend::importFile(const QString &path)
     if (!finalizeImportedConfig(target, m_activePath.isEmpty()))
         return false;
     const bool skipVerification = freetunnel::parseConfigToml(content).skipVerification;
-    const QString notice =
-            importedFileNotice(nameForPath(target), skipVerification, subscriptionRemoved, certificateTrimmed);
+    const QString notice = importedFileNotice(nameForPath(target), skipVerification, subscriptionRemoved,
+                                              certificateTrimmed, importedRoutingNotes(content));
     if (!notice.isEmpty())
         emit errorOccurred(notice);
     return true;

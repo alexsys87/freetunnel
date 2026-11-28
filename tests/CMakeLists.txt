@@ -34,6 +34,7 @@ add_library(ft_apps STATIC
     ../src/core/ProcessLookupWalk.cpp
     ../src/core/InstalledApps.cpp
     ../src/core/NetBind.cpp
+    ../src/core/TunRouting.cpp
 )
 target_include_directories(ft_apps PUBLIC ../include ../include/core)
 target_link_libraries(ft_apps PUBLIC Qt6::Core Qt6::Network)
@@ -428,6 +429,16 @@ add_executable(test_bypassrules
 target_include_directories(test_bypassrules PRIVATE ../include ../include/core)
 target_link_libraries(test_bypassrules PRIVATE Qt6::Core Qt6::Network Qt6::Test)
 add_test(NAME bypassrules COMMAND test_bypassrules -o ${CMAKE_CURRENT_BINARY_DIR}/report-bypassrules.txt,txt)
+
+add_executable(test_tunrouting
+    test_tunrouting.cpp
+    ../src/core/TunRouting.cpp
+    ../src/core/ConfigToml.cpp
+    ../src/core/ConfigTomlValues.cpp
+)
+target_include_directories(test_tunrouting PRIVATE ../include ../include/core)
+target_link_libraries(test_tunrouting PRIVATE Qt6::Core Qt6::Network Qt6::Test)
+add_test(NAME tunrouting COMMAND test_tunrouting -o ${CMAKE_CURRENT_BINARY_DIR}/report-tunrouting.txt,txt)
 
 add_executable(test_georules
     test_georules.cpp

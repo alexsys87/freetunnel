@@ -194,6 +194,7 @@ private:
     void handleCoreWaitingForNetwork();
     void handleCoreDisconnected(int errCode, const QString &errText);
     void setConfigLocked(ag::TrustTunnelConfig config);
+    static bool excludedRoutesCoverAFamily(const ag::TrustTunnelConfig &config);
     std::string exclusionsLocked() const;
     void storeExclusionsLocked(std::vector<std::string> exclusions);
     void storeModeLocked(bool selective);

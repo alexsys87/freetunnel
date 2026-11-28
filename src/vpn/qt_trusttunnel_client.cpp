@@ -4,6 +4,7 @@
 #include "qt_trusttunnel_events.h"
 #include "core/AppRules.h"
 #include "core/ProcessLookup.h"
+#include "core/TunRouting.h"
 #include <QCoreApplication>
 #include <QDir>
 #include <QFile>
@@ -201,6 +202,40 @@ static void clearKeysRootMustNotTakeFromAConfig(ag::TrustTunnelConfig &config)
     }
 }
 
+// A config that sends every IPv4 address into the tunnel and names no IPv6 route
+// at all would leave IPv6 on the open network: the OS reaches every site with an
+// AAAA record around the VPN. Such a session gets the global IPv6 range that
+// FreeTunnel's own configs route (freetunnel::withIpv6Completed). Without IPv6 at
+// the endpoint (has_ipv6 = false) the core refuses those connections, and
+// programs fall back to IPv4, through the tunnel.
+static void completeIpv6Routes(std::vector<std::string> &included)
+{
+    QStringList routes;
+    for (const std::string &route : included)
+        routes << QString::fromStdString(route);
+    const QStringList completed = freetunnel::withIpv6Completed(routes);
+    if (completed.size() == routes.size())
+        return;
+    for (qsizetype i = routes.size(); i < completed.size(); ++i)
+        included.push_back(completed.at(i).toStdString());
+    qInfo("[QtTrustTunnelClient] the config routes no IPv6: added %s to included_routes",
+          qPrintable(freetunnel::globalIpv6Route()));
+}
+
+// Whether the excluded routes a session would be built with take every address of
+// IPv4 or of IPv6 out of the tunnel: the window would say Connected while that
+// family's traffic went around it. The Android app refuses such a config too.
+bool QtTrustTunnelClient::excludedRoutesCoverAFamily(const ag::TrustTunnelConfig &config)
+{
+    const auto *tun = std::get_if<ag::TrustTunnelConfig::TunListener>(&config.listener);
+    if (!tun)
+        return false;
+    QStringList excluded;
+    for (const std::string &route : tun->excluded_routes)
+        excluded << QString::fromStdString(route);
+    return freetunnel::coversEitherAddressFamily(excluded);
+}
+
 void QtTrustTunnelClient::setConfigLocked(ag::TrustTunnelConfig config) {
     m_config = std::move(config);
     m_configAllowPorts = m_config->killswitch_allow_ports;
@@ -215,6 +250,7 @@ void QtTrustTunnelClient::setConfigLocked(ag::TrustTunnelConfig config) {
         // list has to replace ours, not pile on top of it.
         m_originalExcludedRoutes = tun.excluded_routes;
         tun.excluded_routes.insert(tun.excluded_routes.end(), m_extraExcludedRoutes.begin(), m_extraExcludedRoutes.end());
+        completeIpv6Routes(tun.included_routes);
     }
     // Append extra exclusions (domain bypass rules)
     // Save original exclusions before we touch them so they can be restored

@@ -26,6 +26,8 @@ on:
         default: false
 permissions:
   contents: read
+  # scripts/prepare-trusttunnel-android.sh reads the core AAR from TrustTunnel's GitHub Packages.
+  packages: read
 concurrency:
   group: android-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -71,6 +73,8 @@ jobs:
       # The device tests reach into the app by name; this reads both sides, in seconds, instead of the emulator legs half an hour in.
       - run: bash tests/test_android_device_tests.sh
       - run: scripts/prepare-trusttunnel-android.sh
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
       - run: ./gradlew --no-daemon :app:testDebugUnitTest :app:compileDebugAndroidTestKotlin :app:lintDebug :app:assembleDebug :app:assembleRelease :app:testReleaseUnitTest :app:lintRelease :app:bundleRelease
         working-directory: android
       # What TV launchers and app stores read once the AAR's manifest is merged in,
@@ -131,6 +135,8 @@ jobs:
           cache-disabled: ${{ inputs.gradle-cache-disabled == true }}
       - run: bash -n scripts/build-android-release.sh
       - run: scripts/prepare-trusttunnel-android.sh
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
       - name: Enable KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
@@ -208,6 +214,8 @@ jobs:
           cache-provider: basic # see the build job
           cache-disabled: ${{ inputs.gradle-cache-disabled == true }}
       - run: scripts/prepare-trusttunnel-android.sh
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
       - name: Build the release APK, unsigned
         working-directory: android
         run: ./gradlew --no-daemon :app:assembleRelease

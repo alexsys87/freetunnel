@@ -46,6 +46,8 @@ on:
 # Least privilege by default: only the publish job asks for contents: write.
 permissions:
   contents: read
+  # scripts/prepare-trusttunnel-android.sh reads the core AAR from TrustTunnel's GitHub Packages.
+  packages: read
 
 concurrency:
   # One run per tag, never cancelled halfway; a second push of the same tag
@@ -227,6 +229,8 @@ jobs:
           cache-provider: basic
           cache-disabled: true
       - run: scripts/prepare-trusttunnel-android.sh
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
       # Unsigned: build.gradle has no signing config, and this job no secret.
       # The ci job has run the tests and lint on this commit already.
       - name: Build the release APK

@@ -5,6 +5,28 @@ built from the section below it, so this file is the description of the release 
 write it before tagging. For the full commit history of a release, follow the
 compare link at the bottom of its release notes.
 
+## Unreleased
+
+### Security
+
+- **A config file can no longer send all traffic around the tunnel unseen.**
+  Excluded routes that add up to every IPv4 or IPv6 address, such as
+  `0.0.0.0/1` with `128.0.0.0/1`, are refused when the file is imported and,
+  for a config imported before, when it connects, as the Android app refuses
+  them. A file that sends only part of IPv4 into the VPN, or that leaves the
+  system DNS alone (`change_system_dns = false`), is added and says so.
+- **IPv6 no longer goes around a config that names no IPv6 route.** A config
+  that sends every IPv4 address into the tunnel but names no IPv6 route left
+  IPv6 on the open network, so every site with an IPv6 address was reached
+  around the VPN. Such a session now also routes `2000::/3`, as FreeTunnel's own
+  configs do.
+- **Linux: DNS that goes around the VPN is reported.** The VPN core points DNS
+  at the tunnel through systemd-resolved only. On a system whose
+  `/etc/resolv.conf` sends queries to the router or another server outside the
+  tunnel, or when systemd-resolved did not take the tunnel's settings, every
+  lookup went to the provider while the window said Connected. Once connected,
+  FreeTunnel now checks and says so in a notice and the log.
+
 ## 1.4.1
 
 ### Changed

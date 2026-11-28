@@ -127,6 +127,8 @@ add_executable(FreeTunnel WIN32 MACOSX_BUNDLE
     src/core/InstalledApps.cpp
     src/core/BypassRules.cpp
     include/core/BypassRules.h
+    src/core/TunRouting.cpp
+    include/core/TunRouting.h
     src/core/GeoRules.cpp
     include/core/GeoRules.h
     src/core/GeoListUpdater.cpp

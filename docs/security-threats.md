@@ -650,6 +650,39 @@ FreeTunnel's own.
 not be rebuilt for something it can take while it runs. That is why edits go to
 the running session and a failed first connect stays inside it.
 
+### Routes and DNS a config sends around the tunnel
+
+A config file's `[listener.tun]` reaches the core as written: what it includes
+and excludes, and whether the core sets the system DNS.
+
+- **Threat:** traffic leaving outside the tunnel while the window says
+  Connected, because the config routes it there: excluded routes that add up to
+  a whole address family, a full IPv4 tunnel with no IPv6 route, or DNS that the
+  system sends to a resolver outside the tunnel.
+- **Mitigation:**
+  - excluded routes, the config's and Settings' together, that cover every IPv4
+    or every IPv6 address are refused on import and by the helper before a
+    session is built (`src/core/TunRouting.cpp`, `prepareAttempt()`);
+  - a config that routes every IPv4 address and no IPv6 has `2000::/3` added for
+    the session; with `has_ipv6 = false` the core refuses those connections and
+    programs fall back to IPv4, through the tunnel;
+  - importing a file that routes only part of IPv4, or sets
+    `change_system_dns = false`, says so;
+  - on Linux, where the core sets DNS through systemd-resolved alone and only
+    logs a failure, the GUI checks `/etc/resolv.conf` and `resolvectl domain`
+    once connected and says when queries would reach a server outside the
+    tunnel (`Backend::checkSystemDnsAfterConnect()`).
+- **Residual risk:**
+  - the Linux DNS check reports but does not block: refusing to connect would
+    leave all traffic, not only DNS, outside the tunnel;
+  - a resolver on the machine (dnsmasq, unbound) forwards wherever it is set to,
+    which FreeTunnel cannot see; it is mentioned in the log only;
+  - on Linux the core keeps traffic from source ports 1–1024 and 5900–5920 on
+    the main routing table, outside the tunnel (an upstream rule for reaching
+    local SSH and VNC servers); ordinary programs use ports above 32768;
+  - a config may still route only part of IPv4 on purpose: it is said on import,
+    not refused.
+
 ### Server latency probes
 
 The Configs page shows a latency figure per server. Those probes are meant to
