@@ -134,6 +134,9 @@ private slots:
     void logLevelIsReadBackFromConfig();
     void killSwitchAndVpnModeReachTheCoreConfig();
     void splitRoutesAndExclusionsReachTheCoreConfig();
+    void aFullIpv4TunnelWithoutIpv6GetsTheGlobalRange();
+    void aPartialTunnelIsLeftAsTheConfigHasIt();
+    void excludedRoutesTakingAWholeFamilyAreRefused();
     void keysThatMakeRootActOnANameNeverReachTheCore();
     void aSocksListenerIsRefused();
     void aSecondRouteListReplacesTheFirst();
@@ -829,6 +832,59 @@ void TestQtTrustTunnelClient::splitRoutesAndExclusionsReachTheCoreConfig()
     const QString exclusions = QString::fromStdString(cfg.exclusions);
     QVERIFY2(exclusions.contains(QStringLiteral("intranet.example")), qPrintable(exclusions));
     QVERIFY2(exclusions.contains(QStringLiteral("printer.local")), qPrintable(exclusions));
+}
+
+// A config that routes every IPv4 address and names no IPv6 route left IPv6 on
+// the open network: every site with an AAAA record went around the VPN. The
+// session gets the global IPv6 range FreeTunnel's own configs route.
+void TestQtTrustTunnelClient::aFullIpv4TunnelWithoutIpv6GetsTheGlobalRange()
+{
+    auto &ctl = mockcore::Controller::instance();
+    beginConnect(QStringLiteral("loglevel = \"warn\"\n"
+                                "[endpoint]\n"
+                                "hostname = \"vpn.example\"\n"
+                                "[listener.tun]\n"
+                                "included_routes = [\"0.0.0.0/1\", \"128.0.0.0/1\"]\n"));
+    QTRY_VERIFY(ctl.connectCallCount() >= 1);
+    QTRY_VERIFY(ctl.lastCoreConfig().captured);
+    const mockcore::CoreConfigSnapshot cfg = ctl.lastCoreConfig();
+    QVERIFY2(listContains(cfg.included_routes, "2000::/3"), "IPv6 would go around the tunnel");
+    QVERIFY(listContains(cfg.included_routes, "0.0.0.0/1"));
+    QVERIFY(listContains(cfg.included_routes, "128.0.0.0/1"));
+}
+
+// Only some networks through the tunnel is the config's choice, and IPv6 is not
+// part of it.
+void TestQtTrustTunnelClient::aPartialTunnelIsLeftAsTheConfigHasIt()
+{
+    auto &ctl = mockcore::Controller::instance();
+    beginConnect(QStringLiteral("loglevel = \"warn\"\n"
+                                "[endpoint]\n"
+                                "hostname = \"vpn.example\"\n"
+                                "[listener.tun]\n"
+                                "included_routes = [\"10.20.0.0/16\"]\n"));
+    QTRY_VERIFY(ctl.connectCallCount() >= 1);
+    QTRY_VERIFY(ctl.lastCoreConfig().captured);
+    QCOMPARE(ctl.lastCoreConfig().included_routes, std::vector<std::string>{"10.20.0.0/16"});
+}
+
+// Excluded routes that add up to all of IPv4 would have the window say Connected
+// while every IPv4 connection went around the tunnel. Refused before the core is
+// started, whether the routes came from the config or from Settings, as here.
+void TestQtTrustTunnelClient::excludedRoutesTakingAWholeFamilyAreRefused()
+{
+    auto &ctl = mockcore::Controller::instance();
+    QSignalSpy errors(m_client, &QtTrustTunnelClient::vpnError);
+    QMetaObject::invokeMethod(m_client, "setExcludedRouteStrings", Qt::BlockingQueuedConnection,
+                              Q_ARG(QStringList,
+                                    QStringList({QStringLiteral("0.0.0.0/1"),
+                                                 QStringLiteral("128.0.0.0/1")})));
+    beginConnect();
+    QTRY_VERIFY(!errors.isEmpty());
+    QVERIFY2(errors.first().first().toString().contains(QStringLiteral("excluded routes")),
+             qPrintable(errors.first().first().toString()));
+    QTRY_COMPARE(m_client->state(), QtTrustTunnelClient::State::Error);
+    QCOMPARE(ctl.connectCallCount(), 0);
 }
 
 // This object is the root helper's, and the TOML it is handed keeps every key an

@@ -804,6 +804,34 @@ ConfigToml parseConfigToml(const QString &toml) {
     return c;
 }
 
+// The routing of [listener.tun], read where and as the core reads it. A list
+// split back into its items: readArray() joins them with ", ", and no route has a
+// comma in it.
+TunSection readTunSection(const QString &toml)
+{
+    const QList<QPair<QString, QString>> tables = splitTomlTables(toml);
+    TunSection t;
+    for (const auto &table : tables) {
+        if (table.first == QLatin1String("listener.tun")) {
+            t.present = true;
+            break;
+        }
+    }
+    if (!t.present)
+        return t;
+    const QString body = tableBody(tables, QStringLiteral("listener.tun"));
+    const auto items = [&body](const char *key) {
+        QStringList out;
+        for (const QString &item : readArray(body, key).split(QStringLiteral(", "), Qt::SkipEmptyParts))
+            out << item.trimmed();
+        return out;
+    };
+    t.includedRoutes = items("included_routes");
+    t.excludedRoutes = items("excluded_routes");
+    t.changeSystemDns = readBool(body, "change_system_dns", true);
+    return t;
+}
+
 // From [endpoint] alone, where the core reads its keys (see valueStart). The key
 // is not a field of ConfigToml: an empty one is carried over as written, like any
 // key this editor does not know, and a config with a real one is not imported.

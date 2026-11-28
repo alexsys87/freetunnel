@@ -42,6 +42,8 @@ private slots:
     void initTestCase();
     void init();
     void backendConnectsThroughMockHelper();
+    void linuxDnsAroundTheTunnelIsReported();
+    void linuxDnsAroundTheTunnelIsReported_data();
     void connectPushesTheSecuritySettingsToTheHelper();
     void connectWithNoRulesAsksForTheFullTunnelNotSelective();
     void togglingTheKillSwitchWhileConnectedReachesTheCore();
@@ -559,6 +561,85 @@ bool anyErrorIs(const QSignalSpy &errors, const QString &text)
 }
 
 } // namespace
+
+// On Linux the core points DNS at the tunnel through systemd-resolved alone. A
+// resolv.conf that sends queries to the router, or a resolved that did not take
+// the tunnel's "~." domain, left every lookup going around the VPN while the
+// window said Connected. The window says so now, once the tunnel is up.
+void TestIntegrationBackendVpn::linuxDnsAroundTheTunnelIsReported_data()
+{
+    QTest::addColumn<QString>("resolvConf");
+    QTest::addColumn<QString>("resolvectl"); // what `resolvectl domain` prints; empty: not run
+    QTest::addColumn<QString>("warning");    // part of the notice; empty: none
+    QTest::newRow("the router") << "nameserver 192.168.1.1\n" << QString() << "192.168.1.1";
+    QTest::newRow("a public server, through the tunnel") << "nameserver 1.1.1.1\n" << QString() << QString();
+    QTest::newRow("resolved, with the tunnel taking all")
+            << "nameserver 127.0.0.53\n" << "Link 2 (eth0):\nLink 9 (tun0): ~.\n" << QString();
+    QTest::newRow("resolved, without the tunnel")
+            << "nameserver 127.0.0.53\n" << "Link 2 (eth0):\nLink 9 (tun0):\n"
+            << "did not take the VPN's DNS settings";
+    QTest::newRow("resolved, with another catch-all")
+            << "nameserver 127.0.0.53\n" << "Link 2 (eth0): ~.\nLink 9 (tun0): ~.\n" << "eth0";
+}
+
+void TestIntegrationBackendVpn::linuxDnsAroundTheTunnelIsReported()
+{
+#if !defined(Q_OS_LINUX)
+    QSKIP("The check is Linux's");
+#else
+    QFETCH(QString, resolvConf);
+    QFETCH(QString, resolvectl);
+    QFETCH(QString, warning);
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    QFile conf(dir.filePath(QStringLiteral("resolv.conf")));
+    QVERIFY(conf.open(QIODevice::WriteOnly));
+    conf.write(resolvConf.toUtf8());
+    conf.close();
+    qputenv("FT_TEST_RESOLV_CONF", conf.fileName().toUtf8());
+    // A stand-in for resolvectl that prints the links as the test has them.
+    QFile tool(dir.filePath(QStringLiteral("resolvectl")));
+    QVERIFY(tool.open(QIODevice::WriteOnly));
+    tool.write("#!/bin/sh\ncat \"$(dirname \"$0\")/domains\"\n");
+    tool.close();
+    tool.setPermissions(QFileDevice::ReadOwner | QFileDevice::WriteOwner | QFileDevice::ExeOwner);
+    QFile domains(dir.filePath(QStringLiteral("domains")));
+    QVERIFY(domains.open(QIODevice::WriteOnly));
+    domains.write(resolvectl.toUtf8());
+    domains.close();
+    qputenv("FT_TEST_RESOLVECTL", tool.fileName().toUtf8());
+    const auto unset = qScopeGuard([]() {
+        qunsetenv("FT_TEST_RESOLV_CONF");
+        qunsetenv("FT_TEST_RESOLVECTL");
+    });
+
+    QDir().mkpath(QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation));
+    TestConfigs configs;
+    QVERIFY(configs.add(QStringLiteral("dns-check")));
+    configs.install();
+    MockHelperEnv env(QStringLiteral("backend-dns-check-token"));
+    QVERIFY(env.start());
+
+    Backend backend;
+    QSignalSpy errors(&backend, &Backend::errorOccurred);
+    const auto warned = [&]() {
+        return std::any_of(errors.cbegin(), errors.cend(), [&warning](const QList<QVariant> &row) {
+            return !row.isEmpty() && row.at(0).toString().contains(warning);
+        });
+    };
+    backend.connectVpn();
+    QVERIFY(QTest::qWaitFor([&]() { return backend.connected(); }, 10000));
+    if (warning.isEmpty()) {
+        QTest::qWait(500); // time for resolvectl to have answered
+        QVERIFY2(errors.isEmpty(), qPrintable(errors.isEmpty() ? QString() : errors.first().first().toString()));
+    } else {
+        QVERIFY2(QTest::qWaitFor(warned, 5000), "nothing said DNS goes around the VPN");
+    }
+    backend.disconnectVpn();
+    QVERIFY(QTest::qWaitFor([&]() { return !backend.connected() && !backend.connecting(); }, 5000));
+    backend.prepareQuit();
+#endif
+}
 
 // A switch is a teardown and then a fresh connect, and only the teardown is the
 // old session's. The guard that hid its errors used to stay up until the new

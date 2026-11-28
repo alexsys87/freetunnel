@@ -319,6 +319,17 @@ QtTrustTunnelClient::AttemptPtr QtTrustTunnelClient::prepareAttempt(quint64 atte
             emit vpnError(tr("TrustTunnel config is not set"));
             return nullptr;
         }
+        // Checked here, where the config's own routes and the ones from Settings
+        // have been put together, rather than when the config is loaded: Settings
+        // can still add routes after that.
+        if (excludedRoutesCoverAFamily(*m_config)) {
+            m_stopRequested = true;
+            setState(State::Error);
+            emit vpnError(tr("The excluded routes take every address out of the tunnel. "
+                             "Remove the routes that cover all of IPv4 or IPv6 from the config "
+                             "or from Settings → Excluded routes."));
+            return nullptr;
+        }
         applyCoreLogPathToConfigLocked();
         ctx->routing = Routing{m_config->mode, m_config->exclusions};
         ctx->config = std::move(*m_config);

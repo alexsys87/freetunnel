@@ -54,6 +54,16 @@ QString buildConfigToml(const ConfigToml &c, const QString &logLevel = QStringLi
 // rewrite of a config puts one back on disk.
 ConfigToml parseConfigToml(const QString &toml);
 
+// What a config's [listener.tun] says about routing, as the core reads it.
+struct TunSection {
+    bool present = false;        // the file has a [listener.tun] table
+    QStringList includedRoutes;  // included_routes
+    QStringList excludedRoutes;  // excluded_routes
+    bool changeSystemDns = true; // change_system_dns, the core's default when absent
+};
+
+TunSection readTunSection(const QString &toml);
+
 // The text without the subscription address a TrustTunnel 1.3 config can carry,
 // and nothing else changed: the endpoint's export writes it as `subscription_url`
 // at the top, which lands in [endpoint] once pasted under it, and TrustTunnel's

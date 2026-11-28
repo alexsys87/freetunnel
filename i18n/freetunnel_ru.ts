@@ -138,6 +138,26 @@
         <translation>В конфиге нет пароля — отредактируйте его и попробуйте снова</translation>
     </message>
     <message>
+        <source>The config does not set the system DNS: DNS queries may go around the VPN.</source>
+        <translation>Конфиг не настраивает системный DNS: DNS-запросы могут идти мимо VPN.</translation>
+    </message>
+    <message>
+        <source>DNS queries go around the VPN: /etc/resolv.conf sends them to %1, outside the tunnel. Use systemd-resolved, or set a DNS server that the VPN carries.</source>
+        <translation>DNS-запросы идут мимо VPN: /etc/resolv.conf отправляет их на %1, вне туннеля. Используйте systemd-resolved или укажите DNS-сервер, который идёт через VPN.</translation>
+    </message>
+    <message>
+        <source>DNS goes to a resolver on this computer (%1). FreeTunnel cannot point it at the VPN: if it forwards to your router or provider, DNS queries go around the VPN.</source>
+        <translation>DNS идёт к резолверу на этом компьютере (%1). FreeTunnel не может направить его в VPN: если он пересылает запросы роутеру или провайдеру, они идут мимо VPN.</translation>
+    </message>
+    <message>
+        <source>systemd-resolved did not take the VPN&apos;s DNS settings: DNS queries may go around the VPN.</source>
+        <translation>systemd-resolved не принял DNS-настройки VPN: DNS-запросы могут идти мимо VPN.</translation>
+    </message>
+    <message>
+        <source>systemd-resolved also sends every DNS query to %1, around the VPN.</source>
+        <translation>systemd-resolved также отправляет все DNS-запросы на %1, мимо VPN.</translation>
+    </message>
+    <message>
         <source>File not found: %1</source>
         <translation>Файл не найден: %1</translation>
     </message>
@@ -382,8 +402,20 @@
         <translation>Сертификат должен быть в формате PEM: один или несколько блоков BEGIN CERTIFICATE</translation>
     </message>
     <message>
+        <source>It sends only part of IPv4 traffic into the VPN: the rest goes around it.</source>
+        <translation>Он направляет в VPN только часть IPv4-трафика: остальное идёт мимо.</translation>
+    </message>
+    <message>
+        <source>It does not set the system DNS: DNS queries go to your network&apos;s resolver, around the VPN.</source>
+        <translation>Он не настраивает системный DNS: DNS-запросы идут к резолверу вашей сети, мимо VPN.</translation>
+    </message>
+    <message>
         <source>Not a valid TrustTunnel config: %1</source>
         <translation>Это не похоже на конфиг TrustTunnel: %1</translation>
+    </message>
+    <message>
+        <source>Not added: the config&apos;s excluded routes take every IPv4 or IPv6 address out of the tunnel.</source>
+        <translation>Не добавлено: исключённые маршруты конфига выводят из туннеля все адреса IPv4 или IPv6.</translation>
     </message>
     <message>
         <source>Add a VPN server from this file?</source>
@@ -948,6 +980,10 @@
     <message>
         <source>TrustTunnel config is not set</source>
         <translation>Конфиг TrustTunnel не задан</translation>
+    </message>
+    <message>
+        <source>The excluded routes take every address out of the tunnel. Remove the routes that cover all of IPv4 or IPv6 from the config or from Settings → Excluded routes.</source>
+        <translation>Исключённые маршруты выводят из туннеля все адреса. Уберите маршруты, покрывающие весь IPv4 или IPv6, из конфига или из «Настройки → Исключённые маршруты».</translation>
     </message>
     <message>
         <source>Failed to start network monitor</source>

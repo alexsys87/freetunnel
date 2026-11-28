@@ -494,6 +494,10 @@ private:
     bool shouldSkipConnectAttempt() const;
     bool linkWouldTurnVpnOff(const freetunnel::ControlCommand &cmd) const;
     void logConnectAttempt();
+    // Linux: whether DNS queries will reach the tunnel now that it is up, said
+    // in the log and a notice when they will not (BackendConnect.cpp).
+    void checkSystemDnsAfterConnect();
+    void checkResolvedLinks();
     // The connect TOML is built off the GUI thread: assembling it reads the
     // password out of the OS credential store, and that call blocks — on macOS
     // it can sit in securityd for as long as an authorization dialog is up.
@@ -590,6 +594,9 @@ private:
     // Bumped by anything that supersedes an in-flight connect, so a credential
     // read that finishes late cannot start a session nobody asked for any more.
     quint64 m_connectGen = 0;
+    // The connect attempt whose DNS was last checked (checkSystemDnsAfterConnect):
+    // a reconnect inside one session says nothing new.
+    quint64 m_dnsCheckedGen = 0;
     bool m_quitting = false;      // user requested quit — allow window close on macOS
     bool m_shutdownPrepared = false; // prepareQuit() already ran
 };

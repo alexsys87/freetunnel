@@ -42,6 +42,8 @@ class TestBackendConfig : public QObject {
     Q_OBJECT
 
 private slots:
+    void importRefusesExclusionsOfAWholeFamily();
+    void importSaysWhatItsRoutingLeavesOut();
     void initTestCase();
     void init();
     void cleanup();
@@ -883,6 +885,74 @@ void TestBackendConfig::anEditKeepsWhatTheFormDoesNotShow()
         QVERIFY2(keeps("[provider]") && keeps("plan = \"basic\""), qPrintable(saved));
         QVERIFY2(!keeps("hunter2"), qPrintable(saved)); // and the password stays out
     }
+}
+
+// A file whose excluded routes add up to all of IPv4 is not added: connected,
+// every IPv4 connection would have gone around the tunnel.
+void TestBackendConfig::importRefusesExclusionsOfAWholeFamily()
+{
+    const QString source = QDir(m_home.path()).filePath(QStringLiteral("leaky.toml"));
+    QFile out(source);
+    QVERIFY(out.open(QIODevice::WriteOnly | QIODevice::Truncate));
+    out.write("[endpoint]\n"
+              "hostname = \"vpn.example.org\"\n"
+              "addresses = [\"198.51.100.7:443\"]\n"
+              "username = \"alice\"\n"
+              "password = \"hunter2\"\n"
+              "\n[listener.tun]\n"
+              "included_routes = [\"0.0.0.0/0\", \"2000::/3\"]\n"
+              "excluded_routes = [\"0.0.0.0/1\", \"128.0.0.0/1\"]\n");
+    out.close();
+
+    Backend backend;
+    QSignalSpy errors(&backend, &Backend::errorOccurred);
+    QVERIFY(!backend.importFile(source));
+    QVERIFY(backend.configs().isEmpty());
+    QCOMPARE(errors.size(), 1);
+    QVERIFY2(errors.first().first().toString().contains(QStringLiteral("excluded routes")),
+             qPrintable(errors.first().first().toString()));
+}
+
+// A file that tunnels only some networks, or leaves the system DNS alone, is
+// added, and says so: nothing on the Home page shows it once connected.
+void TestBackendConfig::importSaysWhatItsRoutingLeavesOut()
+{
+    const QString source = QDir(m_home.path()).filePath(QStringLiteral("office.toml"));
+    QFile out(source);
+    QVERIFY(out.open(QIODevice::WriteOnly | QIODevice::Truncate));
+    out.write("[endpoint]\n"
+              "hostname = \"vpn.example.org\"\n"
+              "addresses = [\"198.51.100.7:443\"]\n"
+              "username = \"alice\"\n"
+              "password = \"hunter2\"\n"
+              "\n[listener.tun]\n"
+              "change_system_dns = false\n"
+              "included_routes = [\"10.20.0.0/16\"]\n"
+              "excluded_routes = []\n");
+    out.close();
+
+    Backend backend;
+    QSignalSpy errors(&backend, &Backend::errorOccurred);
+    QVERIFY(backend.importFile(source));
+    QCOMPARE(backend.configs(), QStringList{QStringLiteral("office")});
+    QCOMPARE(errors.size(), 1);
+    const QString notice = errors.first().first().toString();
+    QVERIFY2(notice.contains(QStringLiteral("only part of IPv4")), qPrintable(notice));
+    QVERIFY2(notice.contains(QStringLiteral("does not set the system DNS")), qPrintable(notice));
+
+    // FreeTunnel's own routing says nothing.
+    errors.clear();
+    const QString plain = QDir(m_home.path()).filePath(QStringLiteral("plain.toml"));
+    QFile second(plain);
+    QVERIFY(second.open(QIODevice::WriteOnly | QIODevice::Truncate));
+    second.write("[endpoint]\n"
+                 "hostname = \"vpn2.example.org\"\n"
+                 "addresses = [\"198.51.100.8:443\"]\n"
+                 "username = \"bob\"\n"
+                 "password = \"hunter3\"\n");
+    second.close();
+    QVERIFY(backend.importFile(plain));
+    QVERIFY(errors.isEmpty());
 }
 
 // A config may turn the post-quantum key exchange off. The editor has no switch

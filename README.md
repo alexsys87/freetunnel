@@ -285,6 +285,28 @@ every config.
 - A route of every address (`0.0.0.0/0`, `::/0`) is refused here and on the
   Split tunnelling page, since it would take all of that traffic out of the
   tunnel.
+- A config file whose own excluded routes, or those together with this list,
+  add up to every IPv4 or IPv6 address is refused: on import, and when it
+  connects.
+- A config that sends every IPv4 address into the tunnel and names no IPv6
+  route has `2000::/3` added for the session, so that IPv6 does not go around
+  the VPN.
+
+### DNS on Linux
+
+On Linux the VPN core points DNS at the tunnel through systemd-resolved only.
+Once connected, FreeTunnel checks that queries will reach the tunnel and says
+so in a notice and the log when they will not:
+
+- `/etc/resolv.conf` names a server outside the tunnel, such as the router that
+  NetworkManager wrote there on a system without systemd-resolved;
+- systemd-resolved did not give the tunnel the `~.` routing domain, or another
+  interface has it as well.
+
+A resolver on the computer itself (dnsmasq, unbound) is mentioned in the log
+only: where it forwards is its own setting. To fix any of these, use
+systemd-resolved with `/etc/resolv.conf` pointing at its stub (`127.0.0.53`),
+or a DNS server that the VPN carries.
 
 ## Kill switch
 

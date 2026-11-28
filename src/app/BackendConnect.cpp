@@ -6,12 +6,15 @@
 #include "app/Backend.h"
 
 #include <QFile>
+#include <QProcess>
 #include <QThread>
+#include <QTimer>
 
 #include <memory>
 
 #include "core/ConfigToml.h"
 #include "core/CredentialStore.h"
+#include "core/TunRouting.h"
 
 void Backend::toggle() {
     // A click while connecting cancels the attempt; while connected it
@@ -193,4 +196,113 @@ void Backend::disconnectVpn() {
     m_disconnecting = true;
     emit stateChanged();
     m_client.disconnectVpn(); // aborts a pending startup, or stops a live tunnel
+}
+
+// On Linux the VPN core points the system at the tunnel's DNS through
+// systemd-resolved alone (`resolvectl dns` and `resolvectl domain <tun> ~.`). A
+// machine whose /etc/resolv.conf sends queries elsewhere, say to the router that
+// NetworkManager wrote there, keeps doing so, and the router is on the local
+// network, which the tunnel excludes: every lookup went to the provider while the
+// window said Connected. The core only logs that it could not set DNS. Checked
+// once per connect, from the files and commands any user may read.
+void Backend::checkSystemDnsAfterConnect()
+{
+#if defined(Q_OS_LINUX) && !defined(Q_OS_ANDROID)
+    if (m_dnsCheckedGen == m_connectGen)
+        return;
+    m_dnsCheckedGen = m_connectGen;
+    QFile config(m_activePath);
+    if (!config.open(QIODevice::ReadOnly | QIODevice::Text))
+        return;
+    // Through buildConfigToml(), so a file without [listener.tun] is read with the
+    // routing FreeTunnel gives it.
+    const freetunnel::TunSection tun = freetunnel::readTunSection(
+            freetunnel::buildConfigToml(freetunnel::parseConfigToml(QString::fromUtf8(config.readAll()))));
+    if (!tun.changeSystemDns) {
+        appendLog(QStringLiteral("WARN"),
+                  tr("The config does not set the system DNS: DNS queries may go around the VPN."));
+        return;
+    }
+    QString resolvConfPath = QStringLiteral("/etc/resolv.conf");
+#ifdef FT_ENABLE_TEST_HOOKS
+    // Test builds look only at a file a test names: the machine running them has
+    // a resolv.conf of its own, which no test is about.
+    resolvConfPath = qEnvironmentVariable("FT_TEST_RESOLV_CONF");
+    if (resolvConfPath.isEmpty())
+        return;
+#endif
+    QFile resolvConf(resolvConfPath);
+    if (!resolvConf.open(QIODevice::ReadOnly | QIODevice::Text))
+        return;
+    const QStringList included = freetunnel::withIpv6Completed(tun.includedRoutes);
+    const QStringList excluded = tun.excludedRoutes + m_settings.excluded_routes;
+    const freetunnel::ResolvConfCheck check =
+            freetunnel::checkResolvConf(QString::fromUtf8(resolvConf.readAll()), included, excluded);
+    if (!check.outsideTunnel.isEmpty()) {
+        const QString text = tr("DNS queries go around the VPN: /etc/resolv.conf sends them to %1, outside "
+                                "the tunnel. Use systemd-resolved, or set a DNS server that the VPN carries.")
+                                     .arg(check.outsideTunnel.join(QStringLiteral(", ")));
+        appendLog(QStringLiteral("WARN"), text);
+        emit errorOccurred(text);
+    }
+    if (!check.localResolvers.isEmpty()) {
+        appendLog(QStringLiteral("WARN"),
+                  tr("DNS goes to a resolver on this computer (%1). FreeTunnel cannot point it at the VPN: "
+                     "if it forwards to your router or provider, DNS queries go around the VPN.")
+                          .arg(check.localResolvers.join(QStringLiteral(", "))));
+    }
+    if (check.viaResolved)
+        checkResolvedLinks();
+#endif
+}
+
+// systemd-resolved is in use: it sends every query to the tunnel only if the
+// core's tun interface carries the "~." routing domain, and no other link does.
+void Backend::checkResolvedLinks()
+{
+#if defined(Q_OS_LINUX) && !defined(Q_OS_ANDROID)
+    auto *proc = new QProcess(this);
+    const quint64 generation = m_connectGen;
+    auto report = [this, proc, generation](bool ran) {
+        const QString output = ran ? QString::fromUtf8(proc->readAllStandardOutput()) : QString();
+        proc->deleteLater();
+        // A disconnect or another connect since: this answer is not about it.
+        if (generation != m_connectGen || !m_connected)
+            return;
+        const freetunnel::ResolvedDomainCheck links = freetunnel::checkResolvedDomains(output);
+        QString text;
+        if (!links.tunnelTakesAll)
+            text = tr("systemd-resolved did not take the VPN's DNS settings: DNS queries may go around "
+                      "the VPN.");
+        else if (!links.otherLinks.isEmpty())
+            text = tr("systemd-resolved also sends every DNS query to %1, around the VPN.")
+                           .arg(links.otherLinks.join(QStringLiteral(", ")));
+        if (text.isEmpty())
+            return;
+        appendLog(QStringLiteral("WARN"), text);
+        emit errorOccurred(text);
+    };
+    connect(proc, &QProcess::finished, this,
+            [proc, report](int code, QProcess::ExitStatus status) {
+                report(status == QProcess::NormalExit && code == 0);
+            });
+    connect(proc, &QProcess::errorOccurred, this, [proc, report](QProcess::ProcessError error) {
+        // FailedToStart: no resolvectl, and finished() never comes. A crash or
+        // a timeout's kill is reported by finished() as well.
+        if (error == QProcess::FailedToStart)
+            report(false);
+        else if (error == QProcess::Timedout)
+            proc->kill();
+    });
+    QTimer::singleShot(5000, proc, [proc]() {
+        if (proc->state() != QProcess::NotRunning)
+            proc->kill();
+    });
+    QString program = QStringLiteral("resolvectl");
+#ifdef FT_ENABLE_TEST_HOOKS
+    if (qEnvironmentVariableIsSet("FT_TEST_RESOLVECTL"))
+        program = qEnvironmentVariable("FT_TEST_RESOLVECTL");
+#endif
+    proc->start(program, {QStringLiteral("domain")});
+#endif
 }

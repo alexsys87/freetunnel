@@ -18,6 +18,7 @@
 #include "core/ConfigToml.h"
 #include "core/CredentialStore.h"
 #include "core/DeepLink.h"
+#include "core/TunRouting.h"
 
 namespace freetunnel::backend_config {
 
@@ -221,6 +222,16 @@ bool readValidatedImportContent(const QString &path, QString *contentOut, QStrin
     if (!c.certificate.trimmed().isEmpty() && freetunnel::certificatesDer(c.certificate).isEmpty()) {
         if (errOut)
             *errOut = QStringLiteral("certificate");
+        return false;
+    }
+    // Excluded routes that take all of IPv4 or of IPv6 out of the tunnel are
+    // refused, as the Android app refuses them: connected, the window would say
+    // so while that whole family of traffic went around the VPN. The helper
+    // refuses such a session as well, which covers configs imported before.
+    const freetunnel::TunSection tun = freetunnel::readTunSection(content);
+    if (tun.present && freetunnel::coversEitherAddressFamily(tun.excludedRoutes)) {
+        if (errOut)
+            *errOut = QStringLiteral("routes");
         return false;
     }
     if (contentOut)
