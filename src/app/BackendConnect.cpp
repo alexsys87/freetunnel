@@ -283,7 +283,7 @@ void Backend::checkResolvedLinks()
         emit errorOccurred(text);
     };
     connect(proc, &QProcess::finished, this,
-            [proc, report](int code, QProcess::ExitStatus status) {
+            [report](int code, QProcess::ExitStatus status) {
                 report(status == QProcess::NormalExit && code == 0);
             });
     connect(proc, &QProcess::errorOccurred, this, [proc, report](QProcess::ProcessError error) {
