@@ -1,5 +1,14 @@
 # Android changes
 
+## Unreleased
+
+- **Settings says when Android does not block traffic without the VPN.** The
+  kill switch holds only while FreeTunnel runs. Under it, on a phone or tablet
+  with Android 10 or later, Settings now shows a notice while Android's
+  *Always-on VPN* with *Block connections without VPN* is not on for FreeTunnel,
+  and *Open Android's VPN settings* to turn them on. With them on, Android
+  also blocks the applications that bypass the VPN.
+
 ## 1.4.0
 
 - **Applications that go only through the VPN.** The Split page ends with a

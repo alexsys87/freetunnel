@@ -221,6 +221,9 @@
     <string name="settings_connect_on_startup">"Connect on startup"</string>
     <string name="settings_kill_switch">"Kill switch"</string>
     <string name="settings_kill_switch_hint">"block traffic if the VPN drops"</string>
+    <string name="lockdown_hint">"The kill switch works only while FreeTunnel runs. Turn on Android\'s Always-on VPN and Block connections without VPN, so that traffic does not go around the VPN after a crash or a restart. Android then also blocks the applications that bypass the VPN."</string>
+    <string name="lockdown_open">"Open Android\'s VPN settings"</string>
+    <string name="lockdown_no_settings">"This device has no VPN settings to open"</string>
     <string name="settings_excluded_routes">"Excluded routes"</string>
     <string name="settings_restore_defaults">"Restore defaults"</string>
     <string name="settings_routes_restore_question">"Replace the excluded routes with the defaults?"</string>

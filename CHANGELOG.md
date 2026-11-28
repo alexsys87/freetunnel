@@ -26,6 +26,13 @@ compare link at the bottom of its release notes.
   tunnel, or when systemd-resolved did not take the tunnel's settings, every
   lookup went to the provider while the window said Connected. Once connected,
   FreeTunnel now checks and says so in a notice and the log.
+- **Linux: fewer packets around the tunnel.** The VPN core kept every packet
+  from source ports 1–1024 and 5900–5920 off the tunnel, so that this
+  machine's own SSH and VNC servers can answer; that took UDP too, NTP from
+  port 123 among it. Only TCP is kept off now, where `ip rule` can say so. And
+  when the tunnel gets no IPv6 address, IPv6 to the tunnel's routes is blocked
+  instead of going out over the physical interface; programs fall back to
+  IPv4, through the tunnel.
 
 ## 1.4.1
 

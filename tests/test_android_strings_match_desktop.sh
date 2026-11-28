@@ -323,6 +323,11 @@ vpn_only_hint
 vpn_only_clear_question
 vpn_only_locked
 vpn_only_connect
+
+## Settings > Security: Android's Always-on VPN with Block connections without VPN, a system setting the desktop has no counterpart of
+lockdown_hint
+lockdown_open
+lockdown_no_settings
 ONLY
 
 cat > "$TMP/check.py" <<'PY'

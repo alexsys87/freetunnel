@@ -1,0 +1,97 @@
+--- a/net/src/os_tunnel_linux.cpp
++++ b/net/src/os_tunnel_linux.cpp
+@@ -15,6 +15,17 @@ static constexpr auto TABLE_ID = 880;
+ static constexpr std::string_view PRIVILEGED_PORTS = "1-1024";
+ static constexpr std::string_view VNC_PORTS = "5900-5920";
+ 
++// Added by FreeTunnel: the rules that keep replies of this machine's own SSH and
++// VNC servers off the tunnel match TCP alone where `ip rule` can say so. Matching
++// every protocol sent any packet from a source port in those ranges around the
++// tunnel, UDP included: NTP from port 123, a program that binds a low port. Set
++// by check_sport_rule_support(); empty where ipproto is not understood.
++static std::string g_bypass_proto;
++
++static std::string bypass_rule(std::string_view family, std::string_view verb, std::string_view ports) {
++    return AG_FMT("ip {}rule {} prio 30800 {}sport {} lookup main", family, verb, g_bypass_proto, ports);
++}
++
+ static bool sys_cmd_bool(std::string cmd) {
+     cmd += " 2>&1";
+     dbglog(logger, "{} {}", (geteuid() == 0) ? '#' : '$', cmd);
+@@ -223,6 +234,13 @@ bool ag::VpnLinuxTunnel::check_sport_rule_support() {
+         return false;
+     }
+ 
++    g_bypass_proto = ag::tunnel_utils::fsystem_with_output("ip rule show ipproto tcp sport 65535").has_value()
++            ? "ipproto tcp "
++            : "";
++    if (g_bypass_proto.empty()) {
++        warnlog(logger, "ip rule has no ipproto: SSH and VNC ports bypass the tunnel for every protocol");
++    }
++
+     // If IPv6 is available, also check IPv6 sport rule support
+     if (m_ipv6_available) {
+         auto result_v6 = ag::tunnel_utils::fsystem_with_output("ip -6 rule show sport 65535");
+@@ -243,7 +261,30 @@ bool ag::VpnLinuxTunnel::setup_routes(int16_t table_id) {
+ 
+     std::string table_name = m_sport_supported ? std::to_string(table_id) : "main";
+ 
++    // Added by FreeTunnel: with no IPv6 address on the tunnel its IPv6 routes
++    // cannot be installed, and dropping them left every IPv6 connection on the
++    // physical interface. Where the routes live in our own table, they are
++    // blackholed there instead, so that IPv6 fails and programs fall back to
++    // IPv4, through the tunnel. The table is flushed on teardown; the main table
++    // is not, so nothing is blackholed in it.
+     if (!m_ipv6_available) {
++        bool blackholed = false;
++        if (m_sport_supported && !ipv6_routes.empty()) {
++            for (auto &route : ipv6_routes) {
++                blackholed = sys_cmd_netns(m_netns,
++                                     AG_FMT("ip -6 ro add blackhole {} table {}", route.to_string(), table_name))
++                        || blackholed;
++            }
++            blackholed = blackholed && sys_cmd_netns(m_netns, bypass_rule("-6 ", "add", PRIVILEGED_PORTS))
++                    && sys_cmd_netns(m_netns, bypass_rule("-6 ", "add", VNC_PORTS))
++                    && sys_cmd_netns(m_netns, AG_FMT("ip -6 rule add prio 30801 lookup {}", table_id));
++        }
++        if (blackholed) {
++            warnlog(logger, "No IPv6 address on the tunnel: IPv6 to the included routes is blocked");
++        } else if (!ipv6_routes.empty()) {
++            warnlog(logger, "No IPv6 address on the tunnel, and IPv6 could not be blocked in its table: unless IPv6 is "
++                    "off on this system, it may go around the tunnel");
++        }
+         ipv6_routes.clear();
+     }
+ 
+@@ -280,15 +321,15 @@ bool ag::VpnLinuxTunnel::setup_routes(int16_t table_id) {
+     // Apply routing rules (in netns if specified)
+     if (m_sport_supported) {
+         if (!ipv4_routes.empty()) {
+-            if (!sys_cmd_netns(m_netns, AG_FMT("ip rule add prio 30800 sport {} lookup main", PRIVILEGED_PORTS))
+-                    || !sys_cmd_netns(m_netns, AG_FMT("ip rule add prio 30800 sport {} lookup main", VNC_PORTS))
++            if (!sys_cmd_netns(m_netns, bypass_rule("", "add", PRIVILEGED_PORTS))
++                    || !sys_cmd_netns(m_netns, bypass_rule("", "add", VNC_PORTS))
+                     || !sys_cmd_netns(m_netns, AG_FMT("ip rule add prio 30801 lookup {}", table_id))) {
+                 return false;
+             }
+         }
+         if (!ipv6_routes.empty()) {
+-            if (!sys_cmd_netns(m_netns, AG_FMT("ip -6 rule add prio 30800 sport {} lookup main", PRIVILEGED_PORTS))
+-                    || !sys_cmd_netns(m_netns, AG_FMT("ip -6 rule add prio 30800 sport {} lookup main", VNC_PORTS))
++            if (!sys_cmd_netns(m_netns, bypass_rule("-6 ", "add", PRIVILEGED_PORTS))
++                    || !sys_cmd_netns(m_netns, bypass_rule("-6 ", "add", VNC_PORTS))
+                     || !sys_cmd_netns(m_netns, AG_FMT("ip -6 rule add prio 30801 lookup {}", table_id))) {
+                 return false;
+             }
+@@ -357,6 +398,11 @@ void ag::VpnLinuxTunnel::teardown_routes(int16_t table_id) {
+ 
+     // Try to remove rules regardless of m_sport_supported (may exist from previous session)
+     sys_cmd_netns_ignore_errors(m_netns, AG_FMT("ip rule del prio 30801 lookup {}", table_id));
++    // The TCP-only rules of FreeTunnel's patch, then the ones a build without it may have left.
++    sys_cmd_netns_ignore_errors(m_netns, bypass_rule("", "del", PRIVILEGED_PORTS));
++    sys_cmd_netns_ignore_errors(m_netns, bypass_rule("", "del", VNC_PORTS));
++    sys_cmd_netns_ignore_errors(m_netns, bypass_rule("-6 ", "del", PRIVILEGED_PORTS));
++    sys_cmd_netns_ignore_errors(m_netns, bypass_rule("-6 ", "del", VNC_PORTS));
+     sys_cmd_netns_ignore_errors(m_netns, AG_FMT("ip rule del prio 30800 sport {} lookup main", PRIVILEGED_PORTS));
+     sys_cmd_netns_ignore_errors(m_netns, AG_FMT("ip rule del prio 30800 sport {} lookup main", VNC_PORTS));
+     sys_cmd_netns_ignore_errors(m_netns, AG_FMT("ip -6 rule del prio 30801 lookup {}", table_id));

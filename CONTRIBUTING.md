@@ -430,13 +430,15 @@ app on all three platforms, and `build.yml` checks for them.
 ### Vendored core patches
 
 The patches in `vendor/trusttunnel/` change the upstream core. Today there are
-three, all in the core's C++ wrapper (`trusttunnel/`):
+four: three in the core's C++ wrapper (`trusttunnel/`), one in its Linux tunnel
+(`net/`):
 
 | Patch | What it adds |
 | --- | --- |
 | `01-tunnel-stats-handler.patch` | Per-connection upload/download counts, for the live speeds in the UI |
 | `02-connect-request-handler.patch` | The per-connection hook that per-application split tunnelling decides on |
 | `03-live-exclusions-and-connect-retry.patch` | Hands a running session new split-tunnelling rules and mode instead of rebuilding it; with the kill switch on, keeps a first connect that fails retrying inside its session rather than ending it |
+| `04-linux-routes-leave-no-traffic-around.patch` | Linux: the rules that keep local SSH and VNC servers' replies off the tunnel match TCP only, and IPv6 is blocked rather than left on the physical interface when the tunnel gets no IPv6 address |
 
 Rules:
 

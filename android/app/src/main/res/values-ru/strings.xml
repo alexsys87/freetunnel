@@ -221,6 +221,9 @@
     <string name="settings_connect_on_startup">"Подключаться при запуске"</string>
     <string name="settings_kill_switch">"Kill switch"</string>
     <string name="settings_kill_switch_hint">"блокировать трафик при обрыве VPN"</string>
+    <string name="lockdown_hint">"Kill switch работает, только пока FreeTunnel запущен. Включите в Android «Постоянная VPN» и «Блокировать соединения без VPN», чтобы трафик не шёл мимо VPN после сбоя или перезагрузки. Тогда Android блокирует и приложения, идущие мимо VPN."</string>
+    <string name="lockdown_open">"Открыть настройки VPN в Android"</string>
+    <string name="lockdown_no_settings">"На этом устройстве нет настроек VPN"</string>
     <string name="settings_excluded_routes">"Исключённые маршруты"</string>
     <string name="settings_restore_defaults">"По умолчанию"</string>
     <string name="settings_routes_restore_question">"Заменить исключённые маршруты стандартными?"</string>

@@ -677,9 +677,15 @@ and excludes, and whether the core sets the system DNS.
     leave all traffic, not only DNS, outside the tunnel;
   - a resolver on the machine (dnsmasq, unbound) forwards wherever it is set to,
     which FreeTunnel cannot see; it is mentioned in the log only;
-  - on Linux the core keeps traffic from source ports 1–1024 and 5900–5920 on
-    the main routing table, outside the tunnel (an upstream rule for reaching
-    local SSH and VNC servers); ordinary programs use ports above 32768;
+  - on Linux the core keeps TCP from source ports 1–1024 and 5900–5920 on the
+    main routing table, outside the tunnel, so that local SSH and VNC servers
+    can answer (FreeTunnel's fourth vendor patch narrows the upstream rule, which
+    took every protocol, to TCP; with an `ip` too old for `ipproto` it stays as
+    upstream has it); ordinary programs use ports above 32768;
+  - on Linux, when the tunnel gets no IPv6 address, the same patch blackholes
+    IPv6 to the tunnel's routes in its own routing table rather than leave it on
+    the physical interface; where the core routes in the main table, it cannot,
+    and says so in the log;
   - a config may still route only part of IPv4 on purpose: it is said on import,
     not refused.
 
